@@ -1,0 +1,113 @@
+// 车车外贸 CRM — 数据模型
+// 约定：所有业务表都带 tenantId，通过 src/server/db.ts 的 tenantDb() 自动隔离。
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// 企业（租户）。注册时创建，一个企业对应一个主账号。
+model Tenant {
+  id              String   @id @default(cuid())
+  name            String
+  defaultCurrency String   @default("USD")
+  timezone        String   @default("Asia/Shanghai")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users       User[]
+  departments Department[]
+  roles       Role[]
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+/// 账号。isOwner = 主账号（企业创建者，不可被禁用/删除）。
+model User {
+  id           String     @id @default(cuid())
+  tenantId     String
+  email        String     @unique
+  name         String
+  phone        String?
+  passwordHash String
+  isOwner      Boolean    @default(false)
+  status       UserStatus @default(ACTIVE)
+  departmentId String?
+  roleId       String
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  role       Role        @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  sessions   Session[]
+
+  @@index([tenantId])
+}
+
+/// 登录会话。id 是 token 的 SHA-256，数据库里不存明文 token。
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// 部门，树形结构。根部门在注册时以企业名创建。
+model Department {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Department[] @relation("DepartmentTree")
+  users    User[]
+
+  @@index([tenantId])
+}
+
+/// 数据范围：决定一个角色能看到哪些客户/商机等业务数据。
+enum DataScope {
+  SELF            // 仅本人
+  DEPARTMENT      // 本部门（含下级部门）
+  ALL             // 全公司
+}
+
+/// 角色。permissions 是权限点 key 列表，定义见 src/lib/permissions.ts。
+model Role {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  /// 系统内置角色的标识（admin / manager / sales），自定义角色为空
+  systemKey   String?
+  permissions String[]
+  dataScope   DataScope @default(SELF)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users  User[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}

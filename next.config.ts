@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // 后台全部是按用户的动态页面，暂不启用 cacheComponents / PPR
+  output: "standalone",
+  serverExternalPackages: ["@node-rs/argon2"],
   turbopack: {
     rules: {
       "*.css": {
