@@ -128,3 +128,17 @@
     @apply font-sans;
   }
 }
+/* 单据打印：A4，去掉浏览器默认页边距里的页眉页脚 */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm 10mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+}

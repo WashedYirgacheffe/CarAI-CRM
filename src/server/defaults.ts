@@ -24,13 +24,31 @@ export const DEFAULT_STAGES = [
 
 export const DEFAULT_GROUPS = ["重点客户", "普通客户"];
 
-/** 给企业补齐默认的客户状态、商机阶段、客户分组（已有的不动） */
+/** 初始汇率（1 外币 = x 人民币），只是参考值，企业要在「汇率设置」里按实际改 */
+export const DEFAULT_RATES: Record<string, number> = {
+  CNY: 1,
+  USD: 7.1,
+  EUR: 7.7,
+  GBP: 9.0,
+  JPY: 0.047,
+  AUD: 4.6,
+  CAD: 5.1,
+  HKD: 0.91,
+};
+
+/** 给企业补齐默认的客户状态、商机阶段、客户分组、汇率（已有的不动） */
 export async function ensureTenantDefaults(tx: Tx, tenantId: string) {
-  const [statuses, stages, groups] = await Promise.all([
+  const [statuses, stages, groups, rates] = await Promise.all([
     tx.customerStatus.count({ where: { tenantId } }),
     tx.stage.count({ where: { tenantId } }),
     tx.customerGroup.count({ where: { tenantId } }),
+    tx.exchangeRate.count({ where: { tenantId } }),
   ]);
+  if (!rates) {
+    await tx.exchangeRate.createMany({
+      data: Object.entries(DEFAULT_RATES).map(([currency, rate]) => ({ tenantId, currency, rate })),
+    });
+  }
   if (!statuses) {
     await tx.customerStatus.createMany({
       data: DEFAULT_STATUSES.map((s, i) => ({ ...s, tenantId, sort: i })),

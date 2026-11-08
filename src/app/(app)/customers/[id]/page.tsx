@@ -24,7 +24,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
   const { customer, access } = found;
   const db = tenantDb(user.tenantId);
 
-  const [contacts, activities, opportunities, tasks, stages, options, members] = await Promise.all([
+  const [contacts, activities, opportunities, tasks, stages, options, members, quotations, orders] = await Promise.all([
     db.contact.findMany({ where: { customerId: id }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] }),
     db.activity.findMany({
       where: { customerId: id },
@@ -43,6 +43,10 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
     db.stage.findMany({ orderBy: { sort: "asc" } }),
     customerOptions(user.tenantId),
     scopeMembers(user),
+    can(user, "quotation.view")
+      ? db.quotation.findMany({ where: { customerId: id }, orderBy: { createdAt: "desc" }, take: 100 })
+      : null,
+    can(user, "order.view") ? db.order.findMany({ where: { customerId: id }, orderBy: { orderDate: "desc" }, take: 100 }) : null,
   ]);
 
   return (
@@ -63,7 +67,30 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
           claim: can(user, "pool.claim"),
           createOpportunity: can(user, "opportunity.create"),
           viewOpportunity: can(user, "opportunity.view"),
+          createQuotation: can(user, "quotation.create"),
+          createOrder: can(user, "order.create"),
         }}
+        quotations={
+          quotations?.map((q) => ({
+            id: q.id,
+            no: q.no,
+            status: q.status,
+            total: q.total.toString(),
+            currency: q.currency,
+            date: q.quoteDate.toISOString(),
+          })) ?? null
+        }
+        orders={
+          orders?.map((o) => ({
+            id: o.id,
+            no: o.no,
+            status: o.status,
+            total: o.total.toString(),
+            currency: o.currency,
+            date: o.orderDate.toISOString(),
+            paid: o.paidAmount.toString(),
+          })) ?? null
+        }
         members={members}
         options={options}
         stages={stages.map((s) => ({ id: s.id, name: s.name, probability: s.probability, kind: s.kind }))}

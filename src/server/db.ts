@@ -31,6 +31,12 @@ const TENANT_MODELS = new Set<string>([
   "Opportunity",
   "Activity",
   "Task",
+  "ProductCategory",
+  "Product",
+  "ExchangeRate",
+  "Quotation",
+  "Order",
+  "OrderPayment",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([

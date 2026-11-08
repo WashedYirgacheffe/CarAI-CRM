@@ -47,9 +47,9 @@ export const NAV: NavSection[] = [
   {
     label: "单据",
     items: [
-      { title: "报价单", href: "/quotations", icon: "FileText", permission: "quotation.view", phase: "P2" },
-      { title: "订单", href: "/orders", icon: "ClipboardList", permission: "order.view", phase: "P2" },
-      { title: "产品", href: "/products", icon: "Package", permission: "product.view", phase: "P2" },
+      { title: "报价单", href: "/quotations", icon: "FileText", permission: "quotation.view" },
+      { title: "订单", href: "/orders", icon: "ClipboardList", permission: "order.view" },
+      { title: "产品", href: "/products", icon: "Package", permission: "product.view" },
     ],
   },
   {
@@ -78,6 +78,7 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
       { title: "公海规则", href: "/settings/pool-rules", permission: "settings.business" },
       { title: "客户分类", href: "/settings/fields", permission: "settings.business" },
       { title: "商机阶段", href: "/settings/stages", permission: "settings.business" },
+      { title: "单据设置", href: "/settings/documents", permission: "settings.business" },
     ],
   },
   {

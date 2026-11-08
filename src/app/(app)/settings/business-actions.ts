@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser } from "@/server/auth";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
-import { STATUS_COLOR_NAMES } from "@/lib/crm";
+import { CURRENCIES, STATUS_COLOR_NAMES } from "@/lib/crm";
 
 async function guard() {
   const user = await requireUser();
@@ -194,4 +194,55 @@ export async function deleteGroupAction(id: string): Promise<ActionState> {
   revalidatePath("/settings/fields");
   revalidatePath("/customers", "layout");
   return { ok: true, message: used ? `已删除，${used} 个客户变为未分组` : "分组已删除" };
+}
+
+// ── 单据设置 ──
+
+const docOpt = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+
+const docSchema = z.object({
+  docCompanyName: docOpt(200),
+  docAddress: docOpt(500),
+  docPhone: docOpt(100),
+  docEmail: docOpt(200),
+  docWebsite: docOpt(200),
+  docBankInfo: docOpt(2000),
+  docQuotationTerms: docOpt(5000),
+  quotationValidDays: z.coerce.number().int("请输入整数").min(0).max(365),
+});
+
+export async function saveDocSettingsAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await guard();
+  if (!user) return DENIED;
+  const parsed = docSchema.safeParse(Object.fromEntries(fd));
+  if (!parsed.success) return fieldErrorsOf(parsed.error);
+  await prisma.tenant.update({ where: { id: user.tenantId }, data: parsed.data });
+  revalidatePath("/settings/documents");
+  return { ok: true, message: "单据设置已保存" };
+}
+
+export async function saveRatesAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await guard();
+  if (!user) return DENIED;
+  const fieldErrors: Record<string, string[]> = {};
+  const rates: [string, number][] = [];
+  for (const c of CURRENCIES) {
+    if (c === "CNY") continue;
+    const raw = String(fd.get(c) ?? "").trim();
+    const n = Number(raw);
+    if (!raw || !Number.isFinite(n) || n <= 0 || n > 100000) fieldErrors[c] = ["请输入大于 0 的汇率"];
+    else rates.push([c, n]);
+  }
+  if (Object.keys(fieldErrors).length) return { ok: false, fieldErrors };
+  await prisma.$transaction(
+    [["CNY", 1] as [string, number], ...rates].map(([currency, rate]) =>
+      prisma.exchangeRate.upsert({
+        where: { tenantId_currency: { tenantId: user.tenantId, currency } },
+        create: { tenantId: user.tenantId, currency, rate },
+        update: { rate },
+      }),
+    ),
+  );
+  revalidatePath("/settings/documents");
+  return { ok: true, message: "汇率已保存，之后新开或保存的单据按新汇率折算" };
 }
