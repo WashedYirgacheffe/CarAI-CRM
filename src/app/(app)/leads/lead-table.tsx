@@ -1,0 +1,481 @@
+"use client";
+
+import { useState } from "react";
+import Form from "next/form";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { MoreHorizontal, Plus, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { NativeSelect } from "@/components/native-select";
+import { FieldErrors, FormMessage } from "@/components/form-bits";
+import { runAction, useActionForm } from "@/hooks/use-action-form";
+import { cn } from "@/lib/utils";
+import { COUNTRIES, CURRENCIES, CUSTOMER_SOURCES, LEAD_STATUSES, countryName, formatDate } from "@/lib/crm";
+import {
+  assignLeadsAction,
+  claimLeadAction,
+  convertLeadAction,
+  deleteLeadAction,
+  saveLeadAction,
+  setLeadStatusAction,
+} from "./actions";
+
+export type LeadRow = {
+  id: string;
+  companyName: string | null;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  country: string | null;
+  source: string | null;
+  products: string | null;
+  inquiry: string | null;
+  status: "NEW" | "CONTACTED" | "CONVERTED" | "INVALID";
+  invalidReason: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  createdAt: string;
+};
+
+type Perms = { create: boolean; edit: boolean; delete: boolean; assign: boolean; createOpportunity: boolean };
+type Modal = { kind: "edit"; lead: Partial<LeadRow> } | { kind: "convert" | "invalid"; lead: LeadRow } | { kind: "assign"; ids: string[] } | null;
+
+const STATUS_STYLE: Record<LeadRow["status"], string> = {
+  NEW: "bg-blue-50 text-blue-700 border-blue-200",
+  CONTACTED: "bg-amber-50 text-amber-800 border-amber-200",
+  CONVERTED: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  INVALID: "bg-muted text-muted-foreground",
+};
+
+export function LeadTable({
+  rows,
+  tab,
+  q,
+  tz,
+  members,
+  perms,
+}: {
+  rows: LeadRow[];
+  tab: string;
+  q: string;
+  tz: string;
+  members: { id: string; name: string }[];
+  currentUserId: string;
+  perms: Perms;
+}) {
+  const [modal, setModal] = useState<Modal>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const ids = [...selected].filter((id) => rows.some((r) => r.id === id));
+  const close = () => setModal(null);
+
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Form action="/leads" className="flex gap-2">
+          {tab !== "todo" && <input type="hidden" name="tab" value={tab} />}
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input name="q" defaultValue={q} placeholder="公司 / 联系人 / 邮箱 / 询盘内容" className="pl-8" />
+          </div>
+          <Button type="submit" variant="secondary">
+            查询
+          </Button>
+        </Form>
+        {perms.assign && (
+          <Button variant="outline" size="sm" disabled={!ids.length} onClick={() => setModal({ kind: "assign", ids })}>
+            分配{ids.length ? ` ${ids.length} 条` : ""}
+          </Button>
+        )}
+        {perms.create && (
+          <Button size="sm" className="ml-auto" onClick={() => setModal({ kind: "edit", lead: {} })}>
+            <Plus /> 新建线索
+          </Button>
+        )}
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {perms.assign && (
+                <TableHead className="w-10 pl-4">
+                  <Checkbox
+                    aria-label="全选"
+                    checked={rows.length > 0 && ids.length === rows.length ? true : ids.length ? "indeterminate" : false}
+                    onCheckedChange={(v) => setSelected(v ? new Set(rows.map((r) => r.id)) : new Set())}
+                  />
+                </TableHead>
+              )}
+              <TableHead className={cn(!perms.assign && "pl-4")}>公司 / 联系人</TableHead>
+              <TableHead>询盘内容</TableHead>
+              <TableHead>来源</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>负责人</TableHead>
+              <TableHead>时间</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                  没有线索
+                </TableCell>
+              </TableRow>
+            )}
+            {rows.map((l) => {
+              const open = l.status === "NEW" || l.status === "CONTACTED";
+              return (
+                <TableRow key={l.id}>
+                  {perms.assign && (
+                    <TableCell className="pl-4">
+                      <Checkbox
+                        aria-label="选择"
+                        checked={selected.has(l.id)}
+                        onCheckedChange={(v) =>
+                          setSelected((s) => {
+                            const n = new Set(s);
+                            if (v) n.add(l.id);
+                            else n.delete(l.id);
+                            return n;
+                          })
+                        }
+                      />
+                    </TableCell>
+                  )}
+                  <TableCell className={cn("max-w-64", !perms.assign && "pl-4")}>
+                    <div className="truncate font-medium">{l.companyName ?? l.contactName ?? l.email}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {[l.companyName && l.contactName, l.email, l.country && countryName(l.country)].filter(Boolean).join(" · ")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-80">
+                    {l.products && <div className="truncate text-xs font-medium">{l.products}</div>}
+                    <div className="line-clamp-2 text-sm whitespace-normal text-muted-foreground">{l.inquiry ?? "—"}</div>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{l.source ?? "—"}</TableCell>
+                  <TableCell>
+                    <span className={cn("inline-flex rounded-md border px-1.5 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
+                      {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
+                    </span>
+                    {l.status === "CONVERTED" && l.customerId && (
+                      <Link href={`/customers/${l.customerId}`} className="mt-0.5 block max-w-40 truncate text-xs hover:text-primary hover:underline">
+                        {l.customerName}
+                      </Link>
+                    )}
+                    {l.status === "INVALID" && l.invalidReason && (
+                      <div className="mt-0.5 max-w-40 truncate text-xs text-muted-foreground">{l.invalidReason}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{l.ownerName ?? <span className="text-muted-foreground">待分配</span>}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDate(l.createdAt, tz)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {!l.ownerId && open && perms.edit && (
+                        <Button size="sm" variant="outline" onClick={() => runAction(claimLeadAction(l.id))}>
+                          领取
+                        </Button>
+                      )}
+                      {l.ownerId && open && perms.edit && (
+                        <Button size="sm" variant="outline" onClick={() => setModal({ kind: "convert", lead: l })}>
+                          转客户
+                        </Button>
+                      )}
+                      {(perms.edit || perms.delete) && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+                              <MoreHorizontal />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {perms.edit && <DropdownMenuItem onSelect={() => setModal({ kind: "edit", lead: l })}>编辑</DropdownMenuItem>}
+                            {perms.edit && l.status === "NEW" && (
+                              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "CONTACTED"))}>标记为已联系</DropdownMenuItem>
+                            )}
+                            {perms.edit && open && (
+                              <DropdownMenuItem onSelect={() => setModal({ kind: "invalid", lead: l })}>标记为无效</DropdownMenuItem>
+                            )}
+                            {perms.edit && l.status === "INVALID" && (
+                              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "NEW"))}>恢复为待处理</DropdownMenuItem>
+                            )}
+                            {perms.assign && open && (
+                              <DropdownMenuItem onSelect={() => setModal({ kind: "assign", ids: [l.id] })}>分配给…</DropdownMenuItem>
+                            )}
+                            {perms.delete && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onSelect={() => runAction(deleteLeadAction(l.id))}>
+                                  删除
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      <Dialog open={!!modal} onOpenChange={(o) => !o && close()}>
+        <DialogContent className={modal?.kind === "edit" ? "sm:max-w-2xl" : undefined}>
+          {modal?.kind === "edit" && <LeadForm key={modal.lead.id ?? "new"} lead={modal.lead} canAssign={perms.assign} onDone={close} />}
+          {modal?.kind === "convert" && <ConvertForm lead={modal.lead} canOpp={perms.createOpportunity} onDone={close} />}
+          {modal?.kind === "invalid" && <InvalidForm lead={modal.lead} onDone={close} />}
+          {modal?.kind === "assign" && (
+            <AssignForm
+              ids={modal.ids}
+              members={members}
+              onDone={() => {
+                close();
+                setSelected(new Set());
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function LeadForm({ lead, canAssign, onDone }: { lead: Partial<LeadRow>; canAssign: boolean; onDone: () => void }) {
+  const [state, submit, pending] = useActionForm(saveLeadAction, onDone);
+  return (
+    <form onSubmit={submit}>
+      <DialogHeader>
+        <DialogTitle>{lead.id ? "编辑线索" : "新建线索"}</DialogTitle>
+      </DialogHeader>
+      {lead.id && <input type="hidden" name="id" value={lead.id} />}
+      <FieldGroup className="max-h-[68vh] gap-4 overflow-y-auto py-4 pr-1">
+        <FormMessage state={state} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor="l-company">公司名称</FieldLabel>
+            <Input id="l-company" name="companyName" defaultValue={lead.companyName ?? ""} autoFocus />
+            <FieldErrors state={state} name="companyName" />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-contact">联系人</FieldLabel>
+            <Input id="l-contact" name="contactName" defaultValue={lead.contactName ?? ""} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-email">邮箱</FieldLabel>
+            <Input id="l-email" name="email" type="email" defaultValue={lead.email ?? ""} />
+            <FieldErrors state={state} name="email" />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-wa">WhatsApp</FieldLabel>
+            <Input id="l-wa" name="whatsapp" defaultValue={lead.whatsapp ?? ""} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-phone">电话</FieldLabel>
+            <Input id="l-phone" name="phone" defaultValue={lead.phone ?? ""} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-country">国家 / 地区</FieldLabel>
+            <NativeSelect id="l-country" name="country" defaultValue={lead.country ?? ""}>
+              <option value="">未知</option>
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-source">来源</FieldLabel>
+            <NativeSelect id="l-source" name="source" defaultValue={lead.source ?? ""}>
+              <option value="">未填写</option>
+              {CUSTOMER_SOURCES.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="l-products">意向产品</FieldLabel>
+            <Input id="l-products" name="products" defaultValue={lead.products ?? ""} />
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel htmlFor="l-inquiry">询盘内容</FieldLabel>
+          <Textarea id="l-inquiry" name="inquiry" defaultValue={lead.inquiry ?? ""} rows={4} placeholder="粘贴客户的询盘原文" />
+        </Field>
+        {!lead.id && canAssign && (
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox name="unassigned" /> 放入「待分配」，稍后分给业务员
+          </label>
+        )}
+      </FieldGroup>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          取消
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {pending ? "保存中…" : "保存"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function ConvertForm({ lead, canOpp, onDone }: { lead: LeadRow; canOpp: boolean; onDone: () => void }) {
+  const router = useRouter();
+  const [withOpp, setWithOpp] = useState(canOpp);
+  const [state, submit, pending] = useActionForm(convertLeadAction, (_f, r) => {
+    onDone();
+    if (r.customerId) router.push(`/customers/${r.customerId}`);
+  });
+  const defaultName = lead.companyName ?? (lead.email ? lead.email.split("@")[1]?.split(".")[0] ?? "" : lead.contactName ?? "");
+  return (
+    <form onSubmit={submit}>
+      <DialogHeader>
+        <DialogTitle>转为客户</DialogTitle>
+        <DialogDescription>系统会按公司名和邮箱域名查重：已有客户（你的或公海里的）会直接并入，不会重复建档。</DialogDescription>
+      </DialogHeader>
+      <input type="hidden" name="id" value={lead.id} />
+      <FieldGroup className="gap-4 py-4">
+        <FormMessage state={state} />
+        <Field>
+          <FieldLabel htmlFor="cv-name">客户名称</FieldLabel>
+          <Input id="cv-name" name="customerName" defaultValue={defaultName} required autoFocus />
+          <FieldErrors state={state} name="customerName" />
+        </Field>
+        {canOpp && (
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox name="withOpportunity" checked={withOpp} onCheckedChange={(v) => setWithOpp(!!v)} /> 同时创建商机
+          </label>
+        )}
+        {withOpp && (
+          <>
+            <Field>
+              <FieldLabel htmlFor="cv-opp">商机名称</FieldLabel>
+              <Input id="cv-opp" name="oppName" defaultValue={lead.products ? `${lead.products} 询盘` : ""} placeholder="留空则用「客户名 询盘」" />
+            </Field>
+            <div className="grid grid-cols-[1fr_7rem] gap-3">
+              <Field>
+                <FieldLabel htmlFor="cv-amount">预计金额</FieldLabel>
+                <Input id="cv-amount" name="amount" type="number" min={0} step="0.01" />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="cv-cur">币种</FieldLabel>
+                <NativeSelect id="cv-cur" name="currency" defaultValue="USD">
+                  {CURRENCIES.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            </div>
+          </>
+        )}
+      </FieldGroup>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          取消
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {pending ? "处理中…" : "转为客户"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function InvalidForm({ lead, onDone }: { lead: LeadRow; onDone: () => void }) {
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const r = await runAction(setLeadStatusAction(lead.id, "INVALID", why));
+        setBusy(false);
+        if (r.ok) onDone();
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>标记为无效</DialogTitle>
+      </DialogHeader>
+      <FieldGroup className="py-4">
+        <Field>
+          <FieldLabel htmlFor="inv-why">原因</FieldLabel>
+          <NativeSelect id="inv-why" value={why} onChange={(e) => setWhy(e.target.value)}>
+            <option value="">请选择</option>
+            {["垃圾询盘 / 广告", "同行套价", "联系方式无效", "需求不匹配", "重复线索", "其他"].map((r) => (
+              <option key={r}>{r}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+      </FieldGroup>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          取消
+        </Button>
+        <Button type="submit" variant="destructive" disabled={busy}>
+          确定
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function AssignForm({ ids, members, onDone }: { ids: string[]; members: { id: string; name: string }[]; onDone: () => void }) {
+  const [uid, setUid] = useState(members[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const r = await runAction(assignLeadsAction(ids, uid));
+        setBusy(false);
+        if (r.ok) onDone();
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>分配 {ids.length} 条线索</DialogTitle>
+      </DialogHeader>
+      <FieldGroup className="py-4">
+        <Field>
+          <FieldLabel htmlFor="as-member">分配给</FieldLabel>
+          <NativeSelect id="as-member" value={uid} onChange={(e) => setUid(e.target.value)}>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      </FieldGroup>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          取消
+        </Button>
+        <Button type="submit" disabled={busy || !uid}>
+          确定
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}

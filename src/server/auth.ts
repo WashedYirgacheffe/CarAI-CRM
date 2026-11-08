@@ -81,6 +81,8 @@ export type CurrentUser = {
   isOwner: boolean;
   tenantId: string;
   tenantName: string;
+  /** 企业时区，日期显示和「今天」的计算都按它来 */
+  timezone: string;
   departmentId: string | null;
   departmentName: string | null;
   roleId: string;
@@ -112,6 +114,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     isOwner: u.isOwner,
     tenantId: u.tenantId,
     tenantName: u.tenant.name,
+    timezone: u.tenant.timezone,
     departmentId: u.departmentId,
     departmentName: u.department?.name ?? null,
     roleId: u.roleId,

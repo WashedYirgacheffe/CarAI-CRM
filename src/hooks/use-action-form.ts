@@ -10,18 +10,18 @@ import { initialActionState, type ActionState } from "@/lib/action";
  * 不走 <form action>，这样校验失败时 React 不会自动清空用户已填的内容。
  * 成功时 toast，并调用 onSuccess(form)（关闭弹窗、重置表单等）。
  */
-export function useActionForm(
-  action: (prev: ActionState, fd: FormData) => Promise<ActionState>,
-  onSuccess?: (form: HTMLFormElement) => void,
+export function useActionForm<S extends ActionState = ActionState>(
+  action: (prev: ActionState, fd: FormData) => Promise<S>,
+  onSuccess?: (form: HTMLFormElement, result: S) => void,
 ) {
   const [state, dispatch, pending] = useActionState(
     async (prev: ActionState, input: { fd: FormData; form: HTMLFormElement }) => {
       const result = await action(prev, input.fd);
       if (result.ok) {
         if (result.message) toast.success(result.message);
-        onSuccess?.(input.form);
+        onSuccess?.(input.form, result);
       }
-      return result;
+      return result as ActionState;
     },
     initialActionState,
   );

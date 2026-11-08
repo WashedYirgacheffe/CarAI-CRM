@@ -10,6 +10,7 @@ import {
   verifyPassword,
 } from "@/server/auth";
 import { SYSTEM_ROLES } from "@/lib/permissions";
+import { ensureTenantDefaults } from "@/server/defaults";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 
 const emailSchema = z
@@ -47,6 +48,7 @@ export async function registerAction(
       data: SYSTEM_ROLES.map((r) => ({ ...r, tenantId: tenant.id })),
     });
     const adminRole = roles.find((r) => r.systemKey === "admin")!;
+    await ensureTenantDefaults(tx, tenant.id);
     const root = await tx.department.create({
       data: { tenantId: tenant.id, name: companyName },
     });
