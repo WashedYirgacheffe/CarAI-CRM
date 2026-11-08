@@ -13,7 +13,7 @@ export default async function Page() {
   const qr = a?.status === "CONNECTING" && a.qr ? await QRCode.toDataURL(a.qr, { margin: 1, width: 264 }) : null;
   return (
     <>
-      <PageHeader title="WhatsApp 绑定" description="用手机 WhatsApp 扫码登录（与 WhatsApp Web 相同的方式），之后就能在系统里和客户聊天，聊天记录自动关联到客户。" />
+      <PageHeader title="WhatsApp 绑定" description="用手机 WhatsApp 扫码或输入配对码登录（与 WhatsApp Web 相同的方式），之后就能在系统里和客户聊天，聊天记录自动关联到客户。" />
       <WhatsappBinding
         account={
           a
@@ -24,6 +24,8 @@ export default async function Page() {
                 name: a.name,
                 lastError: a.lastError,
                 connectedAt: a.connectedAt?.toISOString() ?? null,
+                pairPhone: a.pairPhone,
+                pairCode: a.status === "CONNECTING" ? a.pairCode : null,
               }
             : null
         }

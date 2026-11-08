@@ -24,7 +24,7 @@ import { matchContactByPhone } from "@/server/whatsapp/match";
 const AUTH_DIR = path.resolve(process.env.WA_AUTH_DIR || "storage/whatsapp");
 const logger = pino({ level: "silent" });
 
-type Session = { sock: WASocket; open: boolean; qrCount: number };
+type Session = { sock: WASocket; open: boolean; qrCount: number; pairRequested: boolean };
 const sessions = new Map<string, Session>();
 /** 断线重连退避：accountId → 最早可重连时间 */
 const retryAt = new Map<string, number>();
@@ -47,7 +47,7 @@ async function start(accountId: string) {
     syncFullHistory: false,
     generateHighQualityLinkPreview: false,
   });
-  const session: Session = { sock, open: false, qrCount: 0 };
+  const session: Session = { sock, open: false, qrCount: 0, pairRequested: false };
   sessions.set(accountId, session);
   sock.ev.on("creds.update", saveCreds);
 
@@ -55,13 +55,37 @@ async function start(accountId: string) {
     try {
       if (u.qr) {
         session.qrCount++;
-        // 二维码大约 20 秒刷新一次，5 次（约 2 分钟）没扫就停下，等用户重新点「获取二维码」
+        const account = await prisma.waAccount.findUnique({ where: { id: accountId }, select: { pairPhone: true } });
+        const pairPhone = account?.pairPhone;
+        // 二维码大约 20 秒刷新一次，5 次（约 2 分钟）没扫 / 没输入配对码就停下，等用户重新获取
         if (session.qrCount > 5) {
-          await prisma.waAccount.update({ where: { id: accountId }, data: { enabled: false, status: "DISCONNECTED", qr: null, lastError: "二维码已过期，请重新获取" } });
+          await prisma.waAccount.update({
+            where: { id: accountId },
+            data: { enabled: false, status: "DISCONNECTED", qr: null, pairCode: null, lastError: pairPhone ? "配对码已过期，请重新获取" : "二维码已过期，请重新获取" },
+          });
           sock.end(undefined);
           return;
         }
-        await prisma.waAccount.update({ where: { id: accountId }, data: { status: "CONNECTING", qr: u.qr, qrAt: new Date(), lastError: null } });
+        if (pairPhone) {
+          // 手机号配对码登录：连接就绪（出现二维码事件）后申请一次 8 位配对码，在手机上输入即可
+          if (!session.pairRequested && !sock.authState.creds.registered) {
+            session.pairRequested = true;
+            try {
+              const code = await sock.requestPairingCode(pairPhone);
+              await prisma.waAccount.update({ where: { id: accountId }, data: { status: "CONNECTING", qr: null, pairCode: code, qrAt: new Date(), lastError: null } });
+              log(accountId, "pairing code issued");
+            } catch (e) {
+              log(accountId, "pairing code failed", (e as Error).message);
+              await prisma.waAccount.update({
+                where: { id: accountId },
+                data: { enabled: false, status: "DISCONNECTED", pairCode: null, lastError: "获取配对码失败，请检查手机号（需带国家码）后重试，或改用扫码登录" },
+              });
+              sock.end(undefined);
+            }
+          }
+        } else {
+          await prisma.waAccount.update({ where: { id: accountId }, data: { status: "CONNECTING", qr: u.qr, qrAt: new Date(), lastError: null } });
+        }
       }
       if (u.connection === "open") {
         session.open = true;
@@ -72,6 +96,7 @@ async function start(accountId: string) {
           data: {
             status: "CONNECTED",
             qr: null,
+            pairCode: null,
             lastError: null,
             connectedAt: new Date(),
             phone: me?.id ? B.jidNormalizedUser(me.id).split("@")[0] : undefined,
@@ -88,7 +113,7 @@ async function start(accountId: string) {
           await rm(authDir(accountId), { recursive: true, force: true });
           await prisma.waAccount.update({
             where: { id: accountId },
-            data: { status: "DISCONNECTED", enabled: false, qr: null, phone: null, lastError: "已在手机上退出登录，请重新扫码" },
+            data: { status: "DISCONNECTED", enabled: false, qr: null, pairCode: null, phone: null, lastError: "已在手机上退出登录，请重新登录" },
           });
           return;
         }
@@ -274,7 +299,7 @@ export async function reconcileWhatsapp() {
       await rm(authDir(a.id), { recursive: true, force: true });
       await prisma.waAccount.update({
         where: { id: a.id },
-        data: { logoutRequested: false, enabled: false, status: "DISCONNECTED", qr: null, phone: null, name: null, lastError: null },
+        data: { logoutRequested: false, enabled: false, status: "DISCONNECTED", qr: null, pairCode: null, phone: null, name: null, lastError: null },
       });
       continue;
     }
@@ -290,9 +315,9 @@ export async function reconcileWhatsapp() {
     } else if (!a.enabled && s) {
       s.sock.end(undefined);
       sessions.delete(a.id);
-      await prisma.waAccount.update({ where: { id: a.id }, data: { status: "DISCONNECTED", qr: null } });
+      await prisma.waAccount.update({ where: { id: a.id }, data: { status: "DISCONNECTED", qr: null, pairCode: null } });
     } else if (!a.enabled && a.status !== "DISCONNECTED") {
-      await prisma.waAccount.update({ where: { id: a.id }, data: { status: "DISCONNECTED", qr: null } });
+      await prisma.waAccount.update({ where: { id: a.id }, data: { status: "DISCONNECTED", qr: null, pairCode: null } });
     }
   }
   // 账号被删掉了

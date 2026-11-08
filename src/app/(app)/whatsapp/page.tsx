@@ -23,9 +23,9 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
       <div className="mx-auto max-w-md rounded-xl border bg-card p-10 text-center">
         <MessageCircle className="mx-auto mb-3 size-8 text-muted-foreground" />
         <p className="font-medium">还没有绑定 WhatsApp</p>
-        <p className="mt-1 text-sm text-muted-foreground">用手机扫码登录后，就能在这里和客户聊天。</p>
+        <p className="mt-1 text-sm text-muted-foreground">用手机号配对码或扫码登录后，就能在这里和客户聊天。</p>
         <Button asChild className="mt-4">
-          <Link href="/settings/whatsapp">去扫码绑定</Link>
+          <Link href="/settings/whatsapp">去绑定</Link>
         </Button>
       </div>
     );

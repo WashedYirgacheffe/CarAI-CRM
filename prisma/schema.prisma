@@ -786,6 +786,10 @@ model WaAccount {
   /// 当前二维码字符串（CONNECTING 时）
   qr              String?
   qrAt            DateTime?
+  /// 手机号配对码登录：要登录的手机号（纯数字，含国家码）；为空则用扫码登录
+  pairPhone       String?
+  /// worker 申请到的 8 位配对码
+  pairCode        String?
   lastError       String?
   /// 用户点了「退出登录」，worker 需要注销并删除凭据
   logoutRequested Boolean   @default(false)

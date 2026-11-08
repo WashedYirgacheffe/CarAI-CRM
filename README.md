@@ -36,7 +36,15 @@ crontab deploy/crontab                   # 每日备份
 - 应用不直接暴露 3000 端口，统一由 `caddy` 反向代理并自动申请、续期 Let's Encrypt 证书。换域名只需改 `APP_DOMAIN` 后 `docker compose up -d caddy`。
 - 还没有域名时可临时用 `<IP 用横线连接>.sslip.io`（如 `47-82-101-128.sslip.io`），它会自动解析到该 IP。
 - 登录 Cookie 在生产环境带 `Secure`，所以必须通过 HTTPS 访问。
-- `deploy/backup.sh` 每天把数据库和上传文件备份到 `/opt/crm/backups`，保留 14 天。
+- `deploy/backup.sh` 每天把数据库、上传文件和 WhatsApp 凭证备份到 `/opt/crm/backups`，保留 14 天。
+- 异地备份（可选）：安装 [ossutil 2.x](https://help.aliyun.com/zh/oss/developer-reference/ossutil-overview/) 到 `/usr/local/bin/ossutil`，再写 `/opt/crm/.oss.env`（`chmod 600`，不要放进仓库）。备份脚本会把当天的文件传到 `oss://<bucket>/crm-backup/年/月/`。旧文件请在 OSS 控制台用生命周期规则自动删除（如 90 天）。
+  ```bash
+  OSS_ACCESS_KEY_ID=LTAI...          # RAM 子账号，只授权这个 Bucket 的 oss:PutObject
+  OSS_ACCESS_KEY_SECRET=...
+  OSS_BUCKET=my-crm-backup
+  OSS_REGION=cn-shanghai             # Bucket 所在地域
+  # OSS_ENDPOINT=oss-cn-hongkong-internal.aliyuncs.com  # 与服务器同地域时走内网，免流量费
+  ```
 - 更新版本：同步代码后执行 `docker compose build web migrate worker && docker compose run --rm migrate && docker compose up -d web worker`。
 
 产品图片等上传文件保存在 `UPLOAD_DIR`（本地默认 `storage/uploads`，容器内为 `/data/uploads`，已挂载 `uploads` 卷），备份时一并备份该卷。
@@ -87,6 +95,6 @@ crontab deploy/crontab                   # 每日备份
 - **P1 客户与销售（已完成）**：客户列表与详情（查重防撞单、星级、标签、分组）、联系人、跟进动态与下次跟进、公海（自动回收、每日领取上限、私海上限、分配）、线索（分配、无效、转客户并入老客户）、商机看板（拖拽换阶段）、日程、业务规则设置、工作台
 - **P2 单据（已完成）**：产品库（分类、图片、停售）、多币种报价单（汇率快照、换币种自动折算、复制重报）、报价单转订单（自动标记已接受、商机赢单）、订单收款与待收统计、报价单 / PI 打印、单据抬头与汇率设置
 - **P3 邮件（已完成）**：IMAP/SMTP 绑定（常见邮箱预设、保存前测试连接、密码加密）、收件箱 / 已发送同步、写信回复转发与附件、按联系人邮箱和公司域名自动归档到客户，陌生来信自动建线索、客户详情的往来邮件
-- **P4 WhatsApp / AI / 统计（已完成）**：WhatsApp 扫码登录收发消息并关联客户；AI 写信、回复、润色、翻译，邮件摘要与意图识别，客户背景速览与跟进建议；统计报表（询盘来源转化、跟进方式、沟通量、团队业绩）
+- **P4 WhatsApp / AI / 统计（已完成）**：WhatsApp 手机号配对码或扫码登录、收发消息并关联客户；AI 写信、回复、润色、翻译，邮件摘要与意图识别，客户背景速览与跟进建议；统计报表（询盘来源转化、跟进方式、沟通量、团队业绩）
 
-> WhatsApp 采用扫码登录（非官方接口，基于 Baileys），有被封号的风险：建议使用专门的业务号，不要群发营销消息。
+> WhatsApp 采用关联设备方式登录（手机号配对码或扫码，非官方接口，基于 Baileys），有被封号的风险：建议使用专门的业务号，不要群发营销消息。
