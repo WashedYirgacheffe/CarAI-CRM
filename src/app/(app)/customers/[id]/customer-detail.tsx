@@ -50,6 +50,7 @@ import { ReleaseForm } from "@/components/crm/customer-table";
 import { OpportunityForm, type StageOption } from "@/components/crm/opportunity-form";
 import { TaskForm, TaskList, type TaskItem } from "@/components/crm/tasks";
 import type { CustomerAccess } from "@/server/customers";
+import { CustomerDocsCard, type CustomerDocRow } from "./customer-docs";
 import {
   addFollowUpAction,
   claimCustomersAction,
@@ -117,6 +118,8 @@ type Perms = {
   claim: boolean;
   createOpportunity: boolean;
   viewOpportunity: boolean;
+  createQuotation: boolean;
+  createOrder: boolean;
 };
 
 type Modal = "edit" | "transfer" | "release" | "delete" | "opportunity" | "task" | null;
@@ -133,6 +136,8 @@ export function CustomerDetail({
   activities,
   opportunities,
   tasks,
+  quotations,
+  orders,
 }: {
   tz: string;
   access: CustomerAccess;
@@ -145,6 +150,9 @@ export function CustomerDetail({
   activities: ActivityView[];
   opportunities: OpportunityView[];
   tasks: TaskItem[];
+  /** null = 没有查看权限 */
+  quotations: CustomerDocRow[] | null;
+  orders: CustomerDocRow[] | null;
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<Modal>(null);
@@ -245,6 +253,8 @@ export function CustomerDetail({
             <TabsList>
               <TabsTrigger value="timeline">动态 {activities.length > 0 && `(${activities.length})`}</TabsTrigger>
               {perms.viewOpportunity && <TabsTrigger value="opps">商机 ({opportunities.length})</TabsTrigger>}
+              {quotations && <TabsTrigger value="quotations">报价单 ({quotations.length})</TabsTrigger>}
+              {orders && <TabsTrigger value="orders">订单 ({orders.length})</TabsTrigger>}
               <TabsTrigger value="tasks">日程 ({tasks.filter((t) => !t.done).length})</TabsTrigger>
             </TabsList>
             <TabsContent value="timeline" className="mt-3">
@@ -300,6 +310,16 @@ export function CustomerDetail({
                     )}
                   </CardContent>
                 </Card>
+              </TabsContent>
+            )}
+            {quotations && (
+              <TabsContent value="quotations" className="mt-3">
+                <CustomerDocsCard kind="quotation" customerId={c.id} rows={quotations} canCreate={canEdit && perms.createQuotation} tz={tz} />
+              </TabsContent>
+            )}
+            {orders && (
+              <TabsContent value="orders" className="mt-3">
+                <CustomerDocsCard kind="order" customerId={c.id} rows={orders} canCreate={canEdit && perms.createOrder} tz={tz} />
               </TabsContent>
             )}
             <TabsContent value="tasks" className="mt-3">

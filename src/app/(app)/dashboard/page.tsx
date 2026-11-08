@@ -6,7 +6,9 @@ import { TaskList } from "@/components/crm/tasks";
 import { can, requireUser } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { ownedWhere } from "@/server/scope";
-import { dayRange, daysAgo, followMethodLabel, formatDateTime, formatMoney } from "@/lib/crm";
+import { docScopeWhere } from "@/server/documents";
+import { dayRange, daysAgo, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
+import { dateInput } from "@/lib/docs";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -19,10 +21,13 @@ export default async function DashboardPage() {
   const canCustomers = can(user, "customer.view");
   const canLeads = can(user, "lead.view");
   const canOpps = can(user, "opportunity.view");
+  const canOrders = can(user, "order.view");
+  const monthStart = parseLocalInput(`${dateInput(tz).slice(0, 8)}01T00:00`, tz)!;
   const scoped = await ownedWhere(user);
+  const docScope = await docScopeWhere(user);
   const mine = { ownerId: user.id };
 
-  const [myCustomers, dueCustomers, staleCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent] =
+  const [myCustomers, dueCustomers, staleCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent, monthOrders] =
     await Promise.all([
       canCustomers ? db.customer.count({ where: mine }) : 0,
       canCustomers ? db.customer.count({ where: { ...mine, nextFollowAt: { lt: end } } }) : 0,
@@ -54,9 +59,17 @@ export default async function DashboardPage() {
             include: { customer: { select: { id: true, name: true } }, user: { select: { name: true } } },
           })
         : [],
+      canOrders
+        ? db.order.findMany({
+            // 与订单列表一致：按数据范围统计（经理看到团队的订单）
+            where: { ...docScope, status: { not: "CANCELLED" }, orderDate: { gte: monthStart } },
+            select: { total: true, exchangeRate: true },
+          })
+        : [],
     ]);
 
   const oppCount = openOpps.reduce((n, o) => n + o._count, 0);
+  const monthOrderCny = monthOrders.reduce((n, o) => n + Number(o.total) * Number(o.exchangeRate), 0);
   const oppSum = openOpps.map((o) => formatMoney(o._sum.amount?.toString() ?? 0, o.currency)).join(" + ") || "—";
 
   const stats = [
@@ -70,6 +83,12 @@ export default async function DashboardPage() {
     },
     { label: "逾期日程", value: overdueTasks, hint: "未完成且已过时间", href: "/schedule", alert: overdueTasks > 0 },
     canOpps && { label: "进行中商机", value: oppCount, hint: oppSum, href: "/opportunities" },
+    canOrders && {
+      label: "本月订单",
+      value: monthOrders.length,
+      hint: monthOrders.length ? `≈ ${formatMoney(monthOrderCny, "CNY")}` : "本月还没有订单",
+      href: "/orders",
+    },
     canLeads && {
       label: "新线索",
       value: newLeads,
@@ -84,7 +103,7 @@ export default async function DashboardPage() {
         title={`你好，${user.name}`}
         description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`}
       />
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {stats.map((s) => (
           <Link key={s.label} href={s.href} className="rounded-xl border bg-card p-4 transition-colors hover:border-primary/40">
             <p className="text-sm text-muted-foreground">{s.label}</p>

@@ -12,31 +12,49 @@ datasource db {
 
 /// 企业（租户）。注册时创建，一个企业对应一个主账号。
 model Tenant {
-  id              String   @id @default(cuid())
-  name            String
-  defaultCurrency String   @default("USD")
-  timezone        String   @default("Asia/Shanghai")
+  id                   String   @id @default(cuid())
+  name                 String
+  defaultCurrency      String   @default("USD")
+  timezone             String   @default("Asia/Shanghai")
   /// 公海规则：负责人超过 N 天未跟进，客户自动回到公海（0 = 不自动回收）
-  poolRecycleDays      Int @default(30)
+  poolRecycleDays      Int      @default(30)
   /// 每人每天最多从公海领取的客户数（0 = 不限）
-  poolDailyClaimLimit  Int @default(20)
+  poolDailyClaimLimit  Int      @default(20)
   /// 每人最多持有的私海客户数（0 = 不限）
-  privateCustomerLimit Int @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  privateCustomerLimit Int      @default(0)
+  // ── 单据抬头（报价单 / PI 上显示，英文） ──
+  docCompanyName       String?
+  docAddress           String?
+  docPhone             String?
+  docEmail             String?
+  docWebsite           String?
+  /// 收款银行信息，原样打印在 PI 上
+  docBankInfo          String?
+  /// 报价单默认条款
+  docQuotationTerms    String?
+  /// 报价单默认有效期（天）
+  quotationValidDays   Int      @default(30)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  users       User[]
-  departments Department[]
-  roles       Role[]
-  customers   Customer[]
-  statuses    CustomerStatus[]
-  groups      CustomerGroup[]
-  contacts    Contact[]
-  leads       Lead[]
-  stages      Stage[]
-  opportunities Opportunity[]
-  activities  Activity[]
-  tasks       Task[]
+  users             User[]
+  departments       Department[]
+  roles             Role[]
+  customers         Customer[]
+  statuses          CustomerStatus[]
+  groups            CustomerGroup[]
+  contacts          Contact[]
+  leads             Lead[]
+  stages            Stage[]
+  opportunities     Opportunity[]
+  activities        Activity[]
+  tasks             Task[]
+  productCategories ProductCategory[]
+  products          Product[]
+  exchangeRates     ExchangeRate[]
+  quotations        Quotation[]
+  orders            Order[]
+  orderPayments     OrderPayment[]
 }
 
 enum UserStatus {
@@ -70,6 +88,8 @@ model User {
   ownedOpportunities Opportunity[] @relation("OpportunityOwner")
   activities         Activity[]
   tasks              Task[]        @relation("TaskOwner")
+  ownedQuotations    Quotation[]   @relation("QuotationOwner")
+  ownedOrders        Order[]       @relation("OrderOwner")
 
   @@index([tenantId])
 }
@@ -108,9 +128,9 @@ model Department {
 
 /// 数据范围：决定一个角色能看到哪些客户/商机等业务数据。
 enum DataScope {
-  SELF            // 仅本人
-  DEPARTMENT      // 本部门（含下级部门）
-  ALL             // 全公司
+  SELF // 仅本人
+  DEPARTMENT // 本部门（含下级部门）
+  ALL // 全公司
 }
 
 /// 角色。permissions 是权限点 key 列表，定义见 src/lib/permissions.ts。
@@ -205,6 +225,8 @@ model Customer {
   activities    Activity[]
   tasks         Task[]
   leads         Lead[]
+  quotations    Quotation[]
+  orders        Order[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -233,10 +255,10 @@ model Contact {
 }
 
 enum LeadStatus {
-  NEW        // 待处理
-  CONTACTED  // 已联系
-  CONVERTED  // 已转客户
-  INVALID    // 无效
+  NEW // 待处理
+  CONTACTED // 已联系
+  CONVERTED // 已转客户
+  INVALID // 无效
 }
 
 /// 线索 / 询盘
@@ -307,12 +329,14 @@ model Opportunity {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  stage      Stage      @relation(fields: [stageId], references: [id], onDelete: Restrict)
-  owner      User?      @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  stage      Stage       @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  owner      User?       @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   activities Activity[]
   tasks      Task[]
+  quotations Quotation[]
+  orders     Order[]
 
   @@index([tenantId, stageId])
   @@index([customerId])
@@ -320,7 +344,7 @@ model Opportunity {
 
 enum ActivityType {
   FOLLOW_UP // 业务员写的跟进记录
-  SYSTEM    // 系统动态：创建、领取、放入公海、转移、阶段变更等
+  SYSTEM // 系统动态：创建、领取、放入公海、转移、阶段变更等
 }
 
 enum FollowMethod {
@@ -376,4 +400,251 @@ model Task {
   owner       User         @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, ownerId, done, dueAt])
+}
+
+// ───────────────────────── P2 单据：产品、汇率、报价单、订单 ─────────────────────────
+
+model ProductCategory {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([tenantId, name])
+}
+
+enum ProductStatus {
+  ACTIVE // 在售
+  INACTIVE // 停售
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  tenantId    String
+  /// 产品编号 / 货号，企业内唯一
+  sku         String
+  name        String
+  /// 英文品名，报价单 / PI 上优先用它
+  nameEn      String?
+  categoryId  String?
+  model       String?
+  /// 规格描述（材质、尺寸、颜色等），会带到单据明细
+  spec        String?
+  unit        String        @default("pcs")
+  price       Decimal       @default(0) @db.Decimal(14, 4)
+  currency    String        @default("USD")
+  /// 成本价（人民币），只在内部可见
+  costPrice   Decimal?      @db.Decimal(14, 4)
+  moq         Int?
+  hsCode      String?
+  /// 包装：每箱数量、外箱尺寸、毛重 / 净重（kg）
+  cartonQty   Int?
+  cartonSize  String?
+  grossWeight Decimal?      @db.Decimal(10, 3)
+  netWeight   Decimal?      @db.Decimal(10, 3)
+  imageUrl    String?
+  status      ProductStatus @default(ACTIVE)
+  remark      String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category       ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  quotationItems QuotationItem[]
+  orderItems     OrderItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, categoryId])
+}
+
+/// 汇率：1 单位外币 = rate 人民币。单据保存时把当时的汇率快照下来。
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  currency  String
+  rate      Decimal  @db.Decimal(14, 6)
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, currency])
+}
+
+enum QuotationStatus {
+  DRAFT // 草稿
+  SENT // 已发送
+  ACCEPTED // 客户接受
+  REJECTED // 客户拒绝
+  EXPIRED // 已失效
+}
+
+model Quotation {
+  id            String          @id @default(cuid())
+  tenantId      String
+  /// 单号，如 QT20261107-001
+  no            String
+  customerId    String
+  opportunityId String?
+  ownerId       String?
+  status        QuotationStatus @default(DRAFT)
+  title         String?
+  // 买方信息快照（打印用）
+  buyerName     String
+  buyerContact  String?
+  buyerEmail    String?
+  buyerPhone    String?
+  buyerAddress  String?
+  currency      String          @default("USD")
+  /// 保存时的汇率快照：1 单位币种 = exchangeRate 人民币
+  exchangeRate  Decimal         @default(1) @db.Decimal(14, 6)
+  quoteDate     DateTime
+  validUntil    DateTime?
+  /// 贸易术语 FOB / CIF / EXW ...
+  tradeTerm     String?
+  port          String?
+  paymentTerm   String?
+  deliveryTime  String?
+  subtotal      Decimal         @default(0) @db.Decimal(14, 2)
+  discount      Decimal         @default(0) @db.Decimal(14, 2)
+  shippingFee   Decimal         @default(0) @db.Decimal(14, 2)
+  otherFee      Decimal         @default(0) @db.Decimal(14, 2)
+  total         Decimal         @default(0) @db.Decimal(14, 2)
+  terms         String?
+  remark        String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer    Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunity Opportunity?    @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  owner       User?           @relation("QuotationOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  items       QuotationItem[]
+  orders      Order[]
+
+  @@unique([tenantId, no])
+  @@index([tenantId, ownerId, createdAt])
+  @@index([customerId])
+}
+
+/// 明细行是快照：产品后来改价或删除，不影响已开出的单据
+model QuotationItem {
+  id          String  @id @default(cuid())
+  quotationId String
+  productId   String?
+  sort        Int     @default(0)
+  sku         String?
+  name        String
+  spec        String?
+  imageUrl    String?
+  unit        String  @default("pcs")
+  quantity    Decimal @db.Decimal(14, 3)
+  unitPrice   Decimal @db.Decimal(14, 4)
+  amount      Decimal @db.Decimal(14, 2)
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([quotationId])
+}
+
+enum OrderStatus {
+  CONFIRMED // 已确认
+  PRODUCING // 生产中
+  SHIPPED // 已发货
+  COMPLETED // 已完成
+  CANCELLED // 已取消
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  tenantId      String
+  /// 单号，如 SO20261107-001；PI 号沿用它
+  no            String
+  customerId    String
+  opportunityId String?
+  quotationId   String?
+  ownerId       String?
+  status        OrderStatus @default(CONFIRMED)
+  buyerName     String
+  buyerContact  String?
+  buyerEmail    String?
+  buyerPhone    String?
+  buyerAddress  String?
+  currency      String      @default("USD")
+  exchangeRate  Decimal     @default(1) @db.Decimal(14, 6)
+  orderDate     DateTime
+  /// 交货期
+  deliveryDate  DateTime?
+  tradeTerm     String?
+  port          String?
+  paymentTerm   String?
+  shippingMark  String?
+  subtotal      Decimal     @default(0) @db.Decimal(14, 2)
+  discount      Decimal     @default(0) @db.Decimal(14, 2)
+  shippingFee   Decimal     @default(0) @db.Decimal(14, 2)
+  otherFee      Decimal     @default(0) @db.Decimal(14, 2)
+  total         Decimal     @default(0) @db.Decimal(14, 2)
+  /// 已收款合计（随收款记录更新）
+  paidAmount    Decimal     @default(0) @db.Decimal(14, 2)
+  terms         String?
+  remark        String?
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer    Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunity Opportunity?   @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  quotation   Quotation?     @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  owner       User?          @relation("OrderOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  items       OrderItem[]
+  payments    OrderPayment[]
+
+  @@unique([tenantId, no])
+  @@index([tenantId, ownerId, orderDate])
+  @@index([customerId])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String?
+  sort      Int     @default(0)
+  sku       String?
+  name      String
+  spec      String?
+  imageUrl  String?
+  unit      String  @default("pcs")
+  quantity  Decimal @db.Decimal(14, 3)
+  unitPrice Decimal @db.Decimal(14, 4)
+  amount    Decimal @db.Decimal(14, 2)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+}
+
+/// 收款记录（定金、尾款等）
+model OrderPayment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  orderId     String
+  amount      Decimal  @db.Decimal(14, 2)
+  receivedAt  DateTime
+  method      String?
+  remark      String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
 }
