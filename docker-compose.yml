@@ -38,6 +38,11 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-https://moonup.dev}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-deepseek-v4.1-flash-1017}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_REGION: ${OSS_REGION:-cn-hongkong}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
     volumes:
       - uploads:/data/uploads
     # 不直接对外暴露，统一经 caddy 走 HTTPS
@@ -79,6 +84,11 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-https://moonup.dev}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-deepseek-v4.1-flash-1017}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_REGION: ${OSS_REGION:-cn-hongkong}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
     volumes:
       - uploads:/data/uploads
       - whatsapp:/data/whatsapp

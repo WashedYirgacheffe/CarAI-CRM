@@ -13,6 +13,7 @@
     "postinstall": "prisma generate",
     "typecheck": "next typegen && tsc --noEmit",
     "job:ensure-defaults": "tsx --conditions=react-server scripts/ensure-defaults.mts",
+    "job:migrate-uploads": "tsx --conditions=react-server scripts/migrate-uploads-to-oss.mts",
     "job:pool-recycle": "tsx --conditions=react-server scripts/pool-recycle.mts",
     "worker": "tsx --conditions=react-server scripts/worker.mts"
   },

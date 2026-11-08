@@ -14,6 +14,7 @@ async function loadBaileys() {
 }
 import pino from "pino";
 import { prisma } from "@/server/db";
+import { putObject } from "@/server/storage";
 import { matchContactByPhone } from "@/server/whatsapp/match";
 
 /**
@@ -134,7 +135,7 @@ async function start(accountId: string) {
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     for (const msg of messages) {
       try {
-        await storeIncoming(accountId, msg, type === "notify");
+        await storeIncoming(sock, accountId, msg, type === "notify");
       } catch (e) {
         log(accountId, "store error", (e as Error).message);
       }
@@ -142,7 +143,16 @@ async function start(accountId: string) {
   });
 }
 
-function contentOf(msg: WAMessage): { type: string; body: string } | null {
+type Media = { mime: string; name: string | null; size: number | null };
+type Content = { type: string; body: string; media?: Media };
+
+const media = (m: { mimetype?: string | null; fileLength?: unknown; fileName?: string | null } | null | undefined, fallback: string): Media => ({
+  mime: (m?.mimetype || fallback).split(";")[0].trim(),
+  name: m?.fileName ?? null,
+  size: m?.fileLength != null ? Number(m.fileLength) : null,
+});
+
+function contentOf(msg: WAMessage): Content | null {
   const content = B.normalizeMessageContent(msg.message);
   const kind = B.getContentType(content);
   if (!content || !kind) return null;
@@ -152,17 +162,19 @@ function contentOf(msg: WAMessage): { type: string; body: string } | null {
     case "extendedTextMessage":
       return { type: "text", body: content.extendedTextMessage?.text ?? "" };
     case "imageMessage":
-      return { type: "image", body: `[图片] ${content.imageMessage?.caption ?? ""}`.trim() };
+      return { type: "image", body: `[图片] ${content.imageMessage?.caption ?? ""}`.trim(), media: media(content.imageMessage, "image/jpeg") };
     case "videoMessage":
-      return { type: "video", body: `[视频] ${content.videoMessage?.caption ?? ""}`.trim() };
+      return { type: "video", body: `[视频] ${content.videoMessage?.caption ?? ""}`.trim(), media: media(content.videoMessage, "video/mp4") };
     case "audioMessage":
-      return { type: "audio", body: "[语音]" };
+      return { type: "audio", body: "[语音]", media: media(content.audioMessage, "audio/ogg") };
     case "documentMessage":
-      return { type: "document", body: `[文件] ${content.documentMessage?.fileName ?? ""}`.trim() };
-    case "documentWithCaptionMessage":
-      return { type: "document", body: `[文件] ${content.documentWithCaptionMessage?.message?.documentMessage?.fileName ?? ""}`.trim() };
+      return { type: "document", body: `[文件] ${content.documentMessage?.fileName ?? ""}`.trim(), media: media(content.documentMessage, "application/octet-stream") };
+    case "documentWithCaptionMessage": {
+      const d = content.documentWithCaptionMessage?.message?.documentMessage;
+      return { type: "document", body: `[文件] ${d?.fileName ?? ""}`.trim(), media: media(d, "application/octet-stream") };
+    }
     case "stickerMessage":
-      return { type: "sticker", body: "[表情]" };
+      return { type: "sticker", body: "[表情]", media: media(content.stickerMessage, "image/webp") };
     case "locationMessage":
       return { type: "other", body: "[位置]" };
     case "contactMessage":
@@ -172,7 +184,40 @@ function contentOf(msg: WAMessage): { type: string; body: string } | null {
   }
 }
 
-async function storeIncoming(accountId: string, msg: WAMessage, live: boolean) {
+const EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "video/mp4": "mp4",
+  "video/3gpp": "3gp",
+  "video/quicktime": "mov",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "application/pdf": "pdf",
+};
+/** 单个媒体文件最大 64MB；超过 7 天的历史消息不下载 */
+const MAX_MEDIA_BYTES = 64 * 1024 * 1024;
+const MEDIA_MAX_AGE = 7 * 24 * 3600_000;
+
+/** 下载图片 / 视频 / 语音 / 文件，存到 <tenantId>/wa/<messageId>.<ext> */
+async function saveMedia(sock: WASocket, msg: WAMessage, row: { id: string; tenantId: string; timestamp: Date }, m: Media) {
+  if (m.size && m.size > MAX_MEDIA_BYTES) return;
+  if (Date.now() - row.timestamp.getTime() > MEDIA_MAX_AGE) return;
+  const buf = await B.downloadMediaMessage(msg, "buffer", {}, { logger, reuploadRequest: sock.updateMediaMessage });
+  if (buf.length > MAX_MEDIA_BYTES) return;
+  const ext = EXT[m.mime] ?? (/\.([a-z0-9]{1,8})$/i.exec(m.name ?? "")?.[1]?.toLowerCase() || "bin");
+  const key = `${row.tenantId}/wa/${row.id}.${ext}`;
+  await putObject(key, buf, { contentType: m.mime });
+  await prisma.waMessage.update({
+    where: { id: row.id },
+    data: { mediaKey: key, mediaMime: m.mime, mediaName: m.name?.slice(0, 200) ?? null, mediaSize: buf.length },
+  });
+}
+
+async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, live: boolean) {
   const jid = msg.key.remoteJid;
   if (!jid || !msg.key.id || jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter") || jid.endsWith("@broadcast")) return;
   const c = contentOf(msg);
@@ -210,8 +255,9 @@ async function storeIncoming(accountId: string, msg: WAMessage, live: boolean) {
     if (match) chat = await prisma.waChat.update({ where: { id: chat.id }, data: { customerId: match.customerId, contactId: match.id } });
   }
 
+  let row;
   try {
-    await prisma.waMessage.create({
+    row = await prisma.waMessage.create({
       data: {
         tenantId: account.tenantId,
         accountId,
@@ -238,6 +284,9 @@ async function storeIncoming(accountId: string, msg: WAMessage, live: boolean) {
     },
   });
   if (fromMe && chat.customerId) await logOutgoing(account.tenantId, chat.customerId, account.userId, c.body, ts);
+  if (c.media) {
+    await saveMedia(sock, msg, row, c.media).catch((e) => log(accountId, "media download failed", (e as Error).message));
+  }
 }
 
 /** 发给客户的 WhatsApp 记一条跟进（同一客户 6 小时内只记一次），并刷新最近跟进时间 */

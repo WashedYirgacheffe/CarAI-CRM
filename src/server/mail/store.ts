@@ -1,38 +1,40 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { UPLOAD_DIR } from "@/server/uploads";
+import { getObject, putObject, serveObject } from "@/server/storage";
 
 export type MailAddress = { name?: string | null; address: string };
 export type MailAttachmentMeta = { id: string; filename: string; contentType: string; size: number };
 
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-function attachmentPath(tenantId: string, id: string) {
+function attachmentKey(tenantId: string, id: string) {
   if (!/^[a-z0-9]+$/.test(id)) throw new Error("bad attachment id");
-  return path.join(UPLOAD_DIR, tenantId, "mail", `${id}.bin`);
+  return `${tenantId}/mail/${id}.bin`;
 }
 
-/** 把附件写到 UPLOAD_DIR/<tenantId>/mail/<id>.bin，返回元数据 */
+/** 把附件存到 <tenantId>/mail/<id>.bin（OSS 或本地），返回元数据 */
 export async function saveAttachment(
   tenantId: string,
   file: { filename?: string | null; contentType?: string | null; content: Buffer },
 ): Promise<MailAttachmentMeta> {
   const id = randomBytes(12).toString("hex");
-  const p = attachmentPath(tenantId, id);
-  await mkdir(path.dirname(p), { recursive: true });
-  await writeFile(p, file.content);
-  return {
+  const meta = {
     id,
     filename: (file.filename || "attachment").slice(0, 200),
     contentType: file.contentType || "application/octet-stream",
     size: file.content.length,
   };
+  await putObject(attachmentKey(tenantId, id), file.content, { contentType: meta.contentType });
+  return meta;
 }
 
 export function readAttachment(tenantId: string, id: string) {
-  return readFile(attachmentPath(tenantId, id));
+  return getObject(attachmentKey(tenantId, id));
+}
+
+/** 下载附件（调用方已做权限校验） */
+export function serveAttachment(tenantId: string, att: MailAttachmentMeta) {
+  return serveObject(attachmentKey(tenantId, att.id), { contentType: att.contentType, filename: att.filename, download: true });
 }
 
 export function asAttachments(json: unknown): MailAttachmentMeta[] {

@@ -10,13 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AiWriter } from "@/components/ai/ai-writer";
+import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
 import { runAction } from "@/hooks/use-action-form";
 import { formatDateTime } from "@/lib/crm";
 import { cn } from "@/lib/utils";
 import { searchCustomersAction } from "@/app/(app)/mail/actions";
 import { linkChatAction, markChatReadAction, retryWaMessageAction, sendWaMessageAction, startChatAction } from "./actions";
 
-type Msg = { id: string; fromMe: boolean; body: string; status: "QUEUED" | "SENT" | "FAILED" | "RECEIVED"; error: string | null; timestamp: string };
+type Msg = { id: string; fromMe: boolean; body: string; media: WaMediaInfo; status: "QUEUED" | "SENT" | "FAILED" | "RECEIVED"; error: string | null; timestamp: string };
 
 export function ChatView({
   chat,
@@ -108,7 +109,8 @@ export function ChatView({
                 m.status === "FAILED" && "ring-1 ring-rose-300",
               )}
             >
-              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+              <WaMedia id={m.id} media={m.media} />
+              {waCaption(m.body, m.media) && <p className="whitespace-pre-wrap break-words">{waCaption(m.body, m.media)}</p>}
               <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-muted-foreground tabular-nums">
                 {formatDateTime(m.timestamp, tz)}
                 {m.fromMe && m.status === "QUEUED" && <Clock className="size-3" aria-label="发送中" />}

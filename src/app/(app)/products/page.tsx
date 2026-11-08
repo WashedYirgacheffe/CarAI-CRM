@@ -76,6 +76,8 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
           grossWeight: p.grossWeight?.toString() ?? null,
           netWeight: p.netWeight?.toString() ?? null,
           imageUrl: p.imageUrl,
+          images: p.images,
+          videoUrl: p.videoUrl,
           status: p.status,
           remark: p.remark,
         }))}

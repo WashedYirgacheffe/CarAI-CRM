@@ -20,5 +20,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.[\\w]+$).*)"],
+  // /api/upload 自己校验登录；不经过 proxy，避免大视频受 proxyClientMaxBodySize 限制
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/upload|.*\\.[\\w]+$).*)"],
 };
