@@ -24,16 +24,23 @@ function revalidate() {
 }
 
 /** 开始连接：没有账号时创建；worker 会生成二维码 */
-export async function connectWhatsappAction(): Promise<ActionState> {
+/** 发起登录。传手机号则用「手机号 + 配对码」登录，不传则扫码登录 */
+export async function connectWhatsappAction(phone?: string): Promise<ActionState> {
   const user = await waUser();
   if (!user) return denied();
+  let pairPhone: string | null = null;
+  if (phone !== undefined) {
+    pairPhone = phone.replace(/\D/g, "").replace(/^00/, "");
+    if (pairPhone.length < 8 || pairPhone.length > 15) return denied("请输入带国家码的完整手机号，例如 8613800138000");
+  }
+  const data = { enabled: true, status: "CONNECTING" as const, lastError: null, qr: null, pairCode: null, pairPhone };
   await prisma.waAccount.upsert({
     where: { userId: user.id },
-    create: { tenantId: user.tenantId, userId: user.id, enabled: true, status: "CONNECTING" },
-    update: { enabled: true, status: "CONNECTING", lastError: null, qr: null },
+    create: { tenantId: user.tenantId, userId: user.id, ...data },
+    update: data,
   });
   revalidate();
-  return { ok: true, message: "正在生成二维码…" };
+  return { ok: true, message: pairPhone ? "正在获取配对码…" : "正在生成二维码…" };
 }
 
 export async function disconnectWhatsappAction(logout: boolean): Promise<ActionState> {
@@ -59,7 +66,7 @@ export async function sendWaMessageAction(chatId: string, body: string): Promise
   const chat = await ownChat(user, chatId);
   if (!chat) return denied("会话不存在");
   const account = await prisma.waAccount.findUnique({ where: { id: chat.accountId } });
-  if (account?.status !== "CONNECTED") return denied("WhatsApp 未连接，请先到「WhatsApp 绑定」扫码登录");
+  if (account?.status !== "CONNECTED") return denied("WhatsApp 未连接，请先到「WhatsApp 绑定」登录");
   const now = new Date();
   await prisma.$transaction([
     prisma.waMessage.create({
