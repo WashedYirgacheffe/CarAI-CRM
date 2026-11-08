@@ -1,0 +1,8 @@
+# APP_DOMAIN 在 .env 中设置；域名需已解析到服务器公网 IP，并放行 80 / 443
+{$APP_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 50MB
+	}
+	reverse_proxy web:3000
+}
