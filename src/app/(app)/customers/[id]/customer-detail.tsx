@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CustomerAiPanel, CustomerMails, CustomerWhatsapp, type CustomerMailRow, type CustomerWaRow } from "./customer-comms";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
@@ -122,6 +123,17 @@ type Perms = {
   createOrder: boolean;
 };
 
+export type CommsProp = {
+  /** 当前用户是否绑定了可用邮箱 */
+  mailEnabled: boolean;
+  /** 当前用户是否有 WhatsApp 权限 */
+  waEnabled: boolean;
+  mails: CustomerMailRow[];
+  wa: CustomerWaRow[];
+  /** null = 没有 AI 权限 */
+  ai: { brief: { content: string; createdAt: string } | null; next: { content: string; createdAt: string } | null } | null;
+};
+
 type Modal = "edit" | "transfer" | "release" | "delete" | "opportunity" | "task" | null;
 
 export function CustomerDetail({
@@ -138,6 +150,7 @@ export function CustomerDetail({
   tasks,
   quotations,
   orders,
+  comms,
 }: {
   tz: string;
   access: CustomerAccess;
@@ -153,6 +166,7 @@ export function CustomerDetail({
   /** null = 没有查看权限 */
   quotations: CustomerDocRow[] | null;
   orders: CustomerDocRow[] | null;
+  comms: CommsProp;
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<Modal>(null);
@@ -160,6 +174,8 @@ export function CustomerDetail({
   const [busy, setBusy] = useState(false);
   const close = () => setModal(null);
   const canEdit = access.edit;
+  const primaryEmail = contacts.find((x) => x.email)?.email ?? null;
+  const primaryWa = contacts.find((x) => x.whatsapp || x.phone)?.whatsapp ?? contacts.find((x) => x.phone)?.phone ?? null;
 
   async function run(p: Promise<{ ok?: boolean }>, after?: () => void) {
     setBusy(true);
@@ -256,6 +272,8 @@ export function CustomerDetail({
               {quotations && <TabsTrigger value="quotations">报价单 ({quotations.length})</TabsTrigger>}
               {orders && <TabsTrigger value="orders">订单 ({orders.length})</TabsTrigger>}
               <TabsTrigger value="tasks">日程 ({tasks.filter((t) => !t.done).length})</TabsTrigger>
+              <TabsTrigger value="mails">邮件 ({comms.mails.length})</TabsTrigger>
+              {(comms.waEnabled || comms.wa.length > 0) && <TabsTrigger value="wa">WhatsApp</TabsTrigger>}
             </TabsList>
             <TabsContent value="timeline" className="mt-3">
               <Timeline activities={activities} tz={tz} />
@@ -339,12 +357,25 @@ export function CustomerDetail({
                 </CardContent>
               </Card>
             </TabsContent>
+            <TabsContent value="mails" className="mt-3">
+              <CustomerMails rows={comms.mails} tz={tz} composeHref={comms.mailEnabled && primaryEmail ? `/mail/compose?to=${encodeURIComponent(primaryEmail)}` : null} />
+            </TabsContent>
+            {(comms.waEnabled || comms.wa.length > 0) && (
+              <TabsContent value="wa" className="mt-3">
+                <CustomerWhatsapp
+                  rows={comms.wa}
+                  tz={tz}
+                  chatHref={comms.waEnabled && primaryWa ? `/whatsapp?phone=${encodeURIComponent(primaryWa)}&customerId=${c.id}` : null}
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
 
         {/* 右：联系人 + 资料 */}
         <div className="space-y-4">
-          <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} />
+          {comms.ai && <CustomerAiPanel customerId={c.id} brief={comms.ai.brief} next={comms.ai.next} tz={tz} />}
+          <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
           <Card>
             <CardHeader>
               <CardTitle className="text-base">客户资料</CardTitle>
@@ -537,7 +568,19 @@ function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }
   );
 }
 
-function ContactsCard({ customerId, contacts, canEdit }: { customerId: string; contacts: ContactView[]; canEdit: boolean }) {
+function ContactsCard({
+  customerId,
+  contacts,
+  canEdit,
+  mailEnabled,
+  waEnabled,
+}: {
+  customerId: string;
+  contacts: ContactView[];
+  canEdit: boolean;
+  mailEnabled: boolean;
+  waEnabled: boolean;
+}) {
   const [editing, setEditing] = useState<Partial<ContactView> | null>(null);
   return (
     <Card>
@@ -580,7 +623,7 @@ function ContactsCard({ customerId, contacts, canEdit }: { customerId: string; c
                 {ct.title && <p className="text-xs text-muted-foreground">{ct.title}</p>}
                 <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                   {ct.email && (
-                    <a href={`mailto:${ct.email}`} className="flex items-center gap-1.5 hover:text-primary">
+                    <a href={mailEnabled ? `/mail/compose?to=${encodeURIComponent(ct.email)}` : `mailto:${ct.email}`} className="flex items-center gap-1.5 hover:text-primary">
                       <Mail className="size-3" />
                       {ct.email}
                     </a>
@@ -593,8 +636,12 @@ function ContactsCard({ customerId, contacts, canEdit }: { customerId: string; c
                   )}
                   {ct.whatsapp && (
                     <a
-                      href={`https://wa.me/${ct.whatsapp.replace(/\D/g, "")}`}
-                      target="_blank"
+                      href={
+                        waEnabled
+                          ? `/whatsapp?phone=${ct.whatsapp.replace(/\D/g, "")}&customerId=${customerId}`
+                          : `https://wa.me/${ct.whatsapp.replace(/\D/g, "")}`
+                      }
+                      target={waEnabled ? undefined : "_blank"}
                       rel="noreferrer"
                       className="flex items-center gap-1.5 hover:text-primary"
                     >

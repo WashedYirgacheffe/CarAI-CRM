@@ -34,6 +34,10 @@ services:
       DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/cheche_crm
       REDIS_URL: redis://redis:6379
       UPLOAD_DIR: /data/uploads
+      APP_SECRET: ${APP_SECRET:?请在 .env 中设置 APP_SECRET（openssl rand -hex 32，设定后不要再改）}
+      AI_BASE_URL: ${AI_BASE_URL:-https://moonup.dev}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-deepseek-v4.1-flash-1017}
     volumes:
       - uploads:/data/uploads
     # 不直接对外暴露，统一经 caddy 走 HTTPS
@@ -59,11 +63,32 @@ services:
     depends_on:
       - web
 
-  # worker（邮件同步、公海回收）在 P1/P3 加入
+  # 后台任务：邮件同步与 AI 分析、WhatsApp 连接与收发、公海回收
+  worker:
+    build: { context: ., target: migrate }
+    command: ["pnpm", "worker"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Hong_Kong
+      DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/cheche_crm
+      UPLOAD_DIR: /data/uploads
+      WA_AUTH_DIR: /data/whatsapp
+      APP_SECRET: ${APP_SECRET:?请在 .env 中设置 APP_SECRET}
+      AI_BASE_URL: ${AI_BASE_URL:-https://moonup.dev}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-deepseek-v4.1-flash-1017}
+    volumes:
+      - uploads:/data/uploads
+      - whatsapp:/data/whatsapp
+    depends_on:
+      postgres: { condition: service_healthy }
 
 volumes:
   pgdata:
   redisdata:
   uploads:
+  whatsapp:
   caddydata:
   caddyconfig:

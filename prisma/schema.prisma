@@ -55,6 +55,12 @@ model Tenant {
   quotations        Quotation[]
   orders            Order[]
   orderPayments     OrderPayment[]
+  mailAccounts      MailAccount[]
+  mailMessages      MailMessage[]
+  waAccounts        WaAccount[]
+  waChats           WaChat[]
+  waMessages        WaMessage[]
+  aiInsights        AiInsight[]
 }
 
 enum UserStatus {
@@ -90,6 +96,8 @@ model User {
   tasks              Task[]        @relation("TaskOwner")
   ownedQuotations    Quotation[]   @relation("QuotationOwner")
   ownedOrders        Order[]       @relation("OrderOwner")
+  mailAccounts       MailAccount[]
+  waAccounts         WaAccount[]
 
   @@index([tenantId])
 }
@@ -227,6 +235,8 @@ model Customer {
   leads         Lead[]
   quotations    Quotation[]
   orders        Order[]
+  mailMessages  MailMessage[]
+  waChats       WaChat[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -247,8 +257,10 @@ model Contact {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  mailMessages MailMessage[]
+  waChats      WaChat[]
 
   @@index([tenantId, email])
   @@index([customerId])
@@ -283,9 +295,10 @@ model Lead {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  owner    User?     @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner        User?         @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  customer     Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  mailMessages MailMessage[]
 
   @@index([tenantId, status])
   @@index([tenantId, ownerId])
@@ -647,4 +660,219 @@ model OrderPayment {
   order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+}
+
+// ───────────────────────── P3 邮件 ─────────────────────────
+
+enum MailAccountStatus {
+  ACTIVE // 正常同步
+  ERROR // 最近一次连接失败（lastError 有原因）
+  PAUSED // 用户暂停同步
+}
+
+/// 业务员绑定的工作邮箱（IMAP 收 + SMTP 发）。密码用 APP_SECRET 加密存储。
+model MailAccount {
+  id            String            @id @default(cuid())
+  tenantId      String
+  userId        String
+  email         String
+  displayName   String?
+  imapHost      String
+  imapPort      Int               @default(993)
+  imapSecure    Boolean           @default(true)
+  smtpHost      String
+  smtpPort      Int               @default(465)
+  smtpSecure    Boolean           @default(true)
+  /// 登录名，通常就是邮箱地址
+  username      String
+  /// AES-256-GCM 加密后的密码 / 授权码
+  passwordEnc   String
+  signature     String?
+  /// 陌生人来信（匹配不到客户）自动建成线索
+  autoLead      Boolean           @default(true)
+  status        MailAccountStatus @default(ACTIVE)
+  lastError     String?
+  lastSyncAt    DateTime?
+  /// 各文件夹的同步进度：{ [path]: { uidValidity, lastUid } }
+  syncState     Json              @default("{}")
+  /// 同步租约：防止 worker 和「立即同步」同时跑
+  syncLockUntil DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages MailMessage[]
+
+  @@unique([tenantId, email])
+  @@index([userId])
+}
+
+enum MailFolder {
+  INBOX
+  SENT
+}
+
+/// 邮件。只同步收件箱和已发送；正文存纯文本和 HTML，附件存到上传目录。
+model MailMessage {
+  id           String     @id @default(cuid())
+  tenantId     String
+  accountId    String
+  folder       MailFolder
+  /// IMAP 文件夹路径 + UID，用于增量同步去重；本系统发出、尚未同步回来的邮件为空
+  folderPath   String?
+  uid          Int?
+  messageId    String?
+  inReplyTo    String?
+  references   String[]
+  fromAddr     String
+  fromName     String?
+  /// [{ name, address }]
+  toList       Json       @default("[]")
+  ccList       Json       @default("[]")
+  subject      String     @default("")
+  text         String?
+  html         String?
+  snippet      String     @default("")
+  date         DateTime
+  seen         Boolean    @default(false)
+  starred      Boolean    @default(false)
+  /// [{ id, filename, contentType, size }]，文件存在 UPLOAD_DIR/<tenantId>/mail/
+  attachments  Json       @default("[]")
+  /// 自动建档：匹配到的客户 / 联系人 / 线索
+  customerId   String?
+  contactId    String?
+  leadId       String?
+  // ── AI 分析（新来信自动跑） ──
+  aiSummary    String?
+  /// inquiry 询盘 / quotation 询价议价 / order 下单 / complaint 投诉 / logistics 物流 / payment 付款 / spam 推广 / other
+  aiIntent     String?
+  /// high / medium / low
+  aiPriority   String?
+  aiAnalyzedAt DateTime?
+  createdAt    DateTime   @default(now())
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contact  Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead     Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, folderPath, uid])
+  @@index([accountId, folder, date])
+  @@index([tenantId, customerId, date])
+  @@index([accountId, messageId])
+}
+
+// ───────────────────────── P4 WhatsApp（扫码登录） ─────────────────────────
+
+enum WaStatus {
+  DISCONNECTED // 未连接
+  CONNECTING // 正在连接 / 等待扫码
+  CONNECTED // 已连接
+}
+
+/// 业务员的 WhatsApp 号码。会话由 worker 维持，登录凭据存在 WA_AUTH_DIR/<id>/。
+model WaAccount {
+  id              String    @id @default(cuid())
+  tenantId        String
+  userId          String
+  /// 登录成功后的手机号（纯数字，含国家码）
+  phone           String?
+  name            String?
+  status          WaStatus  @default(DISCONNECTED)
+  /// 用户希望保持连接；点「断开」或「退出登录」后为 false
+  enabled         Boolean   @default(true)
+  /// 当前二维码字符串（CONNECTING 时）
+  qr              String?
+  qrAt            DateTime?
+  lastError       String?
+  /// 用户点了「退出登录」，worker 需要注销并删除凭据
+  logoutRequested Boolean   @default(false)
+  connectedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chats    WaChat[]
+  messages WaMessage[]
+
+  @@unique([userId])
+}
+
+/// 会话（单聊）。phone 用于匹配联系人的 WhatsApp / 电话。
+model WaChat {
+  id            String    @id @default(cuid())
+  tenantId      String
+  accountId     String
+  jid           String
+  phone         String?
+  name          String?
+  customerId    String?
+  contactId     String?
+  lastMessageAt DateTime?
+  lastText      String?
+  unread        Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  WaAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contact  Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  messages WaMessage[]
+
+  @@unique([accountId, jid])
+  @@index([tenantId, customerId])
+  @@index([accountId, lastMessageAt])
+}
+
+enum WaMsgStatus {
+  QUEUED // 待 worker 发送
+  SENT
+  FAILED
+  RECEIVED
+}
+
+model WaMessage {
+  id        String      @id @default(cuid())
+  tenantId  String
+  accountId String
+  chatId    String
+  /// WhatsApp 消息 id，去重用；待发送的为空
+  waId      String?
+  fromMe    Boolean
+  /// text / image / video / audio / document / sticker / other
+  type      String      @default("text")
+  body      String      @default("")
+  status    WaMsgStatus
+  error     String?
+  sentById  String?
+  timestamp DateTime
+  createdAt DateTime    @default(now())
+
+  tenant  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account WaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  chat    WaChat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, waId])
+  @@index([chatId, timestamp])
+  @@index([accountId, status])
+}
+
+// ───────────────────────── P4 AI ─────────────────────────
+
+/// AI 生成结果缓存（客户背景速览、跟进建议），避免每次打开都重新生成
+model AiInsight {
+  id        String   @id @default(cuid())
+  tenantId  String
+  /// customer_brief / customer_next
+  kind      String
+  targetId  String
+  content   String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind, targetId])
 }

@@ -40,8 +40,8 @@ export const NAV: NavSection[] = [
   {
     label: "沟通",
     items: [
-      { title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", phase: "P3" },
-      { title: "WhatsApp", href: "/whatsapp", icon: "MessageCircle", permission: "mail.use", phase: "P4" },
+      { title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use" },
+      { title: "WhatsApp", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use" },
     ],
   },
   {
@@ -55,7 +55,7 @@ export const NAV: NavSection[] = [
   {
     label: "管理",
     items: [
-      { title: "统计", href: "/reports", icon: "BarChart3", permission: "report.view", phase: "P4" },
+      { title: "统计", href: "/reports", icon: "BarChart3", permission: "report.view" },
       { title: "设置", href: "/settings", icon: "Settings" },
     ],
   },
@@ -85,7 +85,8 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
     group: "个人",
     items: [
       { title: "个人资料", href: "/settings/profile" },
-      { title: "邮箱绑定", href: "/settings/mailboxes", permission: "mail.use", phase: "P3" },
+      { title: "邮箱绑定", href: "/settings/mailboxes", permission: "mail.use" },
+      { title: "WhatsApp 绑定", href: "/settings/whatsapp", permission: "whatsapp.use" },
     ],
   },
 ];

@@ -7,6 +7,7 @@ import { tenantDb } from "@/server/db";
 import { getCustomerForUser } from "@/server/customers";
 import { scopeMembers } from "@/server/scope";
 import { customerOptions } from "@/server/customer-list";
+import { asAddresses, asAttachments } from "@/server/mail/store";
 import { CustomerDetail } from "./customer-detail";
 
 export async function generateMetadata({ params }: PageProps<"/customers/[id]">): Promise<Metadata> {
@@ -48,6 +49,44 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
       : null,
     can(user, "order.view") ? db.order.findMany({ where: { customerId: id }, orderBy: { orderDate: "desc" }, take: 100 }) : null,
   ]);
+
+  const canAi = can(user, "ai.use");
+  const waEnabled = can(user, "whatsapp.use");
+  const [mailAccounts, mails, waChats, insights] = await Promise.all([
+    db.mailAccount.findMany({ where: { userId: user.id, status: { not: "PAUSED" } }, select: { id: true } }),
+    db.mailMessage.findMany({
+      where: { customerId: id },
+      orderBy: { date: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        folder: true,
+        fromAddr: true,
+        fromName: true,
+        toList: true,
+        subject: true,
+        snippet: true,
+        text: true,
+        date: true,
+        attachments: true,
+        account: { select: { userId: true } },
+      },
+    }),
+    db.waChat.findMany({ where: { customerId: id }, select: { id: true } }),
+    canAi ? db.aiInsight.findMany({ where: { targetId: id, kind: { in: ["customer_brief", "customer_next"] } } }) : [],
+  ]);
+  const waMsgs = waChats.length
+    ? await db.waMessage.findMany({
+        where: { chatId: { in: waChats.map((x) => x.id) } },
+        orderBy: { timestamp: "desc" },
+        take: 200,
+        include: { account: { select: { userId: true } } },
+      })
+    : [];
+  const insight = (kind: string) => {
+    const row = insights.find((x) => x.kind === kind);
+    return row ? { content: row.content, createdAt: row.createdAt.toISOString() } : null;
+  };
 
   return (
     <>
@@ -91,6 +130,33 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
             paid: o.paidAmount.toString(),
           })) ?? null
         }
+        comms={{
+          mailEnabled: mailAccounts.length > 0,
+          waEnabled,
+          ai: canAi ? { brief: insight("customer_brief"), next: insight("customer_next") } : null,
+          mails: mails.map((m) => {
+            const to = asAddresses(m.toList);
+            return {
+              id: m.id,
+              folder: m.folder,
+              peer: m.folder === "SENT" ? `致 ${to.map((a) => a.address).join(", ")}` : m.fromName ? `${m.fromName} <${m.fromAddr}>` : m.fromAddr,
+              subject: m.subject,
+              snippet: m.snippet,
+              text: m.text ? m.text.slice(0, 20000) : null,
+              date: m.date.toISOString(),
+              attachments: asAttachments(m.attachments).map((a) => ({ id: a.id, filename: a.filename })),
+              mine: m.account.userId === user.id,
+            };
+          }),
+          wa: waMsgs.reverse().map((m) => ({
+            id: m.id,
+            fromMe: m.fromMe,
+            body: m.body,
+            timestamp: m.timestamp.toISOString(),
+            chatId: m.chatId,
+            mine: m.account.userId === user.id,
+          })),
+        }}
         members={members}
         options={options}
         stages={stages.map((s) => ({ id: s.id, name: s.name, probability: s.probability, kind: s.kind }))}
