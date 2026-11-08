@@ -36,11 +36,28 @@ services:
       UPLOAD_DIR: /data/uploads
     volumes:
       - uploads:/data/uploads
-    ports:
-      - "3000:3000"
+    # 不直接对外暴露，统一经 caddy 走 HTTPS
+    expose:
+      - "3000"
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
+
+  # 反向代理 + 自动 HTTPS（Let's Encrypt 证书自动申请、续期）
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?请在 .env 中设置 APP_DOMAIN（域名，已解析到本机）}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - web
 
   # worker（邮件同步、公海回收）在 P1/P3 加入
 
@@ -48,3 +65,5 @@ volumes:
   pgdata:
   redisdata:
   uploads:
+  caddydata:
+  caddyconfig:

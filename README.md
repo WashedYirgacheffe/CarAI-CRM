@@ -17,11 +17,24 @@ pnpm dev                      # http://localhost:3000 → 注册企业即可进�
 
 ## 部署（阿里云 / 腾讯云）
 
+服务器需安装 Docker；内存 2G 的机器建议加 4G swap（`next build` 比较吃内存）。控制台防火墙放行 80、443。
+
 ```bash
-echo "POSTGRES_PASSWORD=请改成强密码" > .env
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+APP_DOMAIN=crm.example.com        # 已解析到本机公网 IP 的域名
+EOF
+docker compose build web migrate
 docker compose run --rm migrate   # 执行数据库迁移
-docker compose up -d web
+docker compose up -d web caddy    # caddy 自动申请 HTTPS 证书
+crontab deploy/crontab            # 每日备份 + 定时任务
 ```
+
+- 应用不直接暴露 3000 端口，统一由 `caddy` 反向代理并自动申请、续期 Let's Encrypt 证书。换域名只需改 `APP_DOMAIN` 后 `docker compose up -d caddy`。
+- 还没有域名时可临时用 `<IP 用横线连接>.sslip.io`（如 `47-82-101-128.sslip.io`），它会自动解析到该 IP。
+- 登录 Cookie 在生产环境带 `Secure`，所以必须通过 HTTPS 访问。
+- `deploy/backup.sh` 每天把数据库和上传文件备份到 `/opt/crm/backups`，保留 14 天。
+- 更新版本：同步代码后执行 `docker compose build web migrate && docker compose run --rm migrate && docker compose up -d web`。
 
 产品图片等上传文件保存在 `UPLOAD_DIR`（本地默认 `storage/uploads`，容器内为 `/data/uploads`，已挂载 `uploads` 卷），备份时一并备份该卷。
 

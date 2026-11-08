@@ -4,7 +4,9 @@ RUN corepack enable
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml prisma.config.ts ./
+# postinstall 会执行 prisma generate，需要先有 schema
+COPY prisma ./prisma
 RUN pnpm install --frozen-lockfile
 
 FROM base AS build
