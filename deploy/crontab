@@ -1,5 +1,4 @@
 # 安装：crontab /opt/crm/deploy/crontab
 # 每天 03:30（香港时间）备份数据库和上传文件
 30 3 * * * /opt/crm/deploy/backup.sh >> /var/log/crm-backup.log 2>&1
-# 每小时回收超期私海客户到公海
-5 * * * * cd /opt/crm && docker compose run --rm migrate pnpm job:pool-recycle >> /var/log/crm-jobs.log 2>&1
+# 公海回收、邮件同步等定时任务由 worker 容器负责，不再走 cron

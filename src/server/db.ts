@@ -37,6 +37,12 @@ const TENANT_MODELS = new Set<string>([
   "Quotation",
   "Order",
   "OrderPayment",
+  "MailAccount",
+  "MailMessage",
+  "WaAccount",
+  "WaChat",
+  "WaMessage",
+  "AiInsight",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([

@@ -78,6 +78,16 @@ export const PERMISSION_GROUPS = [
     items: [{ key: "mail.use", label: "使用邮件" }],
   },
   {
+    key: "whatsapp",
+    label: "WhatsApp",
+    items: [{ key: "whatsapp.use", label: "使用 WhatsApp" }],
+  },
+  {
+    key: "ai",
+    label: "AI 助手",
+    items: [{ key: "ai.use", label: "使用 AI（写信、翻译、摘要、跟进建议）" }],
+  },
+  {
     key: "report",
     label: "统计",
     items: [{ key: "report.view", label: "查看统计报表" }],
@@ -159,6 +169,8 @@ export const SYSTEM_ROLES: {
       "order.create",
       "product.view",
       "mail.use",
+      "whatsapp.use",
+      "ai.use",
     ],
   },
 ];

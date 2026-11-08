@@ -1,16 +1,324 @@
 import type { Metadata } from "next";
-import { PlannedModule } from "@/components/planned-module";
-import { requirePermission } from "@/server/auth";
+import Link from "next/link";
+import { Inbox, Mail, Paperclip, PenSquare, Send, Star, UserRound, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { can, requirePermission } from "@/server/auth";
+import { tenantDb } from "@/server/db";
+import { aiConfigured } from "@/server/ai";
+import { asAddresses, asAttachments } from "@/server/mail/store";
+import { formatDateTime } from "@/lib/crm";
+import { MAIL_INTENT_LABELS, MAIL_PRIORITY_LABELS } from "@/lib/mail";
+import { cn } from "@/lib/utils";
+import type { Prisma } from "@/generated/prisma/client";
+import { MailReader } from "./mail-reader";
+import { SyncButton } from "./sync-button";
 
 export const metadata: Metadata = { title: "邮件" };
 
-export default async function Page() {
-  await requirePermission("mail.use");
+const BOXES = [
+  { key: "inbox", label: "收件箱", icon: Inbox },
+  { key: "sent", label: "已发送", icon: Send },
+  { key: "starred", label: "星标邮件", icon: Star },
+] as const;
+
+const TAGS = [
+  { key: "", label: "全部" },
+  { key: "unread", label: "未读" },
+  { key: "customer", label: "客户来信" },
+  { key: "lead", label: "询盘线索" },
+  { key: "high", label: "AI 高优先" },
+  { key: "none", label: "未归档" },
+] as const;
+
+const PAGE = 50;
+
+export default async function MailPage({ searchParams }: PageProps<"/mail">) {
+  const user = await requirePermission("mail.use");
+  const sp = await searchParams;
+  const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : "");
+  const box = BOXES.find((b) => b.key === s("box"))?.key ?? "inbox";
+  const tag = TAGS.find((t) => t.key === s("tag"))?.key ?? "";
+  const acc = s("acc");
+  const q = s("q").trim();
+  const page = Math.max(1, Number(s("page")) || 1);
+  const selectedId = s("id");
+
+  const db = tenantDb(user.tenantId);
+  const accounts = await db.mailAccount.findMany({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
+  const accountIds = acc && accounts.some((a) => a.id === acc) ? [acc] : accounts.map((a) => a.id);
+
+  const href = (patch: Record<string, string | number | null>) => {
+    const p = new URLSearchParams();
+    const cur: Record<string, string> = { box, tag, acc, q, page: String(page), id: selectedId };
+    for (const [k, v] of Object.entries({ ...cur, ...patch })) if (v !== null && v !== "" && !(k === "page" && v === "1")) p.set(k, String(v));
+    return `/mail${p.size ? `?${p}` : ""}`;
+  };
+
+  if (!accounts.length) {
+    return (
+      <div className="mx-auto max-w-md rounded-xl border bg-card p-10 text-center">
+        <Mail className="mx-auto mb-3 size-8 text-muted-foreground" />
+        <p className="font-medium">还没有绑定邮箱</p>
+        <p className="mt-1 text-sm text-muted-foreground">绑定工作邮箱后，就能在这里收发邮件，往来邮件自动归档到客户。</p>
+        <Button asChild className="mt-4">
+          <Link href="/settings/mailboxes">去绑定邮箱</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const contains = { contains: q, mode: "insensitive" as const };
+  const where: Prisma.MailMessageWhereInput = {
+    accountId: { in: accountIds },
+    ...(box === "inbox" ? { folder: "INBOX" } : box === "sent" ? { folder: "SENT" } : { starred: true }),
+    ...(tag === "unread" ? { seen: false } : {}),
+    ...(tag === "customer" ? { customerId: { not: null } } : {}),
+    ...(tag === "lead" ? { leadId: { not: null } } : {}),
+    ...(tag === "high" ? { aiPriority: "high" } : {}),
+    ...(tag === "none" ? { customerId: null, leadId: null } : {}),
+    ...(q ? { OR: [{ subject: contains }, { fromAddr: contains }, { fromName: contains }, { snippet: contains }] } : {}),
+  };
+
+  const [total, rows, unread, selected] = await Promise.all([
+    db.mailMessage.count({ where }),
+    db.mailMessage.findMany({
+      where,
+      orderBy: { date: "desc" },
+      skip: (page - 1) * PAGE,
+      take: PAGE,
+      select: {
+        id: true,
+        folder: true,
+        fromAddr: true,
+        fromName: true,
+        toList: true,
+        subject: true,
+        snippet: true,
+        date: true,
+        seen: true,
+        starred: true,
+        attachments: true,
+        aiIntent: true,
+        aiPriority: true,
+        customer: { select: { name: true } },
+        leadId: true,
+      },
+    }),
+    db.mailMessage.count({ where: { accountId: { in: accounts.map((a) => a.id) }, folder: "INBOX", seen: false } }),
+    selectedId
+      ? db.mailMessage.findFirst({
+          where: { id: selectedId, accountId: { in: accounts.map((a) => a.id) } },
+          include: {
+            customer: { select: { id: true, name: true } },
+            lead: { select: { id: true, status: true } },
+            account: { select: { email: true } },
+          },
+        })
+      : null,
+  ]);
+  const pages = Math.max(1, Math.ceil(total / PAGE));
+  const errored = accounts.filter((a) => a.status === "ERROR");
+
   return (
-    <PlannedModule
-      title={"邮件"}
-      phase="P3"
-      features={["IMAP/SMTP 绑定邮箱", "收发同步，往来邮件自动建档", "邮件归档到客户动态"]}
-    />
+    <div className="flex h-[calc(100svh-5.5rem)] min-h-[32rem] overflow-hidden rounded-xl border bg-card md:h-[calc(100svh-6.5rem)]">
+      {/* 文件夹 */}
+      <aside className="hidden w-52 shrink-0 flex-col gap-4 border-r p-3 xl:flex">
+        <Button asChild>
+          <Link href="/mail/compose">
+            <PenSquare /> 写邮件
+          </Link>
+        </Button>
+        <nav className="space-y-0.5">
+          {BOXES.map((b) => (
+            <Link
+              key={b.key}
+              href={href({ box: b.key, page: 1, id: null })}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                box === b.key ? "bg-sidebar-accent font-medium" : "hover:bg-muted",
+              )}
+            >
+              <b.icon className="size-4" /> {b.label}
+              {b.key === "inbox" && unread > 0 && <span className="ml-auto text-xs text-primary tabular-nums">{unread}</span>}
+            </Link>
+          ))}
+        </nav>
+        <div>
+          <p className="mb-1 px-2 text-xs text-muted-foreground">邮箱</p>
+          <div className="space-y-0.5">
+            <Link href={href({ acc: null, page: 1, id: null })} className={cn("block truncate rounded-md px-2 py-1 text-sm", !acc ? "bg-sidebar-accent font-medium" : "hover:bg-muted")}>
+              全部邮箱
+            </Link>
+            {accounts.map((a) => (
+              <Link
+                key={a.id}
+                href={href({ acc: a.id, page: 1, id: null })}
+                title={a.lastError ?? a.email}
+                className={cn("flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-sm", acc === a.id ? "bg-sidebar-accent font-medium" : "hover:bg-muted")}
+              >
+                <span className={cn("size-1.5 shrink-0 rounded-full", a.status === "ERROR" ? "bg-rose-500" : a.status === "PAUSED" ? "bg-slate-300" : "bg-emerald-500")} />
+                <span className="truncate">{a.email}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+        <div className="mt-auto space-y-2">
+          {errored.length > 0 && (
+            <Link href="/settings/mailboxes" className="block rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-700">
+              {errored.length} 个邮箱连接失败，点此处理
+            </Link>
+          )}
+          <SyncButton />
+        </div>
+      </aside>
+
+      {/* 列表 */}
+      <section className={cn("flex w-full min-w-0 flex-col border-r lg:w-[24rem] lg:shrink-0", selected && "hidden lg:flex")}>
+        <div className="space-y-2 border-b p-3">
+          <div className="flex gap-2 xl:hidden">
+            <Button asChild size="sm">
+              <Link href="/mail/compose">
+                <PenSquare /> 写邮件
+              </Link>
+            </Button>
+            {BOXES.map((b) => (
+              <Button key={b.key} asChild size="sm" variant={box === b.key ? "secondary" : "ghost"}>
+                <Link href={href({ box: b.key, page: 1, id: null })}>{b.label}</Link>
+              </Button>
+            ))}
+          </div>
+          <form action="/mail" className="flex gap-2">
+            {box !== "inbox" && <input type="hidden" name="box" value={box} />}
+            {acc && <input type="hidden" name="acc" value={acc} />}
+            {tag && <input type="hidden" name="tag" value={tag} />}
+            <Input name="q" defaultValue={q} placeholder="搜索主题、发件人、内容" className="h-8" />
+          </form>
+          <div className="flex flex-wrap gap-1">
+            {TAGS.map((t) => (
+              <Link
+                key={t.key}
+                href={href({ tag: t.key || null, page: 1, id: null })}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-xs",
+                  tag === t.key ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
+                )}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <ul className="flex-1 divide-y overflow-y-auto">
+          {rows.length === 0 && <li className="py-16 text-center text-sm text-muted-foreground">没有邮件</li>}
+          {rows.map((m) => {
+            const peer = m.folder === "SENT" ? asAddresses(m.toList).map((a) => a.name || a.address).join(", ") : m.fromName || m.fromAddr;
+            const intent = m.aiIntent ? MAIL_INTENT_LABELS[m.aiIntent] : null;
+            return (
+              <li key={m.id}>
+                <Link
+                  href={href({ id: m.id })}
+                  className={cn("block px-3 py-2.5 hover:bg-muted/60", selectedId === m.id && "bg-sidebar-accent")}
+                >
+                  <div className="flex items-center gap-1.5">
+                    {!m.seen && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
+                    {m.aiPriority && (
+                      <span
+                        className={cn("size-1.5 shrink-0 rounded-full", MAIL_PRIORITY_LABELS[m.aiPriority]?.cls)}
+                        title={`AI 判断：${MAIL_PRIORITY_LABELS[m.aiPriority]?.label}`}
+                      />
+                    )}
+                    <span className={cn("min-w-0 flex-1 truncate text-sm", !m.seen && "font-semibold")}>
+                      {m.folder === "SENT" && <span className="text-muted-foreground">发给 </span>}
+                      {peer || "—"}
+                    </span>
+                    {m.starred && <Star className="size-3 fill-amber-400 text-amber-400" />}
+                    {asAttachments(m.attachments).length > 0 && <Paperclip className="size-3 text-muted-foreground" />}
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatDateTime(m.date, user.timezone)}</span>
+                  </div>
+                  <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
+                  <p className="truncate text-xs text-muted-foreground">{m.snippet}</p>
+                  {(m.customer || m.leadId || intent) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {m.customer && (
+                        <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[11px] text-muted-foreground">
+                          <UserRound className="size-3" />
+                          {m.customer.name}
+                        </span>
+                      )}
+                      {!m.customer && m.leadId && <span className="rounded bg-blue-50 px-1.5 text-[11px] text-blue-700">线索</span>}
+                      {intent && (
+                        <span className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 text-[11px]", intent.cls)}>
+                          <Sparkles className="size-2.5" />
+                          {intent.label}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        {pages > 1 && (
+          <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
+            <span>
+              共 {total} 封 · 第 {page}/{pages} 页
+            </span>
+            <span className="flex gap-1">
+              {page > 1 && (
+                <Button asChild size="xs" variant="outline">
+                  <Link href={href({ page: page - 1, id: null })}>上一页</Link>
+                </Button>
+              )}
+              {page < pages && (
+                <Button asChild size="xs" variant="outline">
+                  <Link href={href({ page: page + 1, id: null })}>下一页</Link>
+                </Button>
+              )}
+            </span>
+          </div>
+        )}
+      </section>
+
+      {/* 阅读 */}
+      <section className={cn("min-w-0 flex-1 flex-col", selected ? "flex" : "hidden lg:flex")}>
+        {selected ? (
+          <MailReader
+            key={selected.id}
+            tz={user.timezone}
+            backHref={href({ id: null })}
+            canAi={can(user, "ai.use") && aiConfigured()}
+            canLead={can(user, "lead.create")}
+            message={{
+              id: selected.id,
+              folder: selected.folder,
+              accountEmail: selected.account.email,
+              fromAddr: selected.fromAddr,
+              fromName: selected.fromName,
+              to: asAddresses(selected.toList),
+              cc: asAddresses(selected.ccList),
+              subject: selected.subject,
+              text: selected.text,
+              html: selected.html,
+              date: selected.date.toISOString(),
+              seen: selected.seen,
+              starred: selected.starred,
+              attachments: asAttachments(selected.attachments),
+              customer: selected.customer,
+              lead: selected.lead,
+              aiSummary: selected.aiSummary,
+              aiIntent: selected.aiIntent,
+              aiPriority: selected.aiPriority,
+            }}
+          />
+        ) : (
+          <div className="m-auto text-center text-sm text-muted-foreground">
+            <Mail className="mx-auto mb-2 size-8 opacity-40" />
+            选择一封邮件阅读
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
