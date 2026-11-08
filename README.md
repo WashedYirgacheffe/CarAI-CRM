@@ -37,17 +37,15 @@ crontab deploy/crontab                   # 每日备份
 - 还没有域名时可临时用 `<IP 用横线连接>.sslip.io`（如 `47-82-101-128.sslip.io`），它会自动解析到该 IP。
 - 登录 Cookie 在生产环境带 `Secure`，所以必须通过 HTTPS 访问。
 - `deploy/backup.sh` 每天把数据库、上传文件和 WhatsApp 凭证备份到 `/opt/crm/backups`，保留 14 天。
-- 异地备份（可选）：安装 [ossutil 2.x](https://help.aliyun.com/zh/oss/developer-reference/ossutil-overview/) 到 `/usr/local/bin/ossutil`，再写 `/opt/crm/.oss.env`（`chmod 600`，不要放进仓库）。备份脚本会把当天的文件传到 `oss://<bucket>/crm-backup/年/月/`。旧文件请在 OSS 控制台用生命周期规则自动删除（如 90 天）。
-  ```bash
-  OSS_ACCESS_KEY_ID=LTAI...          # RAM 子账号，只授权这个 Bucket 的 oss:PutObject
-  OSS_ACCESS_KEY_SECRET=...
-  OSS_BUCKET=my-crm-backup
-  OSS_REGION=cn-shanghai             # Bucket 所在地域
-  # OSS_ENDPOINT=oss-cn-hongkong-internal.aliyuncs.com  # 与服务器同地域时走内网，免流量费
-  ```
 - 更新版本：同步代码后执行 `docker compose build web migrate worker && docker compose run --rm migrate && docker compose up -d web worker`。
 
-产品图片等上传文件保存在 `UPLOAD_DIR`（本地默认 `storage/uploads`，容器内为 `/data/uploads`，已挂载 `uploads` 卷），备份时一并备份该卷。
+产品图片和视频、邮件附件、WhatsApp 图片视频等文件：
+
+- 配置了 `OSS_BUCKET` 时存阿里云 OSS（Bucket 保持私有）。浏览器访问 `/api/files/...`、`/api/mail/attachments/...`、`/api/whatsapp/media/...` 时，系统先校验权限，再跳转到有效期 1～2 小时的签名链接。
+- 没配置时存本地 `UPLOAD_DIR`（本地默认 `storage/uploads`，容器内为 `/data/uploads`，已挂载 `uploads` 卷）。
+- 从本地切换到 OSS：先在 `.env` 填好 `OSS_*`，再执行 `docker compose run --rm worker pnpm job:migrate-uploads`，把已有文件按原路径传上去，然后重启 web、worker。
+- OSS 的 RAM 子账号只需要这个 Bucket 的 `oss:GetObject`、`oss:PutObject` 权限。服务器和 Bucket 同在香港时，`OSS_ENDPOINT` 填 `oss-cn-hongkong-internal.aliyuncs.com` 走内网，免流量费。
+- 用 OSS 默认域名访问时，图片在新标签页打开会变成下载，但页面内显示和视频播放不受影响。绑定自定义域名可以解决。
 
 ### 环境变量
 
@@ -55,7 +53,8 @@ crontab deploy/crontab                   # 每日备份
 |---|---|
 | `APP_SECRET` | 加密邮箱密码（AES-256-GCM），生产环境必填，设定后不要再改 |
 | `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | Anthropic Messages 兼容接口，用于 AI 写信、翻译、邮件摘要、客户速览与跟进建议 |
-| `UPLOAD_DIR` | 上传文件和邮件附件目录 |
+| `UPLOAD_DIR` | 未配置 OSS 时，上传文件和附件的本地目录 |
+| `OSS_BUCKET` / `OSS_REGION` / `OSS_ENDPOINT` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` | 阿里云 OSS，存图片、视频和附件；`OSS_PREFIX` 可给本地开发加前缀 |
 | `WA_AUTH_DIR` | WhatsApp 登录凭证目录（容器内 `/data/whatsapp`，挂载 `whatsapp` 卷） |
 
 ### Worker 与定时任务

@@ -1,3 +1,4 @@
+import { waMediaOf } from "@/components/crm/wa-media";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -152,6 +153,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
             id: m.id,
             fromMe: m.fromMe,
             body: m.body,
+            media: waMediaOf(m),
             timestamp: m.timestamp.toISOString(),
             chatId: m.chatId,
             mine: m.account.userId === user.id,

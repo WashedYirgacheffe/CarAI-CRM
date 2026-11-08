@@ -44,6 +44,18 @@ const productSchema = z.object({
   grossWeight: optNum(1e6),
   netWeight: optNum(1e6),
   imageUrl: opt(500).refine((v) => !v || v.startsWith("/api/files/") || /^https?:\/\//.test(v), "图片地址不正确"),
+  images: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      try {
+        const list = v ? (JSON.parse(v) as unknown) : [];
+        if (Array.isArray(list) && list.length <= 8 && list.every((u) => typeof u === "string" && u.startsWith("/api/files/") && u.length <= 500)) return list as string[];
+      } catch {}
+      ctx.addIssue({ code: "custom", message: "图片地址不正确" });
+      return z.NEVER;
+    }),
+  videoUrl: opt(500).refine((v) => !v || v.startsWith("/api/files/"), "视频地址不正确"),
   status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
   remark: opt(2000),
 });

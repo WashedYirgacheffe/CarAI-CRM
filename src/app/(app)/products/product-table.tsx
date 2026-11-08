@@ -21,7 +21,7 @@ import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { StatusBadge } from "@/components/crm/bits";
 import { ConfirmDialog } from "@/components/crm/confirm-dialog";
-import { ImageUpload, Thumb } from "@/components/crm/image-upload";
+import { GalleryUpload, ImageUpload, VideoUpload, Thumb } from "@/components/crm/image-upload";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
 import { CURRENCIES } from "@/lib/crm";
 import { PRODUCT_UNITS, formatPrice } from "@/lib/docs";
@@ -53,6 +53,8 @@ export type ProductRow = {
   grossWeight: string | null;
   netWeight: string | null;
   imageUrl: string | null;
+  images: string[];
+  videoUrl: string | null;
   status: "ACTIVE" | "INACTIVE";
   remark: string | null;
 };
@@ -241,7 +243,21 @@ function ProductForm({ product: p, categories, onDone }: { product: Partial<Prod
       <input type="hidden" name="status" value={p.status ?? "ACTIVE"} />
       <FieldGroup className="gap-4 py-4">
         <FormMessage state={state} />
-        <ImageUpload name="imageUrl" defaultValue={p.imageUrl} />
+        <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
+          <Field>
+            <FieldLabel>主图</FieldLabel>
+            <ImageUpload name="imageUrl" defaultValue={p.imageUrl} />
+          </Field>
+          <Field>
+            <FieldLabel>产品视频</FieldLabel>
+            <VideoUpload name="videoUrl" defaultValue={p.videoUrl} />
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel>更多图片</FieldLabel>
+          <GalleryUpload name="images" defaultValue={p.images} />
+          <FieldErrors state={state} name="images" />
+        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
             <FieldLabel htmlFor="p-sku">产品编号</FieldLabel>

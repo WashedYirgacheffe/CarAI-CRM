@@ -1,3 +1,4 @@
+import { waMediaOf } from "@/components/crm/wa-media";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MessageCircle } from "lucide-react";
@@ -115,6 +116,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
               id: m.id,
               fromMe: m.fromMe,
               body: m.body,
+              media: waMediaOf(m),
               status: m.status,
               error: m.error,
               timestamp: m.timestamp.toISOString(),

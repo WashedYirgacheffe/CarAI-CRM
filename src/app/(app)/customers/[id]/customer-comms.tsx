@@ -1,5 +1,6 @@
 "use client";
 
+import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, Paperclip, PenSquare, RefreshCw, Sparkles } from "lucide-react";
@@ -22,7 +23,7 @@ export type CustomerMailRow = {
   mine: boolean;
 };
 
-export type CustomerWaRow = { id: string; fromMe: boolean; body: string; timestamp: string; chatId: string; mine: boolean };
+export type CustomerWaRow = { id: string; fromMe: boolean; body: string; media: WaMediaInfo; timestamp: string; chatId: string; mine: boolean };
 
 export function CustomerMails({ rows, tz, composeHref }: { rows: CustomerMailRow[]; tz: string; composeHref: string | null }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -116,7 +117,8 @@ export function CustomerWhatsapp({ rows, tz, chatHref }: { rows: CustomerWaRow[]
             {rows.map((m) => (
               <div key={m.id} className={cn("flex", m.fromMe ? "justify-end" : "justify-start")}>
                 <div className={cn("max-w-[80%] rounded-lg px-2.5 py-1 text-sm shadow-xs", m.fromMe ? "bg-[#d9fdd3]" : "bg-white")}>
-                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  <WaMedia id={m.id} media={m.media} />
+                  {waCaption(m.body, m.media) && <p className="whitespace-pre-wrap break-words">{waCaption(m.body, m.media)}</p>}
                   <p className="text-right text-[10px] text-muted-foreground tabular-nums">{formatDateTime(m.timestamp, tz)}</p>
                 </div>
               </div>

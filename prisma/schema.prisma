@@ -459,7 +459,12 @@ model Product {
   cartonSize  String?
   grossWeight Decimal?      @db.Decimal(10, 3)
   netWeight   Decimal?      @db.Decimal(10, 3)
+  /// 主图（列表缩略图、单据明细用）
   imageUrl    String?
+  /// 更多图片（/api/files/... URL，最多 8 张）
+  images      String[]      @default([])
+  /// 产品视频
+  videoUrl    String?
   status      ProductStatus @default(ACTIVE)
   remark      String?
   createdById String?
@@ -849,6 +854,11 @@ model WaMessage {
   /// text / image / video / audio / document / sticker / other
   type      String      @default("text")
   body      String      @default("")
+  /// 图片 / 视频 / 语音 / 文件：存储 key（<tenantId>/wa/<id>.<ext>），没下载到为空
+  mediaKey  String?
+  mediaMime String?
+  mediaName String?
+  mediaSize Int?
   status    WaMsgStatus
   error     String?
   sentById  String?

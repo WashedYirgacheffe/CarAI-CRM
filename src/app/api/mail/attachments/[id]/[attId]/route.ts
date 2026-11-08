@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { getCurrentUser } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { getCustomerForUser } from "@/server/customers";
-import { asAttachments, readAttachment } from "@/server/mail/store";
+import { asAttachments, serveAttachment } from "@/server/mail/store";
 
 /** 下载邮件附件：邮箱本人，或能查看所归档客户的同事 */
 export async function GET(_req: NextRequest, ctx: RouteContext<"/api/mail/attachments/[id]/[attId]">) {
@@ -15,17 +15,5 @@ export async function GET(_req: NextRequest, ctx: RouteContext<"/api/mail/attach
   if (!allowed) return new Response("Forbidden", { status: 403 });
   const att = asAttachments(m.attachments).find((a) => a.id === attId);
   if (!att) return new Response("Not found", { status: 404 });
-  try {
-    const data = await readAttachment(user.tenantId, att.id);
-    return new Response(new Uint8Array(data), {
-      headers: {
-        "Content-Type": att.contentType,
-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(att.filename)}`,
-        "Cache-Control": "private, max-age=3600",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  } catch {
-    return new Response("Not found", { status: 404 });
-  }
+  return serveAttachment(user.tenantId, att);
 }
