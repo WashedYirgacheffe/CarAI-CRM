@@ -16,12 +16,27 @@ model Tenant {
   name            String
   defaultCurrency String   @default("USD")
   timezone        String   @default("Asia/Shanghai")
+  /// 公海规则：负责人超过 N 天未跟进，客户自动回到公海（0 = 不自动回收）
+  poolRecycleDays      Int @default(30)
+  /// 每人每天最多从公海领取的客户数（0 = 不限）
+  poolDailyClaimLimit  Int @default(20)
+  /// 每人最多持有的私海客户数（0 = 不限）
+  privateCustomerLimit Int @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   users       User[]
   departments Department[]
   roles       Role[]
+  customers   Customer[]
+  statuses    CustomerStatus[]
+  groups      CustomerGroup[]
+  contacts    Contact[]
+  leads       Lead[]
+  stages      Stage[]
+  opportunities Opportunity[]
+  activities  Activity[]
+  tasks       Task[]
 }
 
 enum UserStatus {
@@ -49,6 +64,12 @@ model User {
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   role       Role        @relation(fields: [roleId], references: [id], onDelete: Restrict)
   sessions   Session[]
+
+  ownedCustomers     Customer[]    @relation("CustomerOwner")
+  ownedLeads         Lead[]        @relation("LeadOwner")
+  ownedOpportunities Opportunity[] @relation("OpportunityOwner")
+  activities         Activity[]
+  tasks              Task[]        @relation("TaskOwner")
 
   @@index([tenantId])
 }
@@ -110,4 +131,249 @@ model Role {
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+// ================= P1：客户与销售 =================
+
+/// 客户状态（企业自定义，如：询盘客户、样品客户、成交客户）
+model CustomerStatus {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+  color    String @default("slate")
+  sort     Int    @default(0)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customers Customer[]
+
+  @@unique([tenantId, name])
+}
+
+/// 客户分组，最多 3 级
+model CustomerGroup {
+  id       String  @id @default(cuid())
+  tenantId String
+  name     String
+  parentId String?
+  sort     Int     @default(0)
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent    CustomerGroup?  @relation("GroupTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  CustomerGroup[] @relation("GroupTree")
+  customers Customer[]
+
+  @@index([tenantId])
+}
+
+/// 客户（公司）。ownerId 为空 = 在公海。
+model Customer {
+  id            String    @id @default(cuid())
+  tenantId      String
+  name          String
+  /// 规范化名称（小写、去空格和标点、去公司后缀），企业内唯一，用于防撞单
+  nameKey       String
+  country       String?
+  website       String?
+  /// 官网或邮箱域名，用于查重和邮件自动匹配
+  domain        String?
+  address       String?
+  source        String?
+  customerType  String?
+  mainProducts  String?
+  annualVolume  String?
+  star          Int       @default(0)
+  statusId      String?
+  groupId       String?
+  tags          String[]
+  remark        String?
+  ownerId       String?
+  assignedAt    DateTime?
+  lastContactAt DateTime?
+  nextFollowAt  DateTime?
+  poolEnteredAt DateTime?
+  poolReason    String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner         User?           @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  status        CustomerStatus? @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  group         CustomerGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  contacts      Contact[]
+  opportunities Opportunity[]
+  activities    Activity[]
+  tasks         Task[]
+  leads         Lead[]
+
+  @@unique([tenantId, nameKey])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, domain])
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  tenantId   String
+  customerId String
+  name       String
+  title      String?
+  email      String?
+  phone      String?
+  whatsapp   String?
+  isPrimary  Boolean  @default(false)
+  remark     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, email])
+  @@index([customerId])
+}
+
+enum LeadStatus {
+  NEW        // 待处理
+  CONTACTED  // 已联系
+  CONVERTED  // 已转客户
+  INVALID    // 无效
+}
+
+/// 线索 / 询盘
+model Lead {
+  id            String     @id @default(cuid())
+  tenantId      String
+  companyName   String?
+  contactName   String?
+  email         String?
+  phone         String?
+  whatsapp      String?
+  country       String?
+  source        String?
+  products      String?
+  inquiry       String?
+  status        LeadStatus @default(NEW)
+  invalidReason String?
+  ownerId       String?
+  assignedAt    DateTime?
+  customerId    String?
+  createdById   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner    User?     @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, ownerId])
+}
+
+enum StageKind {
+  OPEN
+  WON
+  LOST
+}
+
+/// 商机阶段（企业自定义）
+model Stage {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  probability Int       @default(0)
+  kind        StageKind @default(OPEN)
+  sort        Int       @default(0)
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+
+  @@unique([tenantId, name])
+}
+
+model Opportunity {
+  id              String    @id @default(cuid())
+  tenantId        String
+  customerId      String
+  name            String
+  amount          Decimal   @default(0) @db.Decimal(14, 2)
+  currency        String    @default("USD")
+  stageId         String
+  ownerId         String?
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  stageChangedAt  DateTime  @default(now())
+  remark          String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  stage      Stage      @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  owner      User?      @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  activities Activity[]
+  tasks      Task[]
+
+  @@index([tenantId, stageId])
+  @@index([customerId])
+}
+
+enum ActivityType {
+  FOLLOW_UP // 业务员写的跟进记录
+  SYSTEM    // 系统动态：创建、领取、放入公海、转移、阶段变更等
+}
+
+enum FollowMethod {
+  EMAIL
+  PHONE
+  WHATSAPP
+  WECHAT
+  MEETING
+  VISIT
+  OTHER
+}
+
+/// 客户动态时间线
+model Activity {
+  id            String        @id @default(cuid())
+  tenantId      String
+  customerId    String?
+  opportunityId String?
+  type          ActivityType
+  /// 系统事件类型：created / claimed / released / recycled / transferred / assigned / stage / opportunity / lead_converted
+  event         String?
+  method        FollowMethod?
+  content       String
+  userId        String?
+  createdAt     DateTime      @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer    Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId, createdAt])
+  @@index([tenantId, userId, event, createdAt])
+}
+
+/// 日程 / 跟进任务
+model Task {
+  id            String    @id @default(cuid())
+  tenantId      String
+  title         String
+  dueAt         DateTime
+  done          Boolean   @default(false)
+  doneAt        DateTime?
+  customerId    String?
+  opportunityId String?
+  ownerId       String
+  createdById   String?
+  createdAt     DateTime  @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer    Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  owner       User         @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ownerId, done, dueAt])
 }

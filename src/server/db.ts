@@ -18,7 +18,20 @@ export const prisma = globalForPrisma.prisma ?? createClient();
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 /** 带 tenantId 字段、需要强制隔离的模型。新增业务表时登记到这里。 */
-const TENANT_MODELS = new Set<string>(["User", "Department", "Role"]);
+const TENANT_MODELS = new Set<string>([
+  "User",
+  "Department",
+  "Role",
+  "Customer",
+  "CustomerStatus",
+  "CustomerGroup",
+  "Contact",
+  "Lead",
+  "Stage",
+  "Opportunity",
+  "Activity",
+  "Task",
+]);
 
 const WHERE_OPERATIONS = new Set<string>([
   "findUnique",

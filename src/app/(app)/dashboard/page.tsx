@@ -1,32 +1,82 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { requireUser } from "@/server/auth";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TaskList } from "@/components/crm/tasks";
+import { can, requireUser } from "@/server/auth";
 import { tenantDb } from "@/server/db";
+import { ownedWhere } from "@/server/scope";
+import { dayRange, daysAgo, followMethodLabel, formatDateTime, formatMoney } from "@/lib/crm";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "工作台" };
-
-const ROADMAP = [
-  { phase: "P0", title: "骨架", body: "注册登录、多租户、部门成员、角色权限", done: true },
-  { phase: "P1", title: "客户与销售", body: "客户、公海、线索、商机、跟进与日程", done: false },
-  { phase: "P2", title: "单据", body: "产品、多币种报价单、PI、订单", done: false },
-  { phase: "P3", title: "邮件", body: "邮箱绑定、收发同步、自动建档", done: false },
-];
 
 export default async function DashboardPage() {
   const user = await requireUser();
   const db = tenantDb(user.tenantId);
-  const [members, departments, roles] = await Promise.all([
-    db.user.count({ where: { status: "ACTIVE" } }),
-    db.department.count(),
-    db.role.count(),
-  ]);
+  const tz = user.timezone;
+  const { start, end } = dayRange(tz);
+  const canCustomers = can(user, "customer.view");
+  const canLeads = can(user, "lead.view");
+  const canOpps = can(user, "opportunity.view");
+  const scoped = await ownedWhere(user);
+  const mine = { ownerId: user.id };
+
+  const [myCustomers, dueCustomers, staleCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent] =
+    await Promise.all([
+      canCustomers ? db.customer.count({ where: mine }) : 0,
+      canCustomers ? db.customer.count({ where: { ...mine, nextFollowAt: { lt: end } } }) : 0,
+      canCustomers
+        ? db.customer.count({ where: { ...mine, OR: [{ lastContactAt: null }, { lastContactAt: { lt: daysAgo(14) } }] } })
+        : 0,
+      db.task.findMany({
+        where: { ...mine, done: false, dueAt: { lt: end } },
+        orderBy: { dueAt: "asc" },
+        take: 10,
+        include: { customer: { select: { name: true } } },
+      }),
+      db.task.count({ where: { ...mine, done: false, dueAt: { lt: start } } }),
+      canOpps
+        ? db.opportunity.groupBy({
+            by: ["currency"],
+            where: { ...scoped, stage: { kind: "OPEN" } },
+            _sum: { amount: true },
+            _count: true,
+          })
+        : [],
+      canLeads ? db.lead.count({ where: { ...mine, status: "NEW" } }) : 0,
+      canLeads && can(user, "lead.assign") ? db.lead.count({ where: { ownerId: null, status: { in: ["NEW", "CONTACTED"] } } }) : null,
+      canCustomers
+        ? db.activity.findMany({
+            where: { type: "FOLLOW_UP", customer: scoped },
+            orderBy: { createdAt: "desc" },
+            take: 8,
+            include: { customer: { select: { id: true, name: true } }, user: { select: { name: true } } },
+          })
+        : [],
+    ]);
+
+  const oppCount = openOpps.reduce((n, o) => n + o._count, 0);
+  const oppSum = openOpps.map((o) => formatMoney(o._sum.amount?.toString() ?? 0, o.currency)).join(" + ") || "—";
 
   const stats = [
-    { label: "在用成员", value: members, href: "/settings/members" },
-    { label: "部门", value: departments, href: "/settings/departments" },
-    { label: "角色", value: roles, href: "/settings/roles" },
-  ];
+    canCustomers && { label: "我的客户", value: myCustomers, hint: `${staleCustomers} 个超过 14 天未跟进`, href: "/customers" },
+    canCustomers && {
+      label: "今天待跟进客户",
+      value: dueCustomers,
+      hint: "含已逾期",
+      href: "/customers?follow=due",
+      alert: dueCustomers > 0,
+    },
+    { label: "逾期日程", value: overdueTasks, hint: "未完成且已过时间", href: "/schedule", alert: overdueTasks > 0 },
+    canOpps && { label: "进行中商机", value: oppCount, hint: oppSum, href: "/opportunities" },
+    canLeads && {
+      label: "新线索",
+      value: newLeads,
+      hint: unassignedLeads !== null ? `另有 ${unassignedLeads} 条待分配` : "分配给我、未处理",
+      href: unassignedLeads ? "/leads?tab=unassigned" : "/leads",
+    },
+  ].filter(Boolean) as { label: string; value: number; hint: string; href: string; alert?: boolean }[];
 
   return (
     <>
@@ -34,42 +84,72 @@ export default async function DashboardPage() {
         title={`你好，${user.name}`}
         description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`}
       />
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {stats.map((s) => (
-          <Link
-            key={s.label}
-            href={s.href}
-            className="rounded-xl border bg-card p-5 transition-colors hover:border-primary/40"
-          >
+          <Link key={s.label} href={s.href} className="rounded-xl border bg-card p-4 transition-colors hover:border-primary/40">
             <p className="text-sm text-muted-foreground">{s.label}</p>
-            <p className="mt-2 text-3xl font-semibold tabular-nums">{s.value}</p>
+            <p className={cn("mt-1.5 text-2xl font-semibold tabular-nums", s.alert && "text-destructive")}>{s.value}</p>
+            <p className="mt-1 truncate text-xs text-muted-foreground tabular-nums">{s.hint}</p>
           </Link>
         ))}
       </section>
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">建设进度</h2>
-        <ol className="divide-y rounded-xl border bg-card">
-          {ROADMAP.map((r) => (
-            <li key={r.phase} className="flex items-center gap-4 px-5 py-4">
-              <span
-                className={
-                  r.done
-                    ? "rounded-md bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground"
-                    : "rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                }
-              >
-                {r.phase}
-              </span>
-              <div className="min-w-0">
-                <p className="font-medium">{r.title}</p>
-                <p className="text-sm text-muted-foreground">{r.body}</p>
-              </div>
-              <span className="ml-auto text-xs text-muted-foreground">{r.done ? "已完成" : "待开发"}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">今天要做</CardTitle>
+            <CardAction>
+              <Link href="/schedule" className="text-sm text-muted-foreground hover:text-primary">
+                全部日程
+              </Link>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <TaskList
+              tz={tz}
+              empty="今天没有待办，去客户列表看看谁该跟进了"
+              tasks={tasks.map((t) => ({
+                id: t.id,
+                title: t.title,
+                dueAt: t.dueAt.toISOString(),
+                done: t.done,
+                customerId: t.customerId,
+                customerName: t.customer?.name ?? null,
+              }))}
+            />
+          </CardContent>
+        </Card>
+
+        {canCustomers && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">最近跟进</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {recent.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">还没有跟进记录</p>
+              ) : (
+                <ul className="divide-y">
+                  {recent.map((a) => (
+                    <li key={a.id} className="py-2.5">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span> · {a.user?.name} ·{" "}
+                        {followMethodLabel(a.method)} ·{" "}
+                        {a.customer && (
+                          <Link href={`/customers/${a.customer.id}`} className="text-foreground hover:text-primary hover:underline">
+                            {a.customer.name}
+                          </Link>
+                        )}
+                      </p>
+                      <p className="mt-0.5 line-clamp-2 text-sm">{a.content}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </>
   );
 }

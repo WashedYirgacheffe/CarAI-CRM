@@ -26,16 +26,15 @@ export const NAV: NavSection[] = [
         href: "/customers",
         icon: "Building2",
         permission: "customer.view",
-        phase: "P1",
         children: [
-          { title: "我的客户", href: "/customers", permission: "customer.view", phase: "P1" },
-          { title: "公海客户", href: "/customers/pool", permission: "pool.view", phase: "P1" },
-          { title: "联系人", href: "/customers/contacts", permission: "customer.view", phase: "P1" },
+          { title: "我的客户", href: "/customers", permission: "customer.view" },
+          { title: "公海客户", href: "/customers/pool", permission: "pool.view" },
+          { title: "联系人", href: "/customers/contacts", permission: "customer.view" },
         ],
       },
-      { title: "线索 / 询盘", href: "/leads", icon: "Inbox", permission: "lead.view", phase: "P1" },
-      { title: "商机", href: "/opportunities", icon: "KanbanSquare", permission: "opportunity.view", phase: "P1" },
-      { title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view", phase: "P1" },
+      { title: "线索 / 询盘", href: "/leads", icon: "Inbox", permission: "lead.view" },
+      { title: "商机", href: "/opportunities", icon: "KanbanSquare", permission: "opportunity.view" },
+      { title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view" },
     ],
   },
   {
@@ -76,9 +75,9 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
   {
     group: "业务规则",
     items: [
-      { title: "公海规则", href: "/settings/pool-rules", permission: "settings.business", phase: "P1" },
-      { title: "客户字段", href: "/settings/fields", permission: "settings.business", phase: "P1" },
-      { title: "商机阶段", href: "/settings/stages", permission: "settings.business", phase: "P1" },
+      { title: "公海规则", href: "/settings/pool-rules", permission: "settings.business" },
+      { title: "客户分类", href: "/settings/fields", permission: "settings.business" },
+      { title: "商机阶段", href: "/settings/stages", permission: "settings.business" },
     ],
   },
   {
