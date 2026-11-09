@@ -174,24 +174,24 @@ export default async function DashboardPage() {
 
   const blocks: Record<(typeof cards)[number], React.ReactNode> = {
     overview: (
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         {stats.map((s) => (
           <Link
             key={s.label}
             href={s.href}
-            className="surface group flex items-start gap-3.5 p-5 transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-12px_oklch(0.4_0.12_265/0.25)]"
+            className="surface group flex flex-col items-start gap-2.5 p-3.5 md:flex-row md:gap-3.5 md:p-5 transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-12px_oklch(0.4_0.12_265/0.25)]"
           >
             <span
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-xl",
+                "flex size-9 shrink-0 items-center justify-center rounded-xl md:size-10",
                 s.alert ? "bg-destructive/10 text-destructive" : "bg-accent text-primary",
               )}
             >
               <s.icon className="size-5" />
             </span>
-            <span className="min-w-0">
-              <span className="block text-sm text-muted-foreground">{s.label}</span>
-              <span className={cn("mt-0.5 block text-[28px] leading-tight font-bold tabular-nums", s.alert && "text-destructive")}>{s.value}</span>
+            <span className="w-full min-w-0">
+              <span className="block truncate text-[13px] text-muted-foreground md:text-sm">{s.label}</span>
+              <span className={cn("mt-0.5 block text-2xl md:text-[28px] leading-tight font-bold tabular-nums", s.alert && "text-destructive")}>{s.value}</span>
               <span className="mt-0.5 block truncate text-xs text-muted-foreground tabular-nums">{s.hint}</span>
             </span>
           </Link>

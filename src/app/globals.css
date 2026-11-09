@@ -164,6 +164,23 @@
   }
 }
 
+/*
+ * 手机：输入框字号不小于 16px，否则 iOS 聚焦时会放大整个页面。
+ * 放在 @layer 之外，优先级高于 text-sm 等工具类。
+ */
+@media (max-width: 767px) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* 手机上去掉点按时的灰色高亮 */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* WhatsApp 同步中的不定进度条 */
 @keyframes wa-sync {
   0% { transform: translateX(-100%); }
