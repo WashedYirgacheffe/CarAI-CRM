@@ -74,12 +74,12 @@ export function GlobalSearch() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-8 items-center gap-2 rounded-md border bg-muted/40 px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted sm:w-64"
+        className="flex h-9 w-9 items-center justify-center gap-2 rounded-full bg-muted text-sm text-muted-foreground ring-1 ring-border/60 transition-colors hover:bg-accent hover:text-accent-foreground sm:w-[min(100%,28rem)] sm:justify-start sm:px-4"
         aria-label="全局搜索"
       >
         <Search className="size-4" />
         <span className="hidden flex-1 text-left sm:inline">搜索客户、线索、单据…</span>
-        <kbd className="hidden rounded border bg-background px-1 font-sans text-[10px] sm:inline">⌘K</kbd>
+        <kbd className="hidden rounded-md bg-card px-1.5 py-0.5 font-sans text-[10px] ring-1 ring-border sm:inline">⌘K</kbd>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="top-[15%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>

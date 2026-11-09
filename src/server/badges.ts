@@ -5,7 +5,7 @@ import { LEAD_OPEN_STATUSES } from "@/lib/crm";
 import type { BadgeKey } from "@/lib/nav";
 
 /**
- * 侧边栏 / 工作台的提醒数：
+ * 图标栏 / 顶栏提醒 / 工作台的提醒数：
  * - 线索：分配给我、还没处理的新线索；有分配权限的再加上待分配的
  * - 邮件：我绑定的邮箱里收件箱未读
  * - WhatsApp：我的账号下未读消息数

@@ -8,68 +8,68 @@ export type NavLeaf = {
   phase?: string;
 };
 
-/** 侧边栏数字提醒（/api/badges 返回） */
+/** 图标栏数字提醒（/api/badges 返回） */
 export type BadgeKey = "leads" | "mail" | "whatsapp";
 
-export type NavItem = NavLeaf & {
+export type NavGroup = { group?: string; items: NavLeaf[] };
+
+/** 一级模块：左侧图标栏的一项。有 menu 的模块在图标栏右边展开二级菜单 */
+export type NavModule = {
+  key: string;
+  /** 图标栏上的短标签（2–4 个字） */
+  title: string;
+  href: string;
+  /** lucide 图标名，在 app-shell.tsx 里映射 */
   icon: string;
+  permission?: Permission;
   badge?: BadgeKey;
-  children?: NavLeaf[];
+  menu?: NavGroup[];
 };
 
-export type NavSection = { label: string; items: NavItem[] };
-
-/** 后台菜单（参照 OKKI 分组）。icon 是 lucide 图标名，在 app-sidebar.tsx 里映射。 */
-export const NAV: NavSection[] = [
+/** 后台模块（结构参照 OKKI：一级图标栏 + 模块二级菜单） */
+export const NAV: NavModule[] = [
+  { key: "dashboard", title: "工作台", href: "/dashboard", icon: "LayoutDashboard" },
+  { key: "mail", title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
+  { key: "whatsapp", title: "沟通", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
+  { key: "leads", title: "线索", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
   {
-    label: "客户",
-    items: [
-      { title: "工作台", href: "/dashboard", icon: "LayoutDashboard" },
+    key: "customers",
+    title: "客户",
+    href: "/customers",
+    icon: "Building2",
+    permission: "customer.view",
+    menu: [
       {
-        title: "客户",
-        href: "/customers",
-        icon: "Building2",
-        permission: "customer.view",
-        children: [
-          { title: "我的客户", href: "/customers", permission: "customer.view" },
+        items: [
+          { title: "客户列表", href: "/customers", permission: "customer.view" },
           { title: "公海客户", href: "/customers/pool", permission: "pool.view" },
           { title: "联系人", href: "/customers/contacts", permission: "customer.view" },
           { title: "建档建议", href: "/customers/suggestions", permission: "customer.create" },
-          { title: "查重合并", href: "/customers/duplicates", permission: "customer.view" },
+          { title: "客户查重", href: "/customers/duplicates", permission: "customer.view" },
         ],
       },
-      { title: "线索 / 询盘", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
-      { title: "商机", href: "/opportunities", icon: "KanbanSquare", permission: "opportunity.view" },
     ],
   },
+  { key: "opportunities", title: "商机", href: "/opportunities", icon: "KanbanSquare", permission: "opportunity.view" },
   {
-    label: "沟通",
-    items: [
-      { title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
-      { title: "WhatsApp", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
+    key: "trade",
+    title: "交易",
+    href: "/products",
+    icon: "Package",
+    menu: [
+      {
+        items: [
+          { title: "产品", href: "/products", permission: "product.view" },
+          { title: "报价单", href: "/quotations", permission: "quotation.view" },
+          { title: "销售订单", href: "/orders", permission: "order.view" },
+          { title: "回款", href: "/payments", permission: "order.view" },
+        ],
+      },
     ],
   },
-  {
-    label: "交易",
-    items: [
-      { title: "产品", href: "/products", icon: "Package", permission: "product.view" },
-      { title: "报价单", href: "/quotations", icon: "FileText", permission: "quotation.view" },
-      { title: "订单", href: "/orders", icon: "ClipboardList", permission: "order.view" },
-      { title: "回款", href: "/payments", icon: "Wallet", permission: "order.view" },
-    ],
-  },
-  {
-    label: "协同",
-    items: [{ title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view" }],
-  },
-  {
-    label: "团队数据",
-    items: [{ title: "统计", href: "/reports", icon: "BarChart3", permission: "report.view" }],
-  },
-  {
-    label: "系统",
-    items: [{ title: "设置", href: "/settings", icon: "Settings" }],
-  },
+  { key: "schedule", title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view" },
+  { key: "reports", title: "团队数据", href: "/reports", icon: "BarChart3", permission: "report.view" },
+  { key: "settings", title: "设置", href: "/settings", icon: "Settings", menu: [] },
 ];
 
 /** 设置页二级菜单 */
@@ -104,4 +104,37 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
 
 export function filterNav<T extends NavLeaf>(items: T[], permissions: Permission[]): T[] {
   return items.filter((i) => !i.permission || permissions.includes(i.permission));
+}
+
+/** 按权限过滤模块和二级菜单；二级菜单全被滤掉的模块不显示，模块入口指向第一个能进的子页 */
+export function filterModules(permissions: Permission[]): NavModule[] {
+  const out: NavModule[] = [];
+  for (const m of NAV) {
+    if (m.permission && !permissions.includes(m.permission)) continue;
+    if (!m.menu) {
+      out.push(m);
+      continue;
+    }
+    const source = m.key === "settings" ? SETTINGS_NAV : m.menu;
+    const menu = source.map((g) => ({ ...g, items: filterNav(g.items, permissions) })).filter((g) => g.items.length);
+    if (!menu.length) continue;
+    out.push({ ...m, href: m.key === "settings" ? m.href : menu[0].items[0].href, menu });
+  }
+  return out;
+}
+
+function matches(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** 当前路径属于哪个模块、二级菜单里哪一项：取匹配最长的那个 */
+export function activeNav(modules: NavModule[], pathname: string) {
+  let best: { module: NavModule; leaf?: string; len: number } | null = null;
+  for (const m of modules) {
+    const hrefs = [m.href, ...(m.menu ?? []).flatMap((g) => g.items.map((i) => i.href))];
+    for (const h of hrefs) {
+      if (matches(pathname, h) && (!best || h.length > best.len)) best = { module: m, leaf: m.menu ? h : undefined, len: h.length };
+    }
+  }
+  return best ? { module: best.module, leaf: best.leaf } : null;
 }
