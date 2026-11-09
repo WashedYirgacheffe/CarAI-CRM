@@ -12,9 +12,11 @@ export type Slice = { label: string; value: number };
 
 /** 前 5 类 + 其他 */
 function foldSlices(data: Slice[]): (Slice & { color: string })[] {
-  const sorted = [...data].filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+  // 数据里本身叫「其他」的类别并入末尾的「其他」，避免出现两个「其他」
+  const own = data.filter((d) => d.label === "其他").reduce((n, d) => n + d.value, 0);
+  const sorted = data.filter((d) => d.value > 0 && d.label !== "其他").sort((a, b) => b.value - a.value);
   const head = sorted.slice(0, 5).map((d, i) => ({ ...d, color: SERIES[i] }));
-  const rest = sorted.slice(5).reduce((n, d) => n + d.value, 0);
+  const rest = own + sorted.slice(5).reduce((n, d) => n + d.value, 0);
   return rest > 0 ? [...head, { label: "其他", value: rest, color: OTHER }] : head;
 }
 
