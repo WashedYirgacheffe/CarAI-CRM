@@ -43,20 +43,36 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
   return (
     <>
       <PageHeader title="联系人" description="你数据范围内私海客户的全部联系人" />
-      <Form action="/customers/contacts" className="mb-4 flex gap-2">
-        <div className="relative w-full sm:w-72">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input name="q" defaultValue={q} placeholder="姓名 / 邮箱 / 电话 / 公司" className="pl-8" />
+      <div className="overflow-hidden surface">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+          <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+            {q ? "搜索结果" : "全部联系人"}
+            <span className="text-[13px] font-normal text-muted-foreground">
+              · <span className="tabular-nums">{total}</span> 个联系人
+            </span>
+          </h2>
+          <Form action="/customers/contacts" className="ml-auto flex w-full items-center gap-2 sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <button
+                type="submit"
+                className="absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="搜索"
+              >
+                <Search className="size-4" />
+              </button>
+              <Input name="q" defaultValue={q} placeholder="姓名 / 邮箱 / 电话 / 公司" className="h-8 pl-8 text-[13px]" />
+            </div>
+            {q && (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/customers/contacts">清空</Link>
+              </Button>
+            )}
+          </Form>
         </div>
-        <Button type="submit" variant="secondary">
-          查询
-        </Button>
-      </Form>
-      <div className="overflow-x-auto surface">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">姓名</TableHead>
+              <TableHead>姓名</TableHead>
               <TableHead>邮箱</TableHead>
               <TableHead>电话 / WhatsApp</TableHead>
               <TableHead>所属客户</TableHead>
@@ -73,7 +89,7 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
             )}
             {rows.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className="pl-4">
+                <TableCell>
                   <span className="font-medium">{r.name}</span>
                   {r.isPrimary && (
                     <Badge variant="secondary" className="ml-2">
@@ -99,8 +115,15 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
             ))}
           </TableBody>
         </Table>
+        <Pager
+          path="/customers/contacts"
+          filters={{ q }}
+          page={page}
+          pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+          total={total}
+          className="mt-0 border-t border-border/70 px-5 py-3"
+        />
       </div>
-      <Pager path="/customers/contacts" filters={{ q }} page={page} pages={Math.max(1, Math.ceil(total / PAGE_SIZE))} total={total} />
     </>
   );
 }

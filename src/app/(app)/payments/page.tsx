@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
+import { Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,48 +122,54 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
         ].map(([label, value, hint]) => (
           <div key={label} className="surface p-4">
             <p className="text-sm text-muted-foreground">{label}</p>
-            <p className="mt-1.5 text-2xl font-semibold tabular-nums">{value}</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
           </div>
         ))}
       </section>
 
-      <nav className="mb-4 flex gap-1 border-b">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={tabHref(t.key)}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm",
-              tab === t.key ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+      <div className="surface">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/70 px-4 py-3">
+          <nav aria-label="回款视图" className="inline-flex shrink-0 items-center rounded-full bg-muted p-0.5 ring-1 ring-border/60">
+            {TABS.map((t) => (
+              <Link
+                key={t.key}
+                href={tabHref(t.key)}
+                aria-current={tab === t.key ? "page" : undefined}
+                className={cn(
+                  "inline-flex h-7 items-center rounded-full px-3.5 text-sm font-medium transition-colors",
+                  tab === t.key ? "bg-card text-primary shadow-sm" : "text-foreground/60 hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </nav>
+
+          <Form action="/payments" className="flex flex-1 flex-wrap items-center gap-2">
+            {tab === "due" && <input type="hidden" name="tab" value="due" />}
+            <div className="relative w-full sm:w-56">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input name="q" defaultValue={q} placeholder="订单号 / 客户" className="h-8 pl-8" />
+            </div>
+            {tab === "records" && (
+              <>
+                <Input type="date" name="from" defaultValue={from} className="h-8 w-auto" aria-label="开始日期" />
+                <span className="text-sm text-muted-foreground">至</span>
+                <Input type="date" name="to" defaultValue={to} className="h-8 w-auto" aria-label="结束日期" />
+              </>
             )}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
+            <Button type="submit" size="sm" variant="secondary">
+              查询
+            </Button>
+            {(q || from || to) && (
+              <Button size="sm" variant="ghost" asChild>
+                <Link href={tab === "due" ? "/payments?tab=due" : "/payments"}>清空筛选</Link>
+              </Button>
+            )}
+          </Form>
+        </div>
 
-      <Form action="/payments" className="mb-4 flex flex-wrap items-center gap-2">
-        {tab === "due" && <input type="hidden" name="tab" value="due" />}
-        <Input name="q" defaultValue={q} placeholder="订单号 / 客户" className="w-full sm:w-56" />
-        {tab === "records" && (
-          <>
-            <Input type="date" name="from" defaultValue={from} className="w-auto" aria-label="开始日期" />
-            <span className="text-muted-foreground">至</span>
-            <Input type="date" name="to" defaultValue={to} className="w-auto" aria-label="结束日期" />
-          </>
-        )}
-        <Button type="submit" variant="secondary">
-          查询
-        </Button>
-        {(q || from || to) && (
-          <Button variant="ghost" asChild>
-            <Link href={tab === "due" ? "/payments?tab=due" : "/payments"}>清空筛选</Link>
-          </Button>
-        )}
-      </Form>
-
-      <div className="overflow-x-auto surface">
         {tab === "records" ? (
           <Table>
             <TableHeader>
@@ -258,14 +265,16 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
             </TableBody>
           </Table>
         )}
+        <div className="border-t border-border/70 px-4 py-3 [&>div]:mt-0">
+          <Pager
+            path="/payments"
+            filters={{ tab: tab === "records" ? "" : tab, q, from, to }}
+            page={page}
+            pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+            total={total}
+          />
+        </div>
       </div>
-      <Pager
-        path="/payments"
-        filters={{ tab: tab === "records" ? "" : tab, q, from, to }}
-        page={page}
-        pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
-        total={total}
-      />
     </>
   );
 }

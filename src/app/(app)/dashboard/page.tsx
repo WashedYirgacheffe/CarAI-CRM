@@ -6,15 +6,27 @@ import { TaskList } from "@/components/crm/tasks";
 import { WorldClock } from "@/components/dashboard/world-clock";
 import { FxCalculator } from "@/components/dashboard/fx-calculator";
 import { CustomizeDashboard } from "@/components/dashboard/customize-dashboard";
+import { BarTrend, Distribution, HBars } from "@/components/dashboard/charts";
+import {
+  Building2,
+  CalendarClock,
+  CalendarX2,
+  Inbox,
+  KanbanSquare,
+  Mail,
+  MessageCircle,
+  ReceiptText,
+  type LucideIcon,
+} from "lucide-react";
 import { can, requireUser } from "@/server/auth";
 import { prisma, tenantDb } from "@/server/db";
 import { getBadges } from "@/server/badges";
 import { getRates } from "@/server/documents";
 import { ownedWhere } from "@/server/scope";
 import { docScopeWhere } from "@/server/documents";
-import { CURRENCIES, LEAD_OPEN_STATUSES, dayRange, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
+import { CURRENCIES, LEAD_OPEN_STATUSES, countryName, dayRange, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
 import { ORDER_NOT_COUNTED, dateInput } from "@/lib/docs";
-import { COUNTRY_TZ, DEFAULT_CLOCK_COUNTRIES, resolveDashboard } from "@/lib/dashboard";
+import { COUNTRY_TZ, DEFAULT_CLOCK_COUNTRIES, isSideCard, resolveDashboard } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -36,14 +48,51 @@ export default async function DashboardPage() {
   const cards = resolveDashboard(saved?.dashboardCards);
   const show = (k: (typeof cards)[number]) => cards.includes(k);
 
-  const [badges, rates, topCountries] = await Promise.all([
+  // 近 6 个月（含本月）的起点
+  const [ty, tm] = dateInput(tz).split("-").map(Number);
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(Date.UTC(ty, tm - 6 + i, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  });
+  const trendStart = parseLocalInput(`${months[0]}-01T00:00`, tz)!;
+  const monthKey = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit" });
+
+  const [badges, rates, topCountries, trendOrders, stages, oppByStage, byStatus, byCountry, byGroup] = await Promise.all([
     show("overview") ? getBadges(user) : null,
-    show("fx") ? getRates(user.tenantId) : null,
+    show("fx") || show("trend") ? getRates(user.tenantId) : null,
     // 世界时钟默认显示「我的客户」最多的国家
     show("clock") && canCustomers
       ? db.customer.groupBy({ by: ["country"], where: { ...mine, country: { not: null } }, _count: true, orderBy: { _count: { country: "desc" } }, take: 12 })
       : [],
+    show("trend") && canOrders
+      ? db.order.findMany({
+          where: { ...docScope, status: { notIn: [...ORDER_NOT_COUNTED] }, orderDate: { gte: trendStart } },
+          select: { orderDate: true, total: true, exchangeRate: true },
+        })
+      : [],
+    show("pipeline") && canOpps ? db.stage.findMany({ where: { kind: "OPEN" }, orderBy: { sort: "asc" }, select: { id: true, name: true } }) : [],
+    show("pipeline") && canOpps
+      ? db.opportunity.groupBy({ by: ["stageId"], where: { ...scoped, stage: { kind: "OPEN" } }, _count: true })
+      : [],
+    show("distribution") && canCustomers ? db.customer.groupBy({ by: ["statusId"], where: mine, _count: true }) : [],
+    show("distribution") && canCustomers ? db.customer.groupBy({ by: ["country"], where: mine, _count: true }) : [],
+    show("distribution") && canCustomers ? db.customer.groupBy({ by: ["groupId"], where: mine, _count: true }) : [],
   ]);
+  const [statusNames, groupNames] = show("distribution") && canCustomers
+    ? await Promise.all([
+        db.customerStatus.findMany({ select: { id: true, name: true } }),
+        db.customerGroup.findMany({ select: { id: true, name: true } }),
+      ])
+    : [[], []];
+  const nameOf = (rows: { id: string; name: string }[], id: string | null, none: string) => rows.find((r) => r.id === id)?.name ?? none;
+  const trend = months.map((m) => ({
+    label: `${Number(m.slice(5))}月`,
+    value: trendOrders
+      .filter((o) => monthKey.format(o.orderDate) === m)
+      .reduce((n, o) => n + Number(o.total) * Number(o.exchangeRate), 0),
+  }));
+  const trendTotal = trend.reduce((n, t) => n + t.value, 0);
+  const pipeline = stages.map((st) => ({ label: st.name, value: oppByStage.find((o) => o.stageId === st.id)?._count ?? 0 }));
   const clockCountries = topCountries.map((c) => c.country!).filter((c) => COUNTRY_TZ[c] && c !== "CN").slice(0, 6);
 
   const [myCustomers, dueCustomers, poolSoonCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent, monthOrders] =
@@ -92,42 +141,59 @@ export default async function DashboardPage() {
   const oppSum = openOpps.map((o) => formatMoney(o._sum.amount?.toString() ?? 0, o.currency)).join(" + ") || "—";
 
   const stats = [
-    canCustomers && { label: "我的客户", value: myCustomers, hint: `${poolSoonCustomers} 个 7 天内将进公海`, href: "/customers?follow=soon" },
+    canCustomers && { icon: Building2, label: "我的客户", value: myCustomers, hint: `${poolSoonCustomers} 个 7 天内将进公海`, href: "/customers?follow=soon" },
     canCustomers && {
+      icon: CalendarClock,
       label: "今天待跟进客户",
       value: dueCustomers,
       hint: "含已逾期",
       href: "/customers?follow=due",
       alert: dueCustomers > 0,
     },
-    { label: "逾期日程", value: overdueTasks, hint: "未完成且已过时间", href: "/schedule", alert: overdueTasks > 0 },
-    canOpps && { label: "进行中商机", value: oppCount, hint: oppSum, href: "/opportunities" },
+    { icon: CalendarX2, label: "逾期日程", value: overdueTasks, hint: "未完成且已过时间", href: "/schedule", alert: overdueTasks > 0 },
+    canOpps && { icon: KanbanSquare, label: "进行中商机", value: oppCount, hint: oppSum, href: "/opportunities" },
     canOrders && {
+      icon: ReceiptText,
       label: "本月订单",
       value: monthOrders.length,
       hint: monthOrders.length ? `≈ ${formatMoney(monthOrderCny, "CNY")}` : "本月还没有订单",
       href: "/orders",
     },
     canLeads && {
+      icon: Inbox,
       label: "新线索",
       value: newLeads,
       hint: unassignedLeads !== null ? `另有 ${unassignedLeads} 条待分配` : "分配给我、未处理",
       href: unassignedLeads ? "/leads?tab=unassigned" : "/leads",
     },
     can(user, "mail.use") &&
-      badges && { label: "未读邮件", value: badges.mail, hint: "我的收件箱", href: "/mail?tag=unread", alert: badges.mail > 0 },
+      badges && { icon: Mail, label: "未读邮件", value: badges.mail, hint: "我的收件箱", href: "/mail?tag=unread", alert: badges.mail > 0 },
     can(user, "whatsapp.use") &&
-      badges && { label: "WhatsApp 未读", value: badges.whatsapp, hint: "我的会话", href: "/whatsapp", alert: badges.whatsapp > 0 },
-  ].filter(Boolean) as { label: string; value: number; hint: string; href: string; alert?: boolean }[];
+      badges && { icon: MessageCircle, label: "WhatsApp 未读", value: badges.whatsapp, hint: "我的会话", href: "/whatsapp", alert: badges.whatsapp > 0 },
+  ].filter(Boolean) as { icon: LucideIcon; label: string; value: number; hint: string; href: string; alert?: boolean }[];
 
   const blocks: Record<(typeof cards)[number], React.ReactNode> = {
     overview: (
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((s) => (
-          <Link key={s.label} href={s.href} className="surface p-4 transition-colors hover:border-primary/40">
-            <p className="text-sm text-muted-foreground">{s.label}</p>
-            <p className={cn("mt-1.5 text-2xl font-semibold tabular-nums", s.alert && "text-destructive")}>{s.value}</p>
-            <p className="mt-1 truncate text-xs text-muted-foreground tabular-nums">{s.hint}</p>
+          <Link
+            key={s.label}
+            href={s.href}
+            className="surface group flex items-start gap-3.5 p-5 transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-12px_oklch(0.4_0.12_265/0.25)]"
+          >
+            <span
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-xl",
+                s.alert ? "bg-destructive/10 text-destructive" : "bg-accent text-primary",
+              )}
+            >
+              <s.icon className="size-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm text-muted-foreground">{s.label}</span>
+              <span className={cn("mt-0.5 block text-[28px] leading-tight font-bold tabular-nums", s.alert && "text-destructive")}>{s.value}</span>
+              <span className="mt-0.5 block truncate text-xs text-muted-foreground tabular-nums">{s.hint}</span>
+            </span>
           </Link>
         ))}
       </section>
@@ -158,6 +224,52 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
     ),
+    trend: canOrders ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">成交趋势</CardTitle>
+          <CardAction>
+            <span className="text-sm text-muted-foreground">
+              近 6 个月合计 <span className="font-semibold text-foreground tabular-nums">{formatMoney(trendTotal, "CNY")}</span>
+            </span>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <BarTrend data={trend} currency="CNY" empty="近 6 个月还没有订单" />
+        </CardContent>
+      </Card>
+    ) : null,
+    pipeline: canOpps ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">商机阶段</CardTitle>
+          <CardAction>
+            <Link href="/opportunities" className="text-sm text-muted-foreground hover:text-primary">
+              查看看板
+            </Link>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <HBars data={pipeline} empty="还没有进行中的商机" />
+        </CardContent>
+      </Card>
+    ) : null,
+    distribution: canCustomers ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">客户分布</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Distribution
+            dims={[
+              { key: "status", label: "状态", data: byStatus.map((r) => ({ label: nameOf(statusNames, r.statusId, "未设置"), value: r._count })) },
+              { key: "country", label: "国家", data: byCountry.map((r) => ({ label: r.country ? countryName(r.country) : "未填写", value: r._count })) },
+              { key: "group", label: "分组", data: byGroup.map((r) => ({ label: nameOf(groupNames, r.groupId, "未分组"), value: r._count })) },
+            ]}
+          />
+        </CardContent>
+      </Card>
+    ) : null,
     recent: canCustomers ? (
       <Card>
         <CardHeader>
@@ -208,6 +320,9 @@ export default async function DashboardPage() {
     ),
   };
 
+  const main = cards.filter((k) => k !== "overview" && !isSideCard(k));
+  const side = cards.filter((k) => isSideCard(k));
+
   return (
     <>
       <PageHeader
@@ -215,13 +330,15 @@ export default async function DashboardPage() {
         description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`}
         actions={<CustomizeDashboard current={cards} />}
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        {cards.map((k) =>
-          blocks[k] ? (
-            <div key={k} className={k === "overview" ? "lg:col-span-2" : undefined}>
-              {blocks[k]}
-            </div>
-          ) : null,
+      {cards.includes("overview") && <div className="mb-4">{blocks.overview}</div>}
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid min-w-0 gap-4">
+          {main.map((k) => blocks[k] && <div key={k}>{blocks[k]}</div>)}
+        </div>
+        {side.length > 0 && (
+          <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-1">
+            {side.map((k) => blocks[k] && <div key={k}>{blocks[k]}</div>)}
+          </div>
         )}
       </div>
     </>

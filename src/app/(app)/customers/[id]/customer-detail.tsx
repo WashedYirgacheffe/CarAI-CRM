@@ -1,11 +1,29 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Clock, Globe, Mail, MoreHorizontal, Pencil, Phone, Plus, Star, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Globe,
+  Mail,
+  MapPin,
+  MessageCircle,
+  MoreVertical,
+  PenSquare,
+  Pencil,
+  Phone,
+  Plus,
+  Star,
+  Tag as TagIcon,
+  Trash2,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +71,7 @@ import { OpportunityForm, type StageOption } from "@/components/crm/opportunity-
 import { TaskForm, TaskList, type TaskItem } from "@/components/crm/tasks";
 import type { CustomerAccess } from "@/server/customers";
 import { CustomerDocsCard, type CustomerDocRow } from "./customer-docs";
+import { PaneEmpty, PaneToolbar, Panel } from "./detail-ui";
 import {
   addFollowUpAction,
   claimCustomersAction,
@@ -185,6 +204,12 @@ export function CustomerDetail({
   const canEdit = access.edit;
   const primaryEmail = contacts.find((x) => x.email)?.email ?? null;
   const primaryWa = contacts.find((x) => x.whatsapp || x.phone)?.whatsapp ?? contacts.find((x) => x.phone)?.phone ?? null;
+  const composeHref = comms.mailEnabled && primaryEmail ? `/mail/compose?to=${encodeURIComponent(primaryEmail)}` : null;
+  const showWa = comms.waEnabled || comms.wa.length > 0;
+  const canClaim = access.inPool && perms.claim;
+  const openOpps = opportunities.filter((o) => o.stageKind === "OPEN");
+  const openTasks = tasks.filter((t) => !t.done);
+  const listHref = access.inPool ? "/customers/pool" : "/customers";
 
   async function run(p: Promise<{ ok?: boolean }>, after?: () => void) {
     setBusy(true);
@@ -200,44 +225,18 @@ export function CustomerDetail({
 
   return (
     <div className="space-y-4">
-      {/* 头部 */}
-      <div className="flex flex-wrap items-start justify-between gap-4 surface p-5">
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">{c.name}</h1>
-            <StatusBadge name={c.statusName} color={c.statusColor} />
-            {access.inPool && <Badge variant="outline">公海</Badge>}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <StarRating value={c.star} size="md" onChange={canEdit ? (v) => setStarAction(c.id, v) : undefined} />
-            {c.country && <span>{countryName(c.country)}</span>}
-            {c.country && <LocalTime country={c.country} myTz={tz} />}
-            {c.website && (
-              <a
-                href={/^https?:\/\//.test(c.website) ? c.website : `https://${c.website}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 hover:text-primary"
-              >
-                <Globe className="size-3.5" />
-                {c.domain ?? c.website}
-              </a>
-            )}
-            <span>负责人：{c.ownerName ?? "无（公海）"}</span>
-            {c.groupName && <span>分组：{c.groupName}</span>}
-          </div>
-          {c.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {c.tags.map((t) => (
-                <span key={t} className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
+      {/* 标题栏 */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link href={listHref} className="inline-flex items-center gap-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <ChevronLeft className="size-4" />
+            {access.inPool ? "公海客户" : "客户列表"}
+          </Link>
+          <span className="h-4 w-px bg-border" aria-hidden />
+          <h1 className="text-lg font-semibold tracking-tight">客户详情</h1>
         </div>
-        <div className="flex items-center gap-2">
-          {access.inPool && perms.claim && (
+        <div className="flex flex-wrap items-center gap-2">
+          {canClaim && (
             <Button disabled={busy} onClick={() => run(claimCustomersAction([c.id]))}>
               领取到我的客户
             </Button>
@@ -247,11 +246,18 @@ export function CustomerDetail({
               <Pencil /> 编辑
             </Button>
           )}
+          {composeHref && (
+            <Button variant={canClaim ? "outline" : "default"} asChild>
+              <Link href={composeHref}>
+                <PenSquare /> 写邮件
+              </Link>
+            </Button>
+          )}
           {(canEdit || (access.inPool && perms.delete)) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" aria-label="更多操作">
-                  <MoreHorizontal />
+                  <MoreVertical />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -271,156 +277,279 @@ export function CustomerDetail({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        {/* 左：跟进 + 动态 */}
+      <div className="grid items-start gap-4 xl:grid-cols-[23.5rem_minmax(0,1fr)]">
+        {/* 左栏：客户档案 + AI + 联系人 + 资料 */}
         <div className="min-w-0 space-y-4">
-          {canEdit && <FollowUpForm customerId={c.id} tz={tz} />}
-          <Tabs defaultValue="timeline">
-            <TabsList>
-              <TabsTrigger value="timeline">动态 {activities.length > 0 && `(${activities.length})`}</TabsTrigger>
-              {perms.viewOpportunity && <TabsTrigger value="opps">商机 ({opportunities.length})</TabsTrigger>}
-              {quotations && <TabsTrigger value="quotations">报价单 ({quotations.length})</TabsTrigger>}
-              {orders && <TabsTrigger value="orders">订单 ({orders.length})</TabsTrigger>}
-              <TabsTrigger value="tasks">日程 ({tasks.filter((t) => !t.done).length})</TabsTrigger>
-              <TabsTrigger value="mails">邮件 ({comms.mails.length})</TabsTrigger>
-              {(comms.waEnabled || comms.wa.length > 0) && <TabsTrigger value="wa">WhatsApp</TabsTrigger>}
-            </TabsList>
-            <TabsContent value="timeline" className="mt-3">
-              <Timeline activities={activities} tz={tz} />
-            </TabsContent>
-            {perms.viewOpportunity && (
-              <TabsContent value="opps" className="mt-3">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">商机</CardTitle>
-                    {canEdit && perms.createOpportunity && (
-                      <CardAction>
-                        <Button size="sm" variant="outline" onClick={() => setModal("opportunity")}>
-                          <Plus /> 新建商机
-                        </Button>
-                      </CardAction>
+          <section className="surface">
+            <div className="space-y-4 p-5">
+              <div className="flex items-start gap-4">
+                <div className="relative shrink-0">
+                  <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-bold text-primary">
+                    {initialOf(c.name)}
+                  </div>
+                  <span
+                    className={cn(
+                      "absolute -right-1.5 -bottom-1.5 rounded-full px-1.5 py-px text-[10px] font-medium ring-2 ring-card",
+                      access.inPool ? "bg-amber-100 text-amber-700" : "bg-primary text-primary-foreground",
                     )}
-                  </CardHeader>
-                  <CardContent>
+                  >
+                    {access.inPool ? "公海" : "私海"}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <h2 className="text-xl leading-snug font-bold break-words">{c.name}</h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StarRating value={c.star} size="md" onChange={canEdit ? (v) => setStarAction(c.id, v) : undefined} />
+                    {c.statusName && <StatusBadge name={c.statusName} color={c.statusColor} />}
+                  </div>
+                </div>
+              </div>
+
+              <ul className="space-y-1.5 text-sm text-muted-foreground">
+                {c.country && (
+                  <MetaLine icon={<MapPin />}>
+                    <span className="text-foreground">{countryName(c.country)}</span>
+                    <span className="ml-1.5 text-xs">{c.country}</span>
+                  </MetaLine>
+                )}
+                {c.country && <LocalTime country={c.country} myTz={tz} />}
+                {c.website && (
+                  <MetaLine icon={<Globe />}>
+                    <a
+                      href={/^https?:\/\//.test(c.website) ? c.website : `https://${c.website}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-foreground hover:text-primary hover:underline"
+                    >
+                      {c.domain ?? c.website}
+                    </a>
+                  </MetaLine>
+                )}
+                <MetaLine icon={<UserRound />}>
+                  负责人 <span className="ml-1 text-foreground">{c.ownerName ?? "无（公海）"}</span>
+                </MetaLine>
+              </ul>
+
+              {c.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {c.tags.map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1 rounded-full bg-primary/8 px-2.5 py-0.5 text-xs text-primary">
+                      <TagIcon className="size-3" />
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3.5 border-t border-border/70 p-5 text-sm">
+              <GridField label="客户分组">{c.groupName}</GridField>
+              <GridField label="客户来源">{c.source}</GridField>
+              <GridField label="客户类型">{c.customerType}</GridField>
+              <GridField label="最近联系">{when(c.lastContactAt, tz)}</GridField>
+              <GridField label="下次跟进">
+                {c.nextFollowAt ? (
+                  <span className={cn("tabular-nums", overdue && "font-medium text-destructive")}>{formatDateTime(c.nextFollowAt, tz)}</span>
+                ) : null}
+              </GridField>
+              {access.inPool ? (
+                <GridField label="进入公海">{c.poolEnteredAt && <span className="tabular-nums">{formatDate(c.poolEnteredAt, tz)}</span>}</GridField>
+              ) : (
+                <GridField label="进公海倒计时">
+                  {c.poolDueAt ? <PoolDue at={c.poolDueAt} tz={tz} /> : <span className="text-muted-foreground">不会自动进公海</span>}
+                </GridField>
+              )}
+            </dl>
+          </section>
+
+          {comms.ai && <CustomerAiPanel customerId={c.id} brief={comms.ai.brief} next={comms.ai.next} tz={tz} />}
+
+          <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
+
+          <Panel title="客户资料" bodyClassName="space-y-5">
+            <InfoSection title="公司信息">
+              <Info label="主营产品">{c.mainProducts}</Info>
+              <Info label="年采购额">{c.annualVolume}</Info>
+              <Info label="地址">{c.address}</Info>
+              <Info label="备注">{c.remark && <span className="whitespace-pre-wrap">{c.remark}</span>}</Info>
+            </InfoSection>
+            <InfoSection title="跟进信息">
+              <Info label="最近跟进">{when(c.lastFollowAt, tz)}</Info>
+              <Info label="最近收件">{c.lastMailRecvAt && when(c.lastMailRecvAt, tz)}</Info>
+              <Info label="最近发件">{c.lastMailSentAt && when(c.lastMailSentAt, tz)}</Info>
+              <Info label="WhatsApp">{c.lastWaAt && when(c.lastWaAt, tz)}</Info>
+              {c.poolCount > 0 && <Info label="进公海次数"><span className="tabular-nums">{c.poolCount} 次</span></Info>}
+              {access.inPool && <Info label="公海原因">{c.poolReason}</Info>}
+            </InfoSection>
+            <InfoSection title="系统信息">
+              <Info label="创建时间">
+                <span className="tabular-nums">{formatDate(c.createdAt, tz)}</span>
+              </Info>
+              {c.assignedAt && (
+                <Info label="分配时间">
+                  <span className="tabular-nums">{formatDate(c.assignedAt, tz)}</span>
+                </Info>
+              )}
+              <Info label="原负责人">{c.prevOwnerName}</Info>
+            </InfoSection>
+          </Panel>
+        </div>
+
+        {/* 右栏：进行中的商机 / 计划日程 + 写跟进 + 页签 */}
+        <div className="min-w-0 space-y-4">
+          <div className="space-y-3">
+            {perms.viewOpportunity && (
+              <CollapseBar
+                title="进行中的商机"
+                count={openOpps.length}
+                action={
+                  canEdit &&
+                  perms.createOpportunity && (
+                    <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("opportunity")}>
+                      <Plus /> 添加
+                    </Button>
+                  )
+                }
+              >
+                {openOpps.length === 0 ? (
+                  <p className="py-4 text-center text-sm text-muted-foreground">没有进行中的商机</p>
+                ) : (
+                  <ul className="divide-y divide-border/70">
+                    {openOpps.map((o) => (
+                      <OppRow key={o.id} o={o} tz={tz} onEdit={canEdit ? () => setEditingOpp(o) : undefined} />
+                    ))}
+                  </ul>
+                )}
+              </CollapseBar>
+            )}
+            <CollapseBar
+              title="计划日程"
+              count={openTasks.length}
+              action={
+                canEdit && (
+                  <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("task")}>
+                    <Plus /> 添加
+                  </Button>
+                )
+              }
+            >
+              <TaskList tasks={openTasks} tz={tz} showCustomer={false} empty="没有计划中的日程" />
+            </CollapseBar>
+          </div>
+
+          {canEdit && <FollowUpForm customerId={c.id} tz={tz} />}
+
+          <section className="surface">
+            <Tabs defaultValue="timeline" className="gap-0">
+              <div className="overflow-x-auto border-b border-border/70 px-3">
+                <TabsList variant="line" className="h-12">
+                  <TabsTrigger value="timeline" className="px-3">
+                    动态 {activities.length > 0 && <TabCount n={activities.length} />}
+                  </TabsTrigger>
+                  {perms.viewOpportunity && (
+                    <TabsTrigger value="opps" className="px-3">
+                      商机 <TabCount n={opportunities.length} />
+                    </TabsTrigger>
+                  )}
+                  {quotations && (
+                    <TabsTrigger value="quotations" className="px-3">
+                      报价单 <TabCount n={quotations.length} />
+                    </TabsTrigger>
+                  )}
+                  {orders && (
+                    <TabsTrigger value="orders" className="px-3">
+                      订单 <TabCount n={orders.length} />
+                    </TabsTrigger>
+                  )}
+                  <TabsTrigger value="tasks" className="px-3">
+                    日程 <TabCount n={openTasks.length} />
+                  </TabsTrigger>
+                  <TabsTrigger value="mails" className="px-3">
+                    邮件 <TabCount n={comms.mails.length} />
+                  </TabsTrigger>
+                  {showWa && (
+                    <TabsTrigger value="wa" className="px-3">
+                      WhatsApp
+                    </TabsTrigger>
+                  )}
+                </TabsList>
+              </div>
+              <div className="p-5">
+                <TabsContent value="timeline">
+                  <Timeline activities={activities} tz={tz} />
+                </TabsContent>
+                {perms.viewOpportunity && (
+                  <TabsContent value="opps">
+                    <PaneToolbar
+                      action={
+                        canEdit &&
+                        perms.createOpportunity && (
+                          <Button size="sm" variant="outline" onClick={() => setModal("opportunity")}>
+                            <Plus /> 新建商机
+                          </Button>
+                        )
+                      }
+                    >
+                      {opportunities.length > 0 && (
+                        <span className="tabular-nums">
+                          共 {opportunities.length} 个商机，进行中 {openOpps.length} 个
+                        </span>
+                      )}
+                    </PaneToolbar>
                     {opportunities.length === 0 ? (
-                      <p className="py-6 text-center text-sm text-muted-foreground">还没有商机</p>
+                      <PaneEmpty>还没有商机</PaneEmpty>
                     ) : (
-                      <ul className="divide-y">
+                      <ul className="divide-y divide-border/70">
                         {opportunities.map((o) => (
-                          <li key={o.id} className="flex items-center justify-between gap-3 py-3">
-                            <div className="min-w-0">
-                              <p className="truncate font-medium">{o.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {o.ownerName}
-                                {o.expectedCloseAt && ` · 预计 ${formatDate(o.expectedCloseAt, tz)} 成交`}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span className="font-medium tabular-nums">{formatMoney(o.amount, o.currency)}</span>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  o.stageKind === "WON" && "border-emerald-300 text-emerald-700",
-                                  o.stageKind === "LOST" && "text-muted-foreground",
-                                )}
-                              >
-                                {o.stageName}
-                              </Badge>
-                              {canEdit && (
-                                <Button variant="ghost" size="icon-sm" aria-label="编辑商机" onClick={() => setEditingOpp(o)}>
-                                  <Pencil />
-                                </Button>
-                              )}
-                            </div>
-                          </li>
+                          <OppRow key={o.id} o={o} tz={tz} onEdit={canEdit ? () => setEditingOpp(o) : undefined} />
                         ))}
                       </ul>
                     )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            )}
-            {quotations && (
-              <TabsContent value="quotations" className="mt-3">
-                <CustomerDocsCard kind="quotation" customerId={c.id} rows={quotations} canCreate={canEdit && perms.createQuotation} tz={tz} />
-              </TabsContent>
-            )}
-            {orders && (
-              <TabsContent value="orders" className="mt-3">
-                <CustomerDocsCard kind="order" customerId={c.id} rows={orders} canCreate={canEdit && perms.createOrder} tz={tz} />
-              </TabsContent>
-            )}
-            <TabsContent value="tasks" className="mt-3">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">日程</CardTitle>
-                  {canEdit && (
-                    <CardAction>
-                      <Button size="sm" variant="outline" onClick={() => setModal("task")}>
-                        <Plus /> 新建日程
-                      </Button>
-                    </CardAction>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <TaskList tasks={tasks} tz={tz} showCustomer={false} empty="没有关联的日程" />
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="mails" className="mt-3">
-              <CustomerMails rows={comms.mails} tz={tz} composeHref={comms.mailEnabled && primaryEmail ? `/mail/compose?to=${encodeURIComponent(primaryEmail)}` : null} />
-            </TabsContent>
-            {(comms.waEnabled || comms.wa.length > 0) && (
-              <TabsContent value="wa" className="mt-3">
-                <CustomerWhatsapp
-                  rows={comms.wa}
-                  tz={tz}
-                  chatHref={comms.waEnabled && primaryWa ? `/whatsapp?phone=${encodeURIComponent(primaryWa)}&customerId=${c.id}` : null}
-                />
-              </TabsContent>
-            )}
-          </Tabs>
-        </div>
-
-        {/* 右：联系人 + 资料 */}
-        <div className="space-y-4">
-          {comms.ai && <CustomerAiPanel customerId={c.id} brief={comms.ai.brief} next={comms.ai.next} tz={tz} />}
-          <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">客户资料</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 text-sm">
-                <Info label="最近联系">{when(c.lastContactAt, tz)}</Info>
-                <Info label="最近跟进">{when(c.lastFollowAt, tz)}</Info>
-                <Info label="最近收件">{c.lastMailRecvAt && when(c.lastMailRecvAt, tz)}</Info>
-                <Info label="最近发件">{c.lastMailSentAt && when(c.lastMailSentAt, tz)}</Info>
-                <Info label="WhatsApp">{c.lastWaAt && when(c.lastWaAt, tz)}</Info>
-                <Info label="下次跟进">
-                  {c.nextFollowAt ? (
-                    <span className={cn(overdue && "font-medium text-destructive")}>{formatDateTime(c.nextFollowAt, tz)}</span>
-                  ) : null}
-                </Info>
-                {!access.inPool && (
-                  <Info label="进公海">
-                    {c.poolDueAt ? <PoolDue at={c.poolDueAt} tz={tz} /> : <span className="text-muted-foreground">不会自动进公海</span>}
-                  </Info>
+                  </TabsContent>
                 )}
-                {access.inPool && <Info label="进入公海">{c.poolEnteredAt && formatDate(c.poolEnteredAt, tz)}</Info>}
-                {c.poolCount > 0 && <Info label="进公海次数">{c.poolCount} 次</Info>}
-                <Info label="原负责人">{c.prevOwnerName}</Info>
-                <Info label="来源">{c.source}</Info>
-                <Info label="类型">{c.customerType}</Info>
-                <Info label="主营产品">{c.mainProducts}</Info>
-                <Info label="年采购额">{c.annualVolume}</Info>
-                <Info label="地址">{c.address}</Info>
-                <Info label="备注">{c.remark && <span className="whitespace-pre-wrap">{c.remark}</span>}</Info>
-                {access.inPool && <Info label="公海原因">{c.poolReason}</Info>}
-                <Info label="创建时间">{formatDate(c.createdAt, tz)}</Info>
-              </dl>
-            </CardContent>
-          </Card>
+                {quotations && (
+                  <TabsContent value="quotations">
+                    <CustomerDocsCard kind="quotation" customerId={c.id} rows={quotations} canCreate={canEdit && perms.createQuotation} tz={tz} />
+                  </TabsContent>
+                )}
+                {orders && (
+                  <TabsContent value="orders">
+                    <CustomerDocsCard kind="order" customerId={c.id} rows={orders} canCreate={canEdit && perms.createOrder} tz={tz} />
+                  </TabsContent>
+                )}
+                <TabsContent value="tasks">
+                  <PaneToolbar
+                    action={
+                      canEdit && (
+                        <Button size="sm" variant="outline" onClick={() => setModal("task")}>
+                          <Plus /> 新建日程
+                        </Button>
+                      )
+                    }
+                  >
+                    {tasks.length > 0 && (
+                      <span className="tabular-nums">
+                        共 {tasks.length} 条日程，未完成 {openTasks.length} 条
+                      </span>
+                    )}
+                  </PaneToolbar>
+                  <TaskList tasks={tasks} tz={tz} showCustomer={false} empty="没有关联的日程" />
+                </TabsContent>
+                <TabsContent value="mails">
+                  <CustomerMails rows={comms.mails} tz={tz} composeHref={composeHref} />
+                </TabsContent>
+                {showWa && (
+                  <TabsContent value="wa">
+                    <CustomerWhatsapp
+                      rows={comms.wa}
+                      tz={tz}
+                      chatHref={comms.waEnabled && primaryWa ? `/whatsapp?phone=${encodeURIComponent(primaryWa)}&customerId=${c.id}` : null}
+                    />
+                  </TabsContent>
+                )}
+              </div>
+            </Tabs>
+          </section>
         </div>
       </div>
 
@@ -486,7 +615,7 @@ export function CustomerDetail({
               disabled={busy}
               onClick={(e) => {
                 e.preventDefault();
-                run(deleteCustomerAction(c.id), () => router.push(access.inPool ? "/customers/pool" : "/customers"));
+                run(deleteCustomerAction(c.id), () => router.push(listHref));
               }}
             >
               删除
@@ -495,6 +624,109 @@ export function CustomerDetail({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function initialOf(name: string) {
+  const ch = Array.from(name.trim())[0] ?? "?";
+  return ch.toUpperCase();
+}
+
+function MetaLine({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <li className="flex min-w-0 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground/70">
+      {icon}
+      <span className="flex min-w-0 flex-wrap items-center">{children}</span>
+    </li>
+  );
+}
+
+function GridField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 min-w-0 break-words">{children || <span className="text-muted-foreground">—</span>}</dd>
+    </div>
+  );
+}
+
+function InfoSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-medium text-muted-foreground">{title}</h3>
+      <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 text-sm">{children}</dl>
+    </div>
+  );
+}
+
+function TabCount({ n }: { n: number }) {
+  return <span className="text-xs font-normal text-muted-foreground tabular-nums">{n}</span>;
+}
+
+/** 右栏顶部的可折叠条：进行中的商机 / 计划日程 */
+function CollapseBar({
+  title,
+  count,
+  action,
+  children,
+}: {
+  title: string;
+  count: number;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="surface">
+      <div className="flex items-center gap-2 px-4 py-2.5">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          {title}
+          <span className="text-muted-foreground tabular-nums">({count})</span>
+        </button>
+        {action}
+      </div>
+      {open && <div className="border-t border-border/70 px-4 py-1">{children}</div>}
+    </section>
+  );
+}
+
+function OppRow({ o, tz, onEdit }: { o: OpportunityView; tz: string; onEdit?: () => void }) {
+  return (
+    <li className="flex items-center justify-between gap-3 py-3">
+      <div className="min-w-0">
+        <p className="truncate font-medium">{o.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {o.ownerName}
+          {o.expectedCloseAt && (
+            <>
+              {" · 预计 "}
+              <span className="tabular-nums">{formatDate(o.expectedCloseAt, tz)}</span>
+              {" 成交"}
+            </>
+          )}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="font-medium whitespace-nowrap tabular-nums">{formatMoney(o.amount, o.currency)}</span>
+        <Badge
+          variant={o.stageKind === "WON" ? "success" : o.stageKind === "LOST" ? "secondary" : "outline"}
+          className={cn(o.stageKind === "LOST" && "text-muted-foreground")}
+        >
+          {o.stageName}
+        </Badge>
+        {onEdit && (
+          <Button variant="ghost" size="icon-sm" aria-label="编辑商机" onClick={onEdit}>
+            <Pencil />
+          </Button>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -512,10 +744,11 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
   const [method, setMethod] = useState("EMAIL");
   const [defaultNext] = useState(() => toLocalInput(new Date(Date.now() + 3 * 86_400_000), tz, false) + "T10:00");
   return (
-    <form onSubmit={submit} className="surface p-4">
+    <form onSubmit={submit} className="surface p-5">
       <input type="hidden" name="customerId" value={customerId} />
       <input type="hidden" name="method" value={method} />
-      <div className="mb-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="跟进方式">
+      <div className="mb-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="跟进方式">
+        <span className="mr-1 text-sm font-semibold">写跟进</span>
         {FOLLOW_METHODS.map((m) => (
           <button
             key={m.value}
@@ -524,15 +757,15 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
             aria-checked={method === m.value}
             onClick={() => setMethod(m.value)}
             className={cn(
-              "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
-              method === m.value ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
+              "rounded-full px-3 py-1 text-xs transition-colors",
+              method === m.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
             )}
           >
             {m.label}
           </button>
         ))}
       </div>
-      <Textarea name="content" placeholder="记录这次沟通的内容：客户需求、报价、异议、约定的下一步…" rows={3} />
+      <Textarea name="content" placeholder="记录这次沟通的内容：客户需求、报价、异议、约定的下一步…" rows={3} className="rounded-xl" />
       <FieldErrors state={state} name="content" />
       {state.message && !state.ok && <p className="mt-1 text-sm text-destructive">{state.message}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -543,7 +776,7 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
         <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <Checkbox name="createTask" defaultChecked /> 同时加入日程
         </label>
-        <Button type="submit" size="sm" className="ml-auto" disabled={pending}>
+        <Button type="submit" className="ml-auto" disabled={pending}>
           {pending ? "保存中…" : "保存跟进"}
         </Button>
       </div>
@@ -576,13 +809,13 @@ function kindOf(a: ActivityView): ActivityKind {
 function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }) {
   const [kind, setKind] = useState<ActivityKind | "all">("all");
   if (!activities.length) {
-    return <p className="surface py-10 text-center text-sm text-muted-foreground">还没有动态</p>;
+    return <PaneEmpty>还没有动态</PaneEmpty>;
   }
   const count = (k: ActivityKind | "all") => (k === "all" ? activities.length : activities.filter((a) => kindOf(a) === k).length);
   const shown = kind === "all" ? activities : activities.filter((a) => kindOf(a) === kind);
   return (
-    <div className="surface">
-      <div className="flex flex-wrap gap-1 border-b px-4 py-2" role="tablist" aria-label="动态分类">
+    <div>
+      <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="动态分类">
         {ACTIVITY_KINDS.map((k) => (
           <button
             key={k.key}
@@ -591,8 +824,8 @@ function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }
             aria-selected={kind === k.key}
             onClick={() => setKind(k.key)}
             className={cn(
-              "rounded-full px-2.5 py-0.5 text-xs transition-colors",
-              kind === k.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+              "rounded-full px-3 py-1 text-xs transition-colors",
+              kind === k.key ? "bg-primary/10 font-medium text-primary" : "bg-muted text-muted-foreground hover:text-foreground",
             )}
           >
             {k.label} <span className="tabular-nums opacity-70">{count(k.key)}</span>
@@ -600,13 +833,13 @@ function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }
         ))}
       </div>
       {shown.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">这一类还没有动态</p>
+        <PaneEmpty>这一类还没有动态</PaneEmpty>
       ) : (
-        <ol className="relative space-y-4 p-5 before:absolute before:top-6 before:bottom-6 before:left-[1.85rem] before:w-px before:bg-border">
+        <ol className="relative space-y-5 before:absolute before:top-2 before:bottom-2 before:left-2.5 before:w-px before:bg-border/80">
           {shown.map((a) =>
             a.type === "FOLLOW_UP" ? (
               <li key={a.id} className="relative flex gap-3">
-                <span className="z-10 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                <span className="z-10 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground ring-4 ring-card">
                   {METHOD_ICON[a.method ?? ""] ?? <Star className="size-3" />}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -615,12 +848,12 @@ function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }
                     {a.event ? "" : "跟进"} · <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span>
                     {a.opportunityName && ` · 商机：${a.opportunityName}`}
                   </p>
-                  <p className="mt-1 text-sm whitespace-pre-wrap">{a.content}</p>
+                  <p className="mt-1.5 rounded-xl bg-muted/50 px-3 py-2 text-sm whitespace-pre-wrap">{a.content}</p>
                 </div>
               </li>
             ) : (
               <li key={a.id} className="relative flex gap-3 text-xs text-muted-foreground">
-                <span className="z-10 mt-1 ml-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+                <span className="z-10 mt-1 ml-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/40 ring-4 ring-card" />
                 <p>
                   <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span> · {a.userName} {a.content}
                 </p>
@@ -686,13 +919,20 @@ function LocalTime({ country, myTz }: { country: string; myTz: string }) {
   const diff = (offset(zone) - offset(myTz)) / 60;
   const WEEK: Record<string, string> = { Mon: "周一", Tue: "周二", Wed: "周三", Thu: "周四", Fri: "周五", Sat: "周六", Sun: "周日" };
   return (
-    <span className="inline-flex items-center gap-1" title={`${zone}，${diff === 0 ? "与你同一时区" : `比你${diff > 0 ? "早" : "晚"} ${Math.abs(diff)} 小时`}`}>
-      <Clock className="size-3.5" />
-      当地 <span className="tabular-nums">{get("hour")}:{get("minute")}</span> {WEEK[weekday]}
-      <span className={cn("rounded px-1 text-[11px]", working ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>
-        {working ? "工作时间" : "非工作时间"}
+    <li
+      className="flex min-w-0 items-center gap-2"
+      title={`${zone}，${diff === 0 ? "与你同一时区" : `比你${diff > 0 ? "早" : "晚"} ${Math.abs(diff)} 小时`}`}
+    >
+      <Clock className="size-4 shrink-0 text-muted-foreground/70" />
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span>
+          当地 <span className="text-foreground tabular-nums">{get("hour")}:{get("minute")}</span> {WEEK[weekday]}
+        </span>
+        <span className={cn("rounded-full px-1.5 text-[11px]", working ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground")}>
+          {working ? "工作时间" : "非工作时间"}
+        </span>
       </span>
-    </span>
+    </li>
   );
 }
 
@@ -711,38 +951,45 @@ function ContactsCard({
 }) {
   const [editing, setEditing] = useState<Partial<ContactView> | null>(null);
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">联系人 ({contacts.length})</CardTitle>
-        {canEdit && (
-          <CardAction>
-            <Button size="sm" variant="ghost" onClick={() => setEditing({})}>
-              <Plus /> 添加
-            </Button>
-          </CardAction>
-        )}
-      </CardHeader>
-      <CardContent>
-        {contacts.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">还没有联系人</p>
-        ) : (
-          <ul className="space-y-3">
-            {contacts.map((ct) => (
-              <li key={ct.id} className="group text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{ct.name}</span>
-                  {ct.isPrimary && <Badge variant="secondary">主联系人</Badge>}
+    <Panel
+      title={
+        <>
+          联系人 <span className="font-normal text-muted-foreground tabular-nums">({contacts.length})</span>
+        </>
+      }
+      icon={<Users className="size-4 text-muted-foreground" />}
+      action={
+        canEdit && (
+          <Button size="xs" variant="ghost" className="text-primary" onClick={() => setEditing({})}>
+            <Plus /> 添加
+          </Button>
+        )
+      }
+      bodyClassName="pb-2"
+    >
+      {contacts.length === 0 ? (
+        <p className="pt-2 pb-5 text-center text-sm text-muted-foreground">还没有联系人</p>
+      ) : (
+        <ul className="divide-y divide-border/70">
+          {contacts.map((ct) => (
+            <li key={ct.id} className="group flex gap-3 py-3 text-sm">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                {initialOf(ct.name)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate font-medium">{ct.name}</span>
+                  {ct.isPrimary && (
+                    <span className="shrink-0 rounded-md bg-primary/10 px-1.5 text-[11px] leading-5 font-medium text-primary" title="主联系人">
+                      主
+                    </span>
+                  )}
                   {canEdit && (
                     <span className="ml-auto flex opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                       <Button variant="ghost" size="icon-xs" aria-label={`编辑 ${ct.name}`} onClick={() => setEditing(ct)}>
                         <Pencil />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`删除 ${ct.name}`}
-                        onClick={() => runAction(deleteContactAction(ct.id))}
-                      >
+                      <Button variant="ghost" size="icon-xs" aria-label={`删除 ${ct.name}`} onClick={() => runAction(deleteContactAction(ct.id))}>
                         <Trash2 />
                       </Button>
                     </span>
@@ -751,14 +998,17 @@ function ContactsCard({
                 {ct.title && <p className="text-xs text-muted-foreground">{ct.title}</p>}
                 <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                   {ct.email && (
-                    <a href={mailEnabled ? `/mail/compose?to=${encodeURIComponent(ct.email)}` : `mailto:${ct.email}`} className="flex items-center gap-1.5 hover:text-primary">
-                      <Mail className="size-3" />
-                      {ct.email}
+                    <a
+                      href={mailEnabled ? `/mail/compose?to=${encodeURIComponent(ct.email)}` : `mailto:${ct.email}`}
+                      className="flex min-w-0 items-center gap-1.5 hover:text-primary"
+                    >
+                      <Mail className="size-3 shrink-0" />
+                      <span className="truncate">{ct.email}</span>
                     </a>
                   )}
                   {ct.phone && (
-                    <p className="flex items-center gap-1.5">
-                      <Phone className="size-3" />
+                    <p className="flex items-center gap-1.5 tabular-nums">
+                      <Phone className="size-3 shrink-0" />
                       {ct.phone}
                     </p>
                   )}
@@ -771,18 +1021,19 @@ function ContactsCard({
                       }
                       target={waEnabled ? undefined : "_blank"}
                       rel="noreferrer"
-                      className="flex items-center gap-1.5 hover:text-primary"
+                      className="flex items-center gap-1.5 tabular-nums hover:text-primary"
                     >
-                      <span className="text-[10px] font-semibold">WA</span>
+                      <MessageCircle className="size-3 shrink-0" />
                       {ct.whatsapp}
                     </a>
                   )}
+                  {ct.remark && <p className="line-clamp-2">{ct.remark}</p>}
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           {editing && (
@@ -790,7 +1041,7 @@ function ContactsCard({
           )}
         </DialogContent>
       </Dialog>
-    </Card>
+    </Panel>
   );
 }
 

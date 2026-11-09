@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/page-header";
 import { can, requirePermission } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { ownedWhere, scopeMembers } from "@/server/scope";
@@ -36,28 +35,27 @@ export default async function OpportunitiesPage({ searchParams }: PageProps<"/op
   ]);
 
   return (
-    <>
-      <PageHeader title="商机" description={`拖动卡片切换阶段 · 赢单 / 输单列只显示最近 ${closedDays} 天`} />
-      <OpportunityBoard
-        tz={user.timezone}
-        owner={owner}
-        members={members}
-        customers={customers}
-        perms={{ create: can(user, "opportunity.create"), edit: can(user, "opportunity.edit"), delete: can(user, "opportunity.delete") }}
-        stages={stages.map((s) => ({ id: s.id, name: s.name, probability: s.probability, kind: s.kind }))}
-        opportunities={opps.map((o) => ({
-          id: o.id,
-          name: o.name,
-          amount: o.amount.toString(),
-          currency: o.currency,
-          stageId: o.stageId,
-          customerId: o.customerId,
-          customerName: o.customer.name,
-          ownerName: o.owner?.name ?? null,
-          expectedCloseAt: o.expectedCloseAt?.toISOString() ?? null,
-          remark: o.remark,
-        }))}
-      />
-    </>
+    <OpportunityBoard
+      description={`拖动卡片切换阶段 · 赢单 / 输单列只显示最近 ${closedDays} 天`}
+      closedDays={closedDays}
+      tz={user.timezone}
+      owner={owner}
+      members={members}
+      customers={customers}
+      perms={{ create: can(user, "opportunity.create"), edit: can(user, "opportunity.edit"), delete: can(user, "opportunity.delete") }}
+      stages={stages.map((s) => ({ id: s.id, name: s.name, probability: s.probability, kind: s.kind }))}
+      opportunities={opps.map((o) => ({
+        id: o.id,
+        name: o.name,
+        amount: o.amount.toString(),
+        currency: o.currency,
+        stageId: o.stageId,
+        customerId: o.customerId,
+        customerName: o.customer.name,
+        ownerName: o.owner?.name ?? null,
+        expectedCloseAt: o.expectedCloseAt?.toISOString() ?? null,
+        remark: o.remark,
+      }))}
+    />
   );
 }

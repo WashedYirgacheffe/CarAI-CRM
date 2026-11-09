@@ -4,7 +4,7 @@ import { useState } from "react";
 import Form from "next/form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Plus, Search } from "lucide-react";
+import { MoreHorizontal, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -70,6 +70,27 @@ const STATUS_STYLE: Record<LeadRow["status"], string> = {
   INVALID: "bg-muted text-muted-foreground",
 };
 
+/** 新建线索按钮（放在页面标题右侧），自带新建弹窗 */
+export function NewLeadButton({ canAssign }: { canAssign: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>
+        <Plus /> 新建线索
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          {open && <LeadForm key="new" lead={{}} canAssign={canAssign} onDone={() => setOpen(false)} />}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * 线索列表（卡片右栏）：工具条（标题 + 数量、批量分配、搜索）→ 表格 → footer 插槽放分页。
+ * 新建线索按钮见 NewLeadButton。
+ */
 export function LeadTable({
   rows,
   tab,
@@ -77,6 +98,9 @@ export function LeadTable({
   tz,
   members,
   perms,
+  title,
+  total,
+  footer,
 }: {
   rows: LeadRow[];
   tab: string;
@@ -85,6 +109,9 @@ export function LeadTable({
   members: { id: string; name: string }[];
   currentUserId: string;
   perms: Perms;
+  title: string;
+  total: number;
+  footer?: React.ReactNode;
 }) {
   const [modal, setModal] = useState<Modal>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -93,35 +120,47 @@ export function LeadTable({
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Form action="/leads" className="flex gap-2">
-          {tab !== "todo" && <input type="hidden" name="tab" value={tab} />}
-          <div className="relative w-full sm:w-64">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input name="q" defaultValue={q} placeholder="公司 / 联系人 / 邮箱 / 询盘内容" className="pl-8" />
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+          {title}
+          <span className="text-[13px] font-normal text-muted-foreground">
+            · <span className="tabular-nums">{total}</span> 条线索
+          </span>
+        </h2>
+        {perms.assign && ids.length > 0 && (
+          <div className="flex items-center gap-1.5 rounded-full bg-accent py-0.5 pr-1 pl-3 text-[13px] text-accent-foreground">
+            <span>
+              已选 <span className="font-semibold tabular-nums">{ids.length}</span> 条
+            </span>
+            <Button variant="outline" size="xs" className="bg-card" onClick={() => setModal({ kind: "assign", ids })}>
+              分配给…
+            </Button>
+            <Button size="icon-xs" variant="ghost" onClick={() => setSelected(new Set())} aria-label="取消选择">
+              <X />
+            </Button>
           </div>
-          <Button type="submit" variant="secondary">
-            查询
-          </Button>
+        )}
+        <Form action="/leads" className="ml-auto w-full sm:w-64">
+          {tab !== "todo" && <input type="hidden" name="tab" value={tab} />}
+          <div className="relative">
+            <button
+              type="submit"
+              className="absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="搜索"
+            >
+              <Search className="size-4" />
+            </button>
+            <Input name="q" defaultValue={q} placeholder="公司 / 联系人 / 邮箱 / 询盘内容" className="h-8 pl-8 text-[13px]" />
+          </div>
         </Form>
-        {perms.assign && (
-          <Button variant="outline" size="sm" disabled={!ids.length} onClick={() => setModal({ kind: "assign", ids })}>
-            分配{ids.length ? ` ${ids.length} 条` : ""}
-          </Button>
-        )}
-        {perms.create && (
-          <Button size="sm" className="ml-auto" onClick={() => setModal({ kind: "edit", lead: {} })}>
-            <Plus /> 新建线索
-          </Button>
-        )}
       </div>
 
-      <div className="overflow-x-auto surface">
+      <div>
         <Table>
           <TableHeader>
             <TableRow>
               {perms.assign && (
-                <TableHead className="w-10 pl-4">
+                <TableHead className="w-10">
                   <Checkbox
                     aria-label="全选"
                     checked={rows.length > 0 && ids.length === rows.length ? true : ids.length ? "indeterminate" : false}
@@ -129,7 +168,7 @@ export function LeadTable({
                   />
                 </TableHead>
               )}
-              <TableHead className={cn(!perms.assign && "pl-4")}>公司 / 联系人</TableHead>
+              <TableHead>公司 / 联系人</TableHead>
               <TableHead>询盘内容</TableHead>
               <TableHead>来源</TableHead>
               <TableHead>状态</TableHead>
@@ -151,7 +190,7 @@ export function LeadTable({
               return (
                 <TableRow key={l.id}>
                   {perms.assign && (
-                    <TableCell className="pl-4">
+                    <TableCell>
                       <Checkbox
                         aria-label="选择"
                         checked={selected.has(l.id)}
@@ -166,7 +205,7 @@ export function LeadTable({
                       />
                     </TableCell>
                   )}
-                  <TableCell className={cn("max-w-64", !perms.assign && "pl-4")}>
+                  <TableCell className="max-w-64">
                     <div className="truncate font-medium">{l.companyName ?? l.contactName ?? l.email}</div>
                     <div className="truncate text-xs text-muted-foreground">
                       {[l.companyName && l.contactName, l.email, l.country && countryName(l.country)].filter(Boolean).join(" · ")}
@@ -251,6 +290,7 @@ export function LeadTable({
           </TableBody>
         </Table>
       </div>
+      {footer}
 
       <Dialog open={!!modal} onOpenChange={(o) => !o && close()}>
         <DialogContent className={modal?.kind === "edit" ? "sm:max-w-2xl" : undefined}>

@@ -71,8 +71,10 @@ export default async function QuotationsPage({ searchParams }: PageProps<"/quota
           )
         }
       />
-      <DocFilters action="/quotations" filters={filters} statuses={QUOTATION_STATUSES} members={members} />
-      <div className="overflow-x-auto surface">
+      <div className="surface">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
+          <DocFilters action="/quotations" filters={filters} statuses={QUOTATION_STATUSES} members={members} />
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -124,8 +126,10 @@ export default async function QuotationsPage({ searchParams }: PageProps<"/quota
             })}
           </TableBody>
         </Table>
+        <div className="border-t border-border/70 px-4 py-3 [&>div]:mt-0">
+          <Pager path="/quotations" filters={filters} page={filters.page} pages={Math.max(1, Math.ceil(total / PAGE_SIZE))} total={total} />
+        </div>
       </div>
-      <Pager path="/quotations" filters={filters} page={filters.page} pages={Math.max(1, Math.ceil(total / PAGE_SIZE))} total={total} />
     </>
   );
 }
