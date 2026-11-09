@@ -50,9 +50,9 @@ export function SuggestionList({ rows, tz }: { rows: Suggestion[]; tz: string })
         ))}
       </div>
       {shown.length === 0 ? (
-        <p className="rounded-xl border bg-card py-16 text-center text-sm text-muted-foreground">暂时没有需要建档的往来对象</p>
+        <p className="surface py-16 text-center text-sm text-muted-foreground">暂时没有需要建档的往来对象</p>
       ) : (
-        <ul className="divide-y rounded-xl border bg-card">
+        <ul className="divide-y surface">
           {shown.map((s) => (
             <li key={s.key} className="flex flex-wrap items-center gap-3 px-4 py-3">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">

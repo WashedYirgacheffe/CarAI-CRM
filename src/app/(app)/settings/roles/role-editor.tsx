@@ -34,7 +34,7 @@ export function RoleEditor({ roles }: { roles: RoleRow[] }) {
   return (
     <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
       <div className="space-y-2">
-        <ul className="rounded-xl border bg-card p-1">
+        <ul className="surface p-1">
           {roles.map((r) => (
             <li key={r.id}>
               <button
@@ -78,7 +78,7 @@ function RoleForm({ role, onCreated }: { role: RoleRow; onCreated: () => void })
     });
 
   return (
-    <form onSubmit={action} className="rounded-xl border bg-card">
+    <form onSubmit={action} className="surface">
       {role.id && <input type="hidden" name="id" value={role.id} />}
       {[...perms].map((p) => (
         <input key={p} type="hidden" name="permissions" value={p} />

@@ -119,7 +119,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
           ["今年回款", formatAmount(yearIn, "CNY"), `${today.slice(0, 4)} 年至今`],
           ["待收款", formatAmount(dueCny, "CNY"), `${dueOrders.length} 个订单未收齐`],
         ].map(([label, value, hint]) => (
-          <div key={label} className="rounded-xl border bg-card p-4">
+          <div key={label} className="surface p-4">
             <p className="text-sm text-muted-foreground">{label}</p>
             <p className="mt-1.5 text-2xl font-semibold tabular-nums">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
@@ -162,7 +162,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
         )}
       </Form>
 
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto surface">
         {tab === "records" ? (
           <Table>
             <TableHeader>

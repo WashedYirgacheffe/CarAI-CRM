@@ -34,7 +34,7 @@ const TERMS_PLACEHOLDER = `1. Prices are valid for 30 days.
 export function DocSettingsForm({ defaults: d }: { defaults: DocDefaults }) {
   const [state, submit, pending] = useActionForm(saveDocSettingsAction);
   return (
-    <form onSubmit={submit} className="rounded-xl border bg-card p-6">
+    <form onSubmit={submit} className="surface p-6">
       <FieldGroup>
         <FormMessage state={state} />
         <h2 className="font-medium">单据抬头（英文）</h2>
@@ -91,7 +91,7 @@ export function DocSettingsForm({ defaults: d }: { defaults: DocDefaults }) {
 export function RatesForm({ rates, updatedAt, tz }: { rates: Record<string, number>; updatedAt: string | null; tz: string }) {
   const [state, submit, pending] = useActionForm(saveRatesAction);
   return (
-    <form onSubmit={submit} className="self-start rounded-xl border bg-card p-6">
+    <form onSubmit={submit} className="self-start surface p-6">
       <FieldGroup className="gap-4">
         <div>
           <h2 className="font-medium">汇率</h2>

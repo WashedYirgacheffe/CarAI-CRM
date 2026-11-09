@@ -52,7 +52,7 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
           查询
         </Button>
       </Form>
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto surface">
         <Table>
           <TableHeader>
             <TableRow>

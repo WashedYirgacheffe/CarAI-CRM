@@ -201,7 +201,7 @@ export function CustomerDetail({
   return (
     <div className="space-y-4">
       {/* 头部 */}
-      <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4 surface p-5">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight">{c.name}</h1>
@@ -512,7 +512,7 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
   const [method, setMethod] = useState("EMAIL");
   const [defaultNext] = useState(() => toLocalInput(new Date(Date.now() + 3 * 86_400_000), tz, false) + "T10:00");
   return (
-    <form onSubmit={submit} className="rounded-xl border bg-card p-4">
+    <form onSubmit={submit} className="surface p-4">
       <input type="hidden" name="customerId" value={customerId} />
       <input type="hidden" name="method" value={method} />
       <div className="mb-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="跟进方式">
@@ -576,12 +576,12 @@ function kindOf(a: ActivityView): ActivityKind {
 function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }) {
   const [kind, setKind] = useState<ActivityKind | "all">("all");
   if (!activities.length) {
-    return <p className="rounded-xl border bg-card py-10 text-center text-sm text-muted-foreground">还没有动态</p>;
+    return <p className="surface py-10 text-center text-sm text-muted-foreground">还没有动态</p>;
   }
   const count = (k: ActivityKind | "all") => (k === "all" ? activities.length : activities.filter((a) => kindOf(a) === k).length);
   const shown = kind === "all" ? activities : activities.filter((a) => kindOf(a) === kind);
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="surface">
       <div className="flex flex-wrap gap-1 border-b px-4 py-2" role="tablist" aria-label="动态分类">
         {ACTIVITY_KINDS.map((k) => (
           <button

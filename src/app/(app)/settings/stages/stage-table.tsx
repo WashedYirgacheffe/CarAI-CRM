@@ -25,7 +25,7 @@ export function StageTable({ stages }: { stages: Stage[] }) {
           <Plus /> 添加阶段
         </Button>
       </div>
-      <div className="max-w-3xl rounded-xl border bg-card">
+      <div className="max-w-3xl surface">
         <Table>
           <TableHeader>
             <TableRow>

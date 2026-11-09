@@ -119,7 +119,7 @@ export function ProductTable({ rows, categories, manage }: { rows: ProductRow[];
           </Button>
         </div>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto surface">
         <Table>
           <TableHeader>
             <TableRow>

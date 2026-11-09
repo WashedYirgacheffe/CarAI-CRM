@@ -18,7 +18,7 @@ export function CompanyForm({
 }) {
   const [state, action, pending] = useActionForm(updateCompanyAction);
   return (
-    <form onSubmit={action} className="max-w-lg rounded-xl border bg-card p-6">
+    <form onSubmit={action} className="max-w-lg surface p-6">
       <FieldGroup>
         <FormMessage state={state} />
         <Field>
