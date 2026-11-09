@@ -148,7 +148,7 @@ export function HBars({
   data,
   empty = "暂无数据",
 }: {
-  data: { label: string; value: number; hint?: string; href?: string }[];
+  data: { label: string; value: number; hint?: string; href?: string; note?: string }[];
   empty?: string;
 }) {
   const max = Math.max(...data.map((d) => d.value), 0);
@@ -161,7 +161,10 @@ export function HBars({
           <span className="h-2 overflow-hidden rounded-full bg-muted">
             <span className="block h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${(d.value / max) * 100}%` }} />
           </span>
-          <span className="min-w-6 text-right font-medium tabular-nums">{d.value}</span>
+          <span className="min-w-6 text-right font-medium tabular-nums">
+            {d.value}
+            {d.note && <span className="ml-1.5 inline-block min-w-12 text-xs font-normal text-muted-foreground">{d.note}</span>}
+          </span>
         </li>
       ))}
     </ul>
