@@ -1,7 +1,7 @@
 import "server-only";
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import type { WAMessage, WASocket } from "baileys";
+import type { Contact, WAMessage, WASocket } from "baileys";
 
 /**
  * baileys 及其依赖只提供 ESM 导出，而 tsx 会把本文件编译成 CommonJS，
@@ -31,6 +31,19 @@ const sessions = new Map<string, Session>();
 /** 断线重连退避：accountId → 最早可重连时间 */
 const retryAt = new Map<string, number>();
 const failures = new Map<string, number>();
+/** 每个账号的事件串行队列：历史同步和实时消息不能并发写同一个会话 */
+const queues = new Map<string, Promise<void>>();
+function enqueue(accountId: string, fn: () => Promise<void>) {
+  const next = (queues.get(accountId) ?? Promise.resolve()).then(fn).catch((e) => log(accountId, "queue error", (e as Error).message));
+  queues.set(accountId, next);
+  return next;
+}
+/** 通讯录名字缓存：accountId → (jid / lid / 手机号 jid) → 名字 */
+const contactNames = new Map<string, Map<string, string>>();
+/** 历史同步：最近一次收到历史分片的时间、是否已收到「完成」信号 */
+const lastHistoryAt = new Map<string, number>();
+const historyComplete = new Set<string>();
+const tenantOf = new Map<string, { tenantId: string; userId: string }>();
 let version: [number, number, number] | undefined;
 let versionAt = 0;
 
@@ -119,6 +132,16 @@ async function start(accountId: string) {
             name: me?.name ?? me?.notify ?? undefined,
           },
         });
+        // 第一次连上（刚关联）：开始记录历史同步进度
+        const acc = await prisma.waAccount.findUnique({ where: { id: accountId }, select: { syncStatus: true } });
+        if (!acc?.syncStatus) {
+          historyComplete.delete(accountId);
+          lastHistoryAt.set(accountId, Date.now());
+          await prisma.waAccount.update({
+            where: { id: accountId },
+            data: { syncStatus: "syncing", syncProgress: null, syncMessages: 0, syncStartedAt: new Date(), syncDoneAt: null },
+          });
+        }
         log(accountId, "connected");
       }
       if (u.connection === "close") {
@@ -129,7 +152,7 @@ async function start(accountId: string) {
           await rm(authDir(accountId), { recursive: true, force: true });
           await prisma.waAccount.update({
             where: { id: accountId },
-            data: { status: "DISCONNECTED", enabled: false, qr: null, pairCode: null, phone: null, lastError: "已在手机上退出登录，请重新登录" },
+            data: { status: "DISCONNECTED", enabled: false, qr: null, pairCode: null, phone: null, lastError: "已在手机上退出登录，请重新登录", syncStatus: null, syncProgress: null, syncMessages: 0, syncStartedAt: null, syncDoneAt: null, avatarKey: null, avatarAt: null },
           });
           return;
         }
@@ -147,14 +170,86 @@ async function start(accountId: string) {
     }
   });
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    for (const msg of messages) {
-      try {
-        await storeIncoming(sock, accountId, msg, type === "notify");
-      } catch (e) {
-        log(accountId, "store error", (e as Error).message);
+  sock.ev.on("messages.upsert", ({ messages, type }) =>
+    enqueue(accountId, async () => {
+      for (const msg of messages) {
+        try {
+          await storeIncoming(sock, accountId, msg, type === "notify");
+        } catch (e) {
+          log(accountId, "store error", (e as Error).message);
+        }
       }
-    }
+    }),
+  );
+
+  // 关联后 WhatsApp 会分批推送最近的聊天记录、会话和通讯录
+  sock.ev.on("messaging-history.set", ({ chats, contacts, messages, progress, syncType }) => {
+    lastHistoryAt.set(accountId, Date.now());
+    return enqueue(accountId, async () => {
+      lastHistoryAt.set(accountId, Date.now());
+      await rememberContacts(accountId, contacts);
+      const sorted = [...messages].sort((a, b) => Number(a.messageTimestamp ?? 0) - Number(b.messageTimestamp ?? 0));
+      let stored = 0;
+      for (const msg of sorted) {
+        try {
+          if (await storeIncoming(sock, accountId, msg, false)) stored++;
+        } catch (e) {
+          log(accountId, "history store error", (e as Error).message);
+        }
+      }
+      // 未读数以手机上的为准
+      for (const c of chats) {
+        if (!c.id || !isDirect(c.id)) continue;
+        const unread = Math.max(0, Number(c.unreadCount ?? 0));
+        await prisma.waChat.updateMany({ where: { accountId, jid: c.id }, data: { unread } });
+        if (c.name) await nameChat(accountId, [c.id], c.name, true);
+      }
+      lastHistoryAt.set(accountId, Date.now());
+      await prisma.waAccount.update({
+        where: { id: accountId },
+        data: {
+          syncMessages: { increment: stored },
+          ...(progress != null ? { syncProgress: Math.min(100, Math.round(progress)) } : {}),
+        },
+      });
+      log(accountId, "history", syncType, `chunk messages=${messages.length} stored=${stored} chats=${chats.length} contacts=${contacts.length} progress=${progress ?? "-"}`);
+    });
+  });
+  sock.ev.on("messaging-history.status", ({ syncType, status }) => {
+    log(accountId, "history status", syncType, status);
+    if (status === "complete") historyComplete.add(accountId);
+  });
+  sock.ev.on("contacts.upsert", (cs) => enqueue(accountId, () => rememberContacts(accountId, cs)));
+  sock.ev.on("contacts.update", (cs) =>
+    enqueue(accountId, async () => {
+      await rememberContacts(accountId, cs as Contact[]);
+      // 对方换了头像：下一轮重新拉
+      const changed = cs.filter((c) => c.id && c.imgUrl !== undefined).map((c) => c.id!);
+      if (changed.length) await prisma.waChat.updateMany({ where: { accountId, jid: { in: changed } }, data: { avatarAt: null } });
+    }),
+  );
+}
+
+const isDirect = (jid: string) => jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid");
+
+/** 记住通讯录名字，并更新已有会话的显示名（手机里存的名字优先于对方自己设的昵称） */
+async function rememberContacts(accountId: string, contacts: Partial<Contact>[]) {
+  const names = contactNames.get(accountId) ?? new Map<string, string>();
+  contactNames.set(accountId, names);
+  for (const c of contacts) {
+    const name = c.name || c.notify || c.verifiedName;
+    const ids = [c.id, c.lid, c.phoneNumber].filter((x): x is string => !!x && isDirect(x));
+    if (!name || !ids.length) continue;
+    for (const id of ids) if (c.name || !names.has(id)) names.set(id, name);
+    await nameChat(accountId, ids, name, !!c.name);
+  }
+}
+
+async function nameChat(accountId: string, jids: string[], name: string, saved: boolean) {
+  const phones = jids.filter((j) => j.endsWith("@s.whatsapp.net")).map((j) => j.split("@")[0].split(":")[0]);
+  await prisma.waChat.updateMany({
+    where: { accountId, OR: [{ jid: { in: jids } }, ...(phones.length ? [{ phone: { in: phones } }] : [])], ...(saved ? {} : { name: null }) },
+    data: { name: name.slice(0, 100) },
   });
 }
 
@@ -232,22 +327,28 @@ async function saveMedia(sock: WASocket, msg: WAMessage, row: { id: string; tena
   });
 }
 
-async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, live: boolean) {
+/** 存一条消息，返回是否新入库 */
+async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, live: boolean): Promise<boolean> {
   const jid = msg.key.remoteJid;
-  if (!jid || !msg.key.id || jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter") || jid.endsWith("@broadcast")) return;
+  if (!jid || !msg.key.id || !isDirect(jid)) return false; // 群聊、状态、频道、广播不入库
   const c = contentOf(msg);
-  if (!c) return;
+  if (!c) return false;
 
-  const account = await prisma.waAccount.findUnique({ where: { id: accountId } });
-  if (!account) return;
+  const account = tenantOf.get(accountId) ?? (await prisma.waAccount.findUnique({ where: { id: accountId }, select: { tenantId: true, userId: true } }));
+  if (!account) return false;
+  tenantOf.set(accountId, account);
   const exists = await prisma.waMessage.findUnique({ where: { accountId_waId: { accountId, waId: msg.key.id } }, select: { id: true } });
-  if (exists) return;
+  if (exists) return false;
 
   const alt = msg.key.remoteJidAlt;
-  const pn = jid.endsWith("@s.whatsapp.net") ? jid : alt?.endsWith("@s.whatsapp.net") ? alt : null;
+  let pn = jid.endsWith("@s.whatsapp.net") ? jid : alt?.endsWith("@s.whatsapp.net") ? alt : null;
+  // 只有 LID 时，用 WhatsApp 下发的 LID ↔ 手机号映射还原号码
+  if (!pn && jid.endsWith("@lid")) pn = await sock.signalRepository.lidMapping.getPNForLID(jid).catch(() => null);
   const phone = pn ? pn.split("@")[0].split(":")[0] : null;
   const fromMe = !!msg.key.fromMe;
   const ts = new Date(Number(msg.messageTimestamp ?? Math.floor(Date.now() / 1000)) * 1000);
+  const names = contactNames.get(accountId);
+  const savedName = names?.get(jid) ?? (pn ? names?.get(`${phone}@s.whatsapp.net`) : undefined);
 
   let chat = await prisma.waChat.findUnique({ where: { accountId_jid: { accountId, jid } } });
   // 同一个人可能先以手机号、后以 LID 出现：按手机号合并
@@ -260,7 +361,7 @@ async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, 
         accountId,
         jid,
         phone,
-        name: fromMe ? null : msg.pushName || null,
+        name: savedName ?? (fromMe ? null : msg.pushName || null),
         customerId: match?.customerId ?? null,
         contactId: match?.id ?? null,
       },
@@ -286,15 +387,15 @@ async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, 
       },
     });
   } catch {
-    return; // 并发重复
+    return false; // 并发重复
   }
   const newer = !chat.lastMessageAt || chat.lastMessageAt <= ts;
   await prisma.waChat.update({
     where: { id: chat.id },
     data: {
-      ...(newer ? { lastMessageAt: ts, lastText: c.body.slice(0, 200) } : {}),
+      ...(newer ? { lastMessageAt: ts, lastText: c.body.slice(0, 200), lastFromMe: fromMe } : {}),
       ...(!fromMe && live ? { unread: { increment: 1 } } : {}),
-      ...(!fromMe && msg.pushName && !chat.name ? { name: msg.pushName } : {}),
+      ...(!chat.name && (savedName || (!fromMe && msg.pushName)) ? { name: savedName || msg.pushName } : {}),
       ...(phone && !chat.phone ? { phone } : {}),
     },
   });
@@ -303,6 +404,7 @@ async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, 
   if (c.media) {
     await saveMedia(sock, msg, row, c.media).catch((e) => log(accountId, "media download failed", (e as Error).message));
   }
+  return true;
 }
 
 /** 发给客户的 WhatsApp 记一条跟进（同一客户 6 小时内只记一次），并刷新最近跟进时间 */
@@ -361,7 +463,7 @@ export async function reconcileWhatsapp() {
       await rm(authDir(a.id), { recursive: true, force: true });
       await prisma.waAccount.update({
         where: { id: a.id },
-        data: { logoutRequested: false, enabled: false, status: "DISCONNECTED", qr: null, pairCode: null, phone: null, name: null, lastError: null },
+        data: { logoutRequested: false, enabled: false, status: "DISCONNECTED", qr: null, pairCode: null, phone: null, name: null, lastError: null, syncStatus: null, syncProgress: null, syncMessages: 0, syncStartedAt: null, syncDoneAt: null, avatarKey: null, avatarAt: null },
       });
       continue;
     }
@@ -389,7 +491,66 @@ export async function reconcileWhatsapp() {
       sessions.delete(id);
     }
   }
+  await finishSyncs(accounts);
   await sendQueued();
+}
+
+/**
+ * 历史同步收尾：收到「完成」信号且 15 秒没有新分片，或 2 分钟没有任何分片，就算同步完成。
+ * （worker 重启后分片不会续传，靠 2 分钟兜底收尾）
+ */
+async function finishSyncs(accounts: { id: string; syncStatus: string | null; syncStartedAt: Date | null }[]) {
+  for (const a of accounts) {
+    if (a.syncStatus !== "syncing") continue;
+    const last = lastHistoryAt.get(a.id) ?? a.syncStartedAt?.getTime() ?? 0;
+    const idle = Date.now() - last;
+    if ((historyComplete.has(a.id) && idle > 15_000) || idle > 120_000) {
+      historyComplete.delete(a.id);
+      lastHistoryAt.delete(a.id);
+      await prisma.waAccount.update({ where: { id: a.id }, data: { syncStatus: "done", syncProgress: 100, syncDoneAt: new Date() } });
+      log(a.id, "history sync done");
+    }
+  }
+}
+
+/** 下载头像存到 <tenantId>/wa/avatars/<id>.jpg；对方没设头像或隐私不可见时返回 null */
+async function fetchAvatar(sock: WASocket, jid: string, tenantId: string, id: string) {
+  const url = await sock.profilePictureUrl(jid, "image", 10_000).catch(() => undefined);
+  if (!url) return null;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length || buf.length > 5 * 1024 * 1024) return null;
+  const key = `${tenantId}/wa/avatars/${id}.jpg`;
+  await putObject(key, buf, { contentType: res.headers.get("content-type")?.split(";")[0] || "image/jpeg" });
+  return key;
+}
+
+/** 头像：自己的 + 最近活跃的会话，每轮最多拉 6 个，3 天刷新一次 */
+export async function refreshWaAvatars() {
+  const stale = new Date(Date.now() - 3 * 24 * 3600_000);
+  for (const [accountId, s] of sessions) {
+    if (!s.open) continue;
+    const account = await prisma.waAccount.findUnique({ where: { id: accountId }, select: { tenantId: true, avatarAt: true } });
+    if (!account) continue;
+    if (!account.avatarAt || account.avatarAt < stale) {
+      const me = s.sock.user?.id ? B.jidNormalizedUser(s.sock.user.id) : null;
+      const key = me ? await fetchAvatar(s.sock, me, account.tenantId, `me-${accountId}`).catch(() => null) : null;
+      await prisma.waAccount.update({ where: { id: accountId }, data: { avatarKey: key, avatarAt: new Date() } });
+    }
+    const chats = await prisma.waChat.findMany({
+      where: { accountId, lastMessageAt: { not: null }, OR: [{ avatarAt: null }, { avatarAt: { lt: stale } }] },
+      orderBy: { lastMessageAt: "desc" },
+      take: 6,
+      select: { id: true, jid: true, phone: true },
+    });
+    for (const c of chats) {
+      const key =
+        (await fetchAvatar(s.sock, c.jid, account.tenantId, c.id).catch(() => null)) ??
+        (c.phone && c.jid.endsWith("@lid") ? await fetchAvatar(s.sock, `${c.phone}@s.whatsapp.net`, account.tenantId, c.id).catch(() => null) : null);
+      await prisma.waChat.update({ where: { id: c.id }, data: { avatarKey: key, avatarAt: new Date() } });
+    }
+  }
 }
 
 export function shutdownWhatsapp() {
