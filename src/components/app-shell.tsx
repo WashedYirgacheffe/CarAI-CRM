@@ -21,7 +21,7 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
-import { BrandMark } from "@/components/brand";
+import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -95,12 +95,12 @@ export function AppShell({
         </button>
         <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
           <span className="hidden w-[72px] shrink-0 justify-center md:flex">
-            <BrandMark className="size-9 rounded-xl" />
+            <BrandMark className="size-9" />
           </span>
-          <BrandMark className="size-8 rounded-xl md:hidden" />
-          <span className="grid min-w-0 leading-tight">
-            <span className="truncate text-[15px] font-bold tracking-tight">车车外贸 CRM</span>
-            <span className="hidden truncate text-xs text-muted-foreground sm:block">{tenantName}</span>
+          <BrandMark className="size-8 md:hidden" />
+          <span className="grid min-w-0 gap-1">
+            <Brand className="h-[18px]" />
+            <span className="hidden truncate text-xs leading-none text-muted-foreground sm:block">{tenantName}</span>
           </span>
         </Link>
         <div className="flex flex-1 justify-center">
@@ -170,7 +170,9 @@ export function AppShell({
             if ((e.target as HTMLElement).closest("a")) setMobileOpen(false);
           }}
         >
-          <SheetTitle className="px-2 py-2 text-base font-bold">车车外贸 CRM</SheetTitle>
+          <SheetTitle className="px-2 py-2">
+            <Brand className="h-6" />
+          </SheetTitle>
           {modules.map((m) => {
             const Icon = ICONS[m.icon] ?? ChevronRight;
             const isActive = active?.module.key === m.key;
