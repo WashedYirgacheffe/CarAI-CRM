@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { BarTrend, Donut } from "@/components/dashboard/charts";
+import { Funnel, MatrixHeat, RankSwitch } from "@/components/dashboard/viz";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { ORDER_NOT_COUNTED, QUOTATION_STATUSES } from "@/lib/docs";
@@ -96,17 +97,19 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       where: { tenantId: t, receivedAt: when, ...(ids ? { order: { ownerId: { in: ids } } } : {}) },
       select: { amount: true, order: { select: { ownerId: true, exchangeRate: true } } },
     }),
-    prisma.activity.findMany({ where: { tenantId: t, type: "FOLLOW_UP", createdAt: when, ...byUser }, select: { userId: true, method: true } }),
+    prisma.activity.findMany({
+      where: { tenantId: t, type: "FOLLOW_UP", createdAt: when, ...byUser },
+      select: { userId: true, method: true, createdAt: true },
+    }),
     prisma.mailMessage.findMany({
       where: { tenantId: t, date: when, ...(ids ? { account: { userId: { in: ids } } } : {}) },
-      select: { folder: true, customerId: true, account: { select: { userId: true } } },
+      select: { folder: true, customerId: true, date: true, account: { select: { userId: true } } },
     }),
     prisma.waMessage.findMany({
       where: { tenantId: t, timestamp: when, ...(ids ? { account: { userId: { in: ids } } } : {}) },
-      select: { fromMe: true, account: { select: { userId: true } } },
+      select: { fromMe: true, timestamp: true, account: { select: { userId: true } } },
     }),
   ]);
-
 
   const cny = (amount: unknown, rate: unknown) => Number(amount) * Number(rate);
   const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
@@ -140,7 +143,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const dayAt = (i: number) => new Date(Date.parse(`${range.from}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10);
   const buckets: { key: string; label: string; value: number }[] = [];
   if (unit === "month") {
-    for (let k = range.from.slice(0, 7); k <= range.to.slice(0, 7); ) {
+    for (let k = range.from.slice(0, 7); k <= range.to.slice(0, 7);) {
       buckets.push({ key: k, label: `${Number(k.slice(5))}月`, value: 0 });
       const [yy, mm] = k.split("-").map(Number);
       k = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
@@ -151,7 +154,8 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   }
   for (const o of orders) {
     const d = toLocalInput(o.orderDate, tz, false);
-    const key = unit === "month" ? d.slice(0, 7) : String(Math.floor((Date.parse(d) - Date.parse(range.from)) / 86_400_000 / (unit === "day" ? 1 : 7)));
+    const key =
+      unit === "month" ? d.slice(0, 7) : String(Math.floor((Date.parse(d) - Date.parse(range.from)) / 86_400_000 / (unit === "day" ? 1 : 7)));
     const b = buckets.find((x) => x.key === key);
     if (b) b.value += cny(o.total, o.exchangeRate);
   }
@@ -178,6 +182,29 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
     .sort((a, b) => b.orderAmount - a.orderAmount || b.follows - a.follows);
   const teamMaxAmount = Math.max(1, ...team.map((x) => x.orderAmount));
 
+  // 成员 × 天的活跃度（跟进 + 发邮件 + 发 WA），区间太长时只看最后 42 天
+  const heatDays = Math.min(days, 42);
+  const heatKeys = Array.from({ length: heatDays }, (_, i) => dayAt(days - heatDays + i));
+  const heatIndex = new Map(heatKeys.map((k, i) => [k, i]));
+  const heatRows = team.map((u) => ({ id: u.id, label: u.name, values: heatKeys.map(() => 0) }));
+  const bump = (userId: string | null | undefined, at: Date) => {
+    const row = heatRows.find((r) => r.id === userId);
+    const i = heatIndex.get(toLocalInput(at, tz, false));
+    if (row && i !== undefined) row.values[i]++;
+  };
+  for (const f of follows) bump(f.userId, f.createdAt);
+  for (const m of mails) if (m.folder === "SENT") bump(m.account.userId, m.date);
+  for (const m of was) if (m.fromMe) bump(m.account.userId, m.timestamp);
+  const rankMetrics = [
+    { key: "amount", label: "成交额", money: true, rows: team.map((u) => ({ label: u.name, value: u.orderAmount })) },
+    { key: "paid", label: "回款", money: true, rows: team.map((u) => ({ label: u.name, value: u.paid })) },
+    { key: "follows", label: "跟进", unit: " 次", rows: team.map((u) => ({ label: u.name, value: u.follows })) },
+    { key: "mails", label: "发邮件", unit: " 封", rows: team.map((u) => ({ label: u.name, value: u.mailsOut })) },
+    { key: "wa", label: "WhatsApp", unit: " 条", rows: team.map((u) => ({ label: u.name, value: u.waOut })) },
+    { key: "quotes", label: "报价", unit: " 份", rows: team.map((u) => ({ label: u.name, value: u.quotes })) },
+    { key: "leads", label: "询盘", unit: " 条", rows: team.map((u) => ({ label: u.name, value: u.leads })) },
+  ];
+
   const money = (n: number) => formatMoney(n, "CNY");
   const kpis: { icon: LucideIcon; label: string; value: number | string; hint?: string; strong?: boolean }[] = [
     { icon: Inbox, label: "新增询盘", value: leads.length, hint: `已转客户 ${converted} · ${pct(converted, leads.length)}` },
@@ -195,7 +222,10 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         description={`${range.from} 至 ${range.to} · ${ids ? `数据范围内 ${members.length} 名成员` : "全公司"} · 金额按单据汇率折合人民币`}
         actions={
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-            <nav className="inline-flex max-w-full overflow-x-auto rounded-full bg-muted p-1 ring-1 ring-border/60 [scrollbar-width:none]" aria-label="统计区间">
+            <nav
+              className="inline-flex max-w-full overflow-x-auto rounded-full bg-muted p-1 ring-1 ring-border/60 [scrollbar-width:none]"
+              aria-label="统计区间"
+            >
               {PRESETS.map((p) => (
                 <Link
                   key={p.key}
@@ -226,7 +256,12 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <section className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-6">
           {kpis.map((k) => (
             <div key={k.label} className="surface flex min-w-0 flex-col gap-2.5 p-3.5 md:gap-3 md:p-5">
-              <span className={cn("flex size-9 items-center justify-center rounded-xl", k.strong ? "bg-primary text-primary-foreground" : "bg-accent text-primary")}>
+              <span
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-xl",
+                  k.strong ? "bg-primary text-primary-foreground" : "bg-accent text-primary",
+                )}
+              >
                 <k.icon className="size-[18px]" />
               </span>
               <span className="min-w-0">
@@ -283,7 +318,10 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                           className="h-full rounded-full bg-[color-mix(in_oklch,var(--chart-1)_30%,white)]"
                           style={{ width: `${(s.total / sourceRows[0][1].total) * 100}%` }}
                         >
-                          <div className="h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${s.total ? (s.converted / s.total) * 100 : 0}%` }} />
+                          <div
+                            className="h-full rounded-full bg-[var(--chart-1)]"
+                            style={{ width: `${s.total ? (s.converted / s.total) * 100 : 0}%` }}
+                          />
                         </div>
                       </div>
                     </li>
@@ -307,13 +345,53 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           <Card>
             <CardHeader>
               <CardTitle className="text-base">报价单状态</CardTitle>
-              <CardDescription>共 {quotes.length} 张 · {money(quoteAmount)}</CardDescription>
+              <CardDescription>
+                共 {quotes.length} 张 · {money(quoteAmount)}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Donut data={quoteStatus} unit=" 张" empty="这段时间没有报价单" />
             </CardContent>
           </Card>
         </div>
+
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">成员对比</CardTitle>
+              <CardDescription>切换指标看谁领先</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RankSwitch metrics={rankMetrics} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">销售漏斗</CardTitle>
+              <CardDescription>区间内各环节数量与环比转化</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Funnel
+                steps={[
+                  { label: "新增询盘", value: leads.length, href: "/leads?tab=all" },
+                  { label: "新增客户", value: customers.length, href: "/customers" },
+                  { label: "发出报价", value: quotes.filter((q) => q.status !== "DRAFT").length, href: "/quotations" },
+                  { label: "成交订单", value: orders.length, href: "/orders" },
+                ]}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">成员每日活跃</CardTitle>
+            <CardDescription>跟进 + 发邮件 + 发 WhatsApp 的次数{days > heatDays ? `，只显示最后 ${heatDays} 天` : ""}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MatrixHeat rows={heatRows} labels={heatKeys.map(md)} />
+          </CardContent>
+        </Card>
 
         <section className="overflow-hidden surface">
           <div className="flex items-baseline justify-between gap-3 px-4 pt-4 pb-1 md:px-5 md:pt-5 md:pb-3">
@@ -326,7 +404,11 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                 key={r.id}
                 leading={<Rank i={i} on={r.orderAmount > 0} />}
                 title={r.name}
-                aside={<span className={cn("text-sm font-semibold tabular-nums", !r.orderAmount && "font-normal text-muted-foreground/60")}>{money(r.orderAmount)}</span>}
+                aside={
+                  <span className={cn("text-sm font-semibold tabular-nums", !r.orderAmount && "font-normal text-muted-foreground/60")}>
+                    {money(r.orderAmount)}
+                  </span>
+                }
                 sub={`${r.orders} 单 · 回款 ${money(r.paid)}`}
               >
                 <div className="mb-2.5 h-1.5 overflow-hidden rounded-full bg-muted">

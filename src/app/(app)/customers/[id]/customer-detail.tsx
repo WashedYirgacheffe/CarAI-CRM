@@ -40,13 +40,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CustomerAiPanel, CustomerMails, CustomerWhatsapp, type CustomerMailRow, type CustomerWaRow } from "./customer-comms";
@@ -54,16 +48,7 @@ import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
 import { cn } from "@/lib/utils";
-import {
-  FOLLOW_METHODS,
-  countryName,
-  followMethodLabel,
-  formatDate,
-  formatDateTime,
-  formatMoney,
-  relativeDays,
-  toLocalInput,
-} from "@/lib/crm";
+import { FOLLOW_METHODS, countryName, followMethodLabel, formatDate, formatDateTime, formatMoney, relativeDays, toLocalInput } from "@/lib/crm";
 import { COUNTRY_TZ } from "@/lib/dashboard";
 import { StarRating, StatusBadge } from "@/components/crm/bits";
 import { CustomerForm, type CustomerOptionsProp, type EditableCustomer } from "@/components/crm/customer-form";
@@ -180,8 +165,11 @@ export function CustomerDetail({
   quotations,
   orders,
   comms,
+  insights,
 }: {
   tz: string;
+  /** 往来概况（服务端渲染的图表块） */
+  insights?: React.ReactNode;
   access: CustomerAccess;
   perms: Perms;
   members: { id: string; name: string }[];
@@ -401,7 +389,11 @@ export function CustomerDetail({
               <Info label="最近收件">{c.lastMailRecvAt && when(c.lastMailRecvAt, tz)}</Info>
               <Info label="最近发件">{c.lastMailSentAt && when(c.lastMailSentAt, tz)}</Info>
               <Info label="WhatsApp">{c.lastWaAt && when(c.lastWaAt, tz)}</Info>
-              {c.poolCount > 0 && <Info label="进公海次数"><span className="tabular-nums">{c.poolCount} 次</span></Info>}
+              {c.poolCount > 0 && (
+                <Info label="进公海次数">
+                  <span className="tabular-nums">{c.poolCount} 次</span>
+                </Info>
+              )}
               {access.inPool && <Info label="公海原因">{c.poolReason}</Info>}
             </InfoSection>
             <InfoSection title="系统信息">
@@ -465,6 +457,8 @@ export function CustomerDetail({
               <FollowUpForm customerId={c.id} tz={tz} />
             </div>
           )}
+
+          {insights && <div className="max-xl:order-6">{insights}</div>}
 
           <section className="surface max-xl:order-6">
             <Tabs defaultValue="timeline" className="gap-0">
@@ -568,11 +562,7 @@ export function CustomerDetail({
                 </TabsContent>
                 {showWa && (
                   <TabsContent value="wa">
-                    <CustomerWhatsapp
-                      rows={comms.wa}
-                      tz={tz}
-                      chatHref={waHref}
-                    />
+                    <CustomerWhatsapp rows={comms.wa} tz={tz} chatHref={waHref} />
                   </TabsContent>
                 )}
               </div>
@@ -600,9 +590,7 @@ export function CustomerDetail({
 
       {/* 弹窗 */}
       <Dialog open={modal === "edit"} onOpenChange={(o) => !o && close()}>
-        <DialogContent className="sm:max-w-2xl">
-          {modal === "edit" && <CustomerForm customer={c} options={options} onDone={close} />}
-        </DialogContent>
+        <DialogContent className="sm:max-w-2xl">{modal === "edit" && <CustomerForm customer={c} options={options} onDone={close} />}</DialogContent>
       </Dialog>
       <Dialog open={modal === "release"} onOpenChange={(o) => !o && close()}>
         <DialogContent>
@@ -721,17 +709,7 @@ function TabCount({ n }: { n: number }) {
 }
 
 /** 右栏顶部的可折叠条：进行中的商机 / 计划日程 */
-function CollapseBar({
-  title,
-  count,
-  action,
-  children,
-}: {
-  title: string;
-  count: number;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function CollapseBar({ title, count, action, children }: { title: string; count: number; action?: React.ReactNode; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <section className="surface">
@@ -963,13 +941,21 @@ function LocalTime({ country, myTz }: { country: string; myTz: string }) {
   const zone = COUNTRY_TZ[country];
   if (!zone || now === null) return null;
   const d = new Date(now);
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" }).formatToParts(d);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+    hourCycle: "h23",
+  }).formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   const hour = Number(get("hour"));
   const weekday = get("weekday");
   const working = !["Sat", "Sun"].includes(weekday) && hour >= 9 && hour < 18;
   const offset = (z: string) => {
-    const s = new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "longOffset" }).formatToParts(d).find((x) => x.type === "timeZoneName")?.value ?? "GMT";
+    const s =
+      new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "longOffset" }).formatToParts(d).find((x) => x.type === "timeZoneName")?.value ??
+      "GMT";
     const m = s.match(/GMT([+-])(\d{2}):?(\d{2})?/);
     return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0)) : 0;
   };
@@ -983,7 +969,11 @@ function LocalTime({ country, myTz }: { country: string; myTz: string }) {
       <Clock className="size-4 shrink-0 text-muted-foreground/70" />
       <span className="flex flex-wrap items-center gap-1.5">
         <span>
-          当地 <span className="text-foreground tabular-nums">{get("hour")}:{get("minute")}</span> {WEEK[weekday]}
+          当地{" "}
+          <span className="text-foreground tabular-nums">
+            {get("hour")}:{get("minute")}
+          </span>{" "}
+          {WEEK[weekday]}
         </span>
         <span className={cn("rounded-full px-1.5 text-[11px]", working ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground")}>
           {working ? "工作时间" : "非工作时间"}
@@ -1094,7 +1084,13 @@ function ContactsCard({
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           {editing && (
-            <ContactForm key={editing.id ?? "new"} customerId={customerId} contact={editing} first={!contacts.length} onDone={() => setEditing(null)} />
+            <ContactForm
+              key={editing.id ?? "new"}
+              customerId={customerId}
+              contact={editing}
+              first={!contacts.length}
+              onDone={() => setEditing(null)}
+            />
           )}
         </DialogContent>
       </Dialog>

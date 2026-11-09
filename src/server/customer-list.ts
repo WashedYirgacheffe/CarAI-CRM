@@ -42,10 +42,9 @@ export function parseFilters(sp: SearchParams): CustomerFilters {
   };
 }
 
-export async function listCustomers(user: CurrentUser, f: CustomerFilters, mode: "mine" | "pool") {
-  const db = tenantDb(user.tenantId);
+/** 列表与统计共用的查询条件：数据范围 + 筛选 */
+export async function customerListWhere(user: CurrentUser, f: CustomerFilters, mode: "mine" | "pool"): Promise<Prisma.CustomerWhereInput> {
   const and: Prisma.CustomerWhereInput[] = [];
-
   if (mode === "pool") {
     and.push({ ownerId: null });
   } else {
@@ -53,8 +52,12 @@ export async function listCustomers(user: CurrentUser, f: CustomerFilters, mode:
     and.push(scope ? { ownerId: { in: scope } } : { ownerId: { not: null } });
   }
   and.push(...customerFilterWhere(mode === "pool" ? { ...f, owner: "" } : f, user.timezone));
+  return { AND: and };
+}
 
-  const where: Prisma.CustomerWhereInput = { AND: and };
+export async function listCustomers(user: CurrentUser, f: CustomerFilters, mode: "mine" | "pool") {
+  const db = tenantDb(user.tenantId);
+  const where = await customerListWhere(user, f, mode);
   const orderBy: Prisma.CustomerOrderByWithRelationInput[] =
     mode === "pool"
       ? [{ poolEnteredAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
@@ -152,3 +155,32 @@ function flattenGroups(groups: { id: string; name: string; parentId: string | nu
 }
 
 export type CustomerOptions = Awaited<ReturnType<typeof customerOptions>>;
+
+const DAY = 86_400_000;
+
+/** 列表顶部的分布统计：状态、国家、星级、多久没联系（都基于当前筛选） */
+export async function customerInsights(user: CurrentUser, f: CustomerFilters, mode: "mine" | "pool") {
+  const db = tenantDb(user.tenantId);
+  const where = await customerListWhere(user, f, mode);
+  const now = Date.now();
+  const ago = (d: number) => new Date(now - d * DAY);
+  const within = (from: number, to?: number): Prisma.CustomerWhereInput => ({
+    AND: [where, { lastContactAt: to === undefined ? { gte: ago(from) } : { gte: ago(to), lt: ago(from) } }],
+  });
+  const [byStatus, byCountry, byStar, d7, d30, d90, old, never] = await Promise.all([
+    db.customer.groupBy({ by: ["statusId"], where, _count: { _all: true } }),
+    db.customer.groupBy({ by: ["country"], where, _count: { _all: true } }),
+    db.customer.groupBy({ by: ["star"], where, _count: { _all: true } }),
+    db.customer.count({ where: within(7) }),
+    db.customer.count({ where: within(7, 30) }),
+    db.customer.count({ where: within(30, 90) }),
+    db.customer.count({ where: { AND: [where, { lastContactAt: { lt: ago(90) } }] } }),
+    db.customer.count({ where: { AND: [where, { lastContactAt: null }] } }),
+  ]);
+  return {
+    status: byStatus.map((x) => ({ id: x.statusId, count: x._count._all })),
+    country: byCountry.map((x) => ({ code: x.country, count: x._count._all })),
+    star: byStar.map((x) => ({ star: x.star, count: x._count._all })),
+    idle: { d7, d30, d90, old, never },
+  };
+}

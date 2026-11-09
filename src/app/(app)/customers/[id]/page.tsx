@@ -8,6 +8,7 @@ import { scopeMembers } from "@/server/scope";
 import { customerOptions } from "@/server/customer-list";
 import { asAddresses, asAttachments } from "@/server/mail/store";
 import { CustomerDetail } from "./customer-detail";
+import { CustomerInsights } from "./customer-insights";
 
 export async function generateMetadata({ params }: PageProps<"/customers/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -43,9 +44,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
     db.stage.findMany({ orderBy: { sort: "asc" } }),
     customerOptions(user.tenantId),
     scopeMembers(user),
-    can(user, "quotation.view")
-      ? db.quotation.findMany({ where: { customerId: id }, orderBy: { createdAt: "desc" }, take: 100 })
-      : null,
+    can(user, "quotation.view") ? db.quotation.findMany({ where: { customerId: id }, orderBy: { createdAt: "desc" }, take: 100 }) : null,
     can(user, "order.view") ? db.order.findMany({ where: { customerId: id }, orderBy: { orderDate: "desc" }, take: 100 }) : null,
   ]);
 
@@ -90,6 +89,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
   return (
     <CustomerDetail
       tz={user.timezone}
+      insights={<CustomerInsights tenantId={user.tenantId} customerId={id} tz={user.timezone} quotations={quotations} orders={orders} />}
       access={access}
       perms={{
         transfer: can(user, "customer.transfer"),
