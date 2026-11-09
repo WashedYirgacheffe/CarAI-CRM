@@ -11,7 +11,7 @@ export default async function CompanyPage() {
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: user.tenantId } });
   return (
     <>
-      <PageHeader title="企业信息" description="企业名称会显示在侧边栏和单据抬头上。" />
+      <PageHeader title="企业信息" description="企业名称会显示在顶栏和单据抬头上。" />
       <CompanyForm
         defaults={{ name: tenant.name, defaultCurrency: tenant.defaultCurrency, timezone: tenant.timezone }}
       />
