@@ -32,19 +32,33 @@ const sessions = new Map<string, Session>();
 const retryAt = new Map<string, number>();
 const failures = new Map<string, number>();
 let version: [number, number, number] | undefined;
+let versionAt = 0;
 
 const authDir = (id: string) => path.join(AUTH_DIR, id);
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "[wa]", ...a);
 
 async function start(accountId: string) {
   const loadAuthState = B.useMultiFileAuthState; // 不是 React Hook，只是名字以 use 开头
-  const { state, saveCreds } = await loadAuthState(authDir(accountId));
-  if (!version) version = await B.fetchLatestBaileysVersion().then((r) => r.version).catch(() => undefined);
+  let { state, saveCreds } = await loadAuthState(authDir(accountId));
+  // 还没关联成功（没有 account 签名）的半截凭据会让下次走「登录」而不是「注册」，导致配对失败：清掉重来
+  if (!state.creds.account) {
+    await rm(authDir(accountId), { recursive: true, force: true });
+    ({ state, saveCreds } = await loadAuthState(authDir(accountId)));
+  }
+  // 用 WhatsApp 网页版当前的版本号（6 小时刷新一次）；过旧的版本号会被拒绝关联
+  if (!version || Date.now() - versionAt > 6 * 3600_000) {
+    const r = await B.fetchLatestWaWebVersion({}).catch(() => null);
+    if (r?.isLatest) {
+      version = r.version as [number, number, number];
+      versionAt = Date.now();
+    }
+  }
   const sock = B.makeWASocket({
     auth: state,
     version,
     logger,
-    browser: B.Browsers.macOS("Desktop"),
+    // 必须伪装成浏览器（Chrome）：WhatsApp 会拒绝「Desktop」客户端的手机号配对码，手机上提示「无法关联设备」
+    browser: B.Browsers.macOS("Chrome"),
     markOnlineOnConnect: false,
     syncFullHistory: false,
     generateHighQualityLinkPreview: false,
