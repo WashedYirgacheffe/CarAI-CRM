@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { Globe, Mail, MoreHorizontal, Pencil, Phone, Plus, Star, Trash2 } from "lucide-react";
+import { Clock, Globe, Mail, MoreHorizontal, Pencil, Phone, Plus, Star, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +45,7 @@ import {
   relativeDays,
   toLocalInput,
 } from "@/lib/crm";
+import { COUNTRY_TZ } from "@/lib/dashboard";
 import { StarRating, StatusBadge } from "@/components/crm/bits";
 import { CustomerForm, type CustomerOptionsProp, type EditableCustomer } from "@/components/crm/customer-form";
 import { ReleaseForm } from "@/components/crm/customer-table";
@@ -72,8 +73,16 @@ type CustomerView = EditableCustomer & {
   createdAt: string;
   assignedAt: string | null;
   lastContactAt: string | null;
+  lastFollowAt: string | null;
+  lastMailRecvAt: string | null;
+  lastMailSentAt: string | null;
+  lastWaAt: string | null;
   nextFollowAt: string | null;
   poolReason: string | null;
+  poolDueAt: string | null;
+  poolCount: number;
+  poolEnteredAt: string | null;
+  prevOwnerName: string | null;
 };
 
 type ContactView = {
@@ -202,6 +211,7 @@ export function CustomerDetail({
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <StarRating value={c.star} size="md" onChange={canEdit ? (v) => setStarAction(c.id, v) : undefined} />
             {c.country && <span>{countryName(c.country)}</span>}
+            {c.country && <LocalTime country={c.country} myTz={tz} />}
             {c.website && (
               <a
                 href={/^https?:\/\//.test(c.website) ? c.website : `https://${c.website}`}
@@ -382,12 +392,24 @@ export function CustomerDetail({
             </CardHeader>
             <CardContent>
               <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 text-sm">
-                <Info label="最近跟进">{relativeDays(c.lastContactAt)}</Info>
+                <Info label="最近联系">{when(c.lastContactAt, tz)}</Info>
+                <Info label="最近跟进">{when(c.lastFollowAt, tz)}</Info>
+                <Info label="最近收件">{c.lastMailRecvAt && when(c.lastMailRecvAt, tz)}</Info>
+                <Info label="最近发件">{c.lastMailSentAt && when(c.lastMailSentAt, tz)}</Info>
+                <Info label="WhatsApp">{c.lastWaAt && when(c.lastWaAt, tz)}</Info>
                 <Info label="下次跟进">
                   {c.nextFollowAt ? (
                     <span className={cn(overdue && "font-medium text-destructive")}>{formatDateTime(c.nextFollowAt, tz)}</span>
                   ) : null}
                 </Info>
+                {!access.inPool && (
+                  <Info label="进公海">
+                    {c.poolDueAt ? <PoolDue at={c.poolDueAt} tz={tz} /> : <span className="text-muted-foreground">不会自动进公海</span>}
+                  </Info>
+                )}
+                {access.inPool && <Info label="进入公海">{c.poolEnteredAt && formatDate(c.poolEnteredAt, tz)}</Info>}
+                {c.poolCount > 0 && <Info label="进公海次数">{c.poolCount} 次</Info>}
+                <Info label="原负责人">{c.prevOwnerName}</Info>
                 <Info label="来源">{c.source}</Info>
                 <Info label="类型">{c.customerType}</Info>
                 <Info label="主营产品">{c.mainProducts}</Info>
@@ -534,37 +556,143 @@ const METHOD_ICON: Record<string, React.ReactNode> = {
   PHONE: <Phone className="size-3.5" />,
 };
 
+const MAIL_EVENTS = new Set(["mail_out", "mail_in", "mail_linked"]);
+const CHAT_EVENTS = new Set(["wa_out", "wa_linked"]);
+type ActivityKind = "follow" | "mail" | "chat" | "other";
+const ACTIVITY_KINDS: { key: ActivityKind | "all"; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "follow", label: "跟进" },
+  { key: "mail", label: "邮件" },
+  { key: "chat", label: "聊天" },
+  { key: "other", label: "其他" },
+];
+
+function kindOf(a: ActivityView): ActivityKind {
+  if (a.event && MAIL_EVENTS.has(a.event)) return "mail";
+  if (a.event && CHAT_EVENTS.has(a.event)) return "chat";
+  return a.type === "FOLLOW_UP" ? "follow" : "other";
+}
+
 function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }) {
+  const [kind, setKind] = useState<ActivityKind | "all">("all");
   if (!activities.length) {
     return <p className="rounded-xl border bg-card py-10 text-center text-sm text-muted-foreground">还没有动态</p>;
   }
+  const count = (k: ActivityKind | "all") => (k === "all" ? activities.length : activities.filter((a) => kindOf(a) === k).length);
+  const shown = kind === "all" ? activities : activities.filter((a) => kindOf(a) === kind);
   return (
-    <ol className="relative space-y-4 rounded-xl border bg-card p-5 before:absolute before:top-6 before:bottom-6 before:left-[1.85rem] before:w-px before:bg-border">
-      {activities.map((a) =>
-        a.type === "FOLLOW_UP" ? (
-          <li key={a.id} className="relative flex gap-3">
-            <span className="z-10 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              {METHOD_ICON[a.method ?? ""] ?? <Star className="size-3" />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">{a.userName}</span> · {followMethodLabel(a.method)}跟进 ·{" "}
-                <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span>
-                {a.opportunityName && ` · 商机：${a.opportunityName}`}
-              </p>
-              <p className="mt-1 text-sm whitespace-pre-wrap">{a.content}</p>
-            </div>
-          </li>
-        ) : (
-          <li key={a.id} className="relative flex gap-3 text-xs text-muted-foreground">
-            <span className="z-10 mt-1 ml-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/40" />
-            <p>
-              <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span> · {a.userName} {a.content}
-            </p>
-          </li>
-        ),
+    <div className="rounded-xl border bg-card">
+      <div className="flex flex-wrap gap-1 border-b px-4 py-2" role="tablist" aria-label="动态分类">
+        {ACTIVITY_KINDS.map((k) => (
+          <button
+            key={k.key}
+            type="button"
+            role="tab"
+            aria-selected={kind === k.key}
+            onClick={() => setKind(k.key)}
+            className={cn(
+              "rounded-full px-2.5 py-0.5 text-xs transition-colors",
+              kind === k.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            {k.label} <span className="tabular-nums opacity-70">{count(k.key)}</span>
+          </button>
+        ))}
+      </div>
+      {shown.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">这一类还没有动态</p>
+      ) : (
+        <ol className="relative space-y-4 p-5 before:absolute before:top-6 before:bottom-6 before:left-[1.85rem] before:w-px before:bg-border">
+          {shown.map((a) =>
+            a.type === "FOLLOW_UP" ? (
+              <li key={a.id} className="relative flex gap-3">
+                <span className="z-10 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  {METHOD_ICON[a.method ?? ""] ?? <Star className="size-3" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{a.userName}</span> · {followMethodLabel(a.method)}
+                    {a.event ? "" : "跟进"} · <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span>
+                    {a.opportunityName && ` · 商机：${a.opportunityName}`}
+                  </p>
+                  <p className="mt-1 text-sm whitespace-pre-wrap">{a.content}</p>
+                </div>
+              </li>
+            ) : (
+              <li key={a.id} className="relative flex gap-3 text-xs text-muted-foreground">
+                <span className="z-10 mt-1 ml-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+                <p>
+                  <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span> · {a.userName} {a.content}
+                </p>
+              </li>
+            ),
+          )}
+        </ol>
       )}
-    </ol>
+    </div>
+  );
+}
+
+/** 「3 天前（11/05 14:20）」 */
+function when(at: string | null, tz: string) {
+  if (!at) return <span className="text-muted-foreground">从未</span>;
+  return (
+    <span title={formatDateTime(at, tz)}>
+      {relativeDays(at)} <span className="text-xs text-muted-foreground tabular-nums">{formatDate(at, tz)}</span>
+    </span>
+  );
+}
+
+function PoolDue({ at, tz }: { at: string; tz: string }) {
+  const now = useMinute();
+  if (now === null) return <span>{formatDate(at, tz)}</span>;
+  const days = Math.ceil((new Date(at).getTime() - now) / 86_400_000);
+  return (
+    <span className={cn(days <= 7 && "font-medium text-amber-600")}>
+      {formatDate(at, tz)}（{days <= 0 ? "即将回收" : `${days} 天后`}）
+    </span>
+  );
+}
+
+// 每 30 秒更新一次的「当前时间（毫秒，取整到分钟）」；服务端渲染时为 null，避免水合不一致
+const subscribeMinute = (cb: () => void) => {
+  const t = setInterval(cb, 30_000);
+  return () => clearInterval(t);
+};
+function useMinute() {
+  return useSyncExternalStore(
+    subscribeMinute,
+    () => Math.floor(Date.now() / 60_000) * 60_000,
+    () => null,
+  );
+}
+
+/** 客户所在国家的当地时间，以及是否在工作时间（周一到周五 9-18 点） */
+function LocalTime({ country, myTz }: { country: string; myTz: string }) {
+  const now = useMinute();
+  const zone = COUNTRY_TZ[country];
+  if (!zone || now === null) return null;
+  const d = new Date(now);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const hour = Number(get("hour"));
+  const weekday = get("weekday");
+  const working = !["Sat", "Sun"].includes(weekday) && hour >= 9 && hour < 18;
+  const offset = (z: string) => {
+    const s = new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "longOffset" }).formatToParts(d).find((x) => x.type === "timeZoneName")?.value ?? "GMT";
+    const m = s.match(/GMT([+-])(\d{2}):?(\d{2})?/);
+    return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0)) : 0;
+  };
+  const diff = (offset(zone) - offset(myTz)) / 60;
+  const WEEK: Record<string, string> = { Mon: "周一", Tue: "周二", Wed: "周三", Thu: "周四", Fri: "周五", Sat: "周六", Sun: "周日" };
+  return (
+    <span className="inline-flex items-center gap-1" title={`${zone}，${diff === 0 ? "与你同一时区" : `比你${diff > 0 ? "早" : "晚"} ${Math.abs(diff)} 小时`}`}>
+      <Clock className="size-3.5" />
+      当地 <span className="tabular-nums">{get("hour")}:{get("minute")}</span> {WEEK[weekday]}
+      <span className={cn("rounded px-1 text-[11px]", working ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>
+        {working ? "工作时间" : "非工作时间"}
+      </span>
+    </span>
   );
 }
 

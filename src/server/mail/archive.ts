@@ -1,9 +1,10 @@
 import "server-only";
 import { prisma } from "@/server/db";
 import { LEAD_OPEN_STATUSES, extractDomain } from "@/lib/crm";
+import { touchCustomer } from "@/server/pool";
 import type { MailAddress } from "@/server/mail/store";
 
-const AUTOMATED = /(^|[._-])(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|newsletter|bounce|alerts?)([._-]|@)/i;
+export const AUTOMATED = /(^|[._-])(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|newsletter|bounce|alerts?)([._-]|@)/i;
 
 export type ArchiveInput = {
   tenantId: string;
@@ -102,15 +103,13 @@ export async function archiveMail(m: ArchiveInput): Promise<ArchiveResult> {
           customerId,
           type: "FOLLOW_UP",
           method: "EMAIL",
+          event: "mail_out",
           content: `【发送邮件】${subject}${m.snippet ? `\n${m.snippet}` : ""}`,
           userId: m.userId,
           createdAt: m.date,
         },
       });
-      await prisma.customer.updateMany({
-        where: { tenantId: m.tenantId, id: customerId, OR: [{ lastContactAt: null }, { lastContactAt: { lt: m.date } }] },
-        data: { lastContactAt: m.date },
-      });
+      await touchCustomer(m.tenantId, customerId, m.date, ["lastMailSentAt"]);
     } else {
       await prisma.activity.create({
         data: {
@@ -122,6 +121,7 @@ export async function archiveMail(m: ArchiveInput): Promise<ArchiveResult> {
           createdAt: m.date,
         },
       });
+      await touchCustomer(m.tenantId, customerId, m.date, ["lastMailRecvAt"]);
     }
     return { customerId, contactId, leadId: null };
   }

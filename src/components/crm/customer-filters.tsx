@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/native-select";
 import { COUNTRIES } from "@/lib/crm";
+import { CUSTOMER_FILTER_KEYS, FOLLOW_OPTIONS } from "@/lib/segments";
 import type { CustomerOptionsProp } from "@/components/crm/customer-form";
 
 type Filters = Record<string, string | number>;
@@ -27,7 +28,7 @@ export function CustomerFilters({
 }) {
   const autoSubmit = (e: React.ChangeEvent<HTMLSelectElement>) => e.currentTarget.form?.requestSubmit();
   const v = (k: string) => String(filters[k] ?? "");
-  const active = ["q", "status", "group", "star", "country", "tag", "owner", "follow"].some((k) => v(k));
+  const active = CUSTOMER_FILTER_KEYS.some((k) => v(k));
   return (
     <Form action={action} className="mb-4 flex flex-wrap items-center gap-2">
       <div className="relative w-full sm:w-64">
@@ -79,10 +80,17 @@ export function CustomerFilters({
       {showFollow && (
         <NativeSelect name="follow" defaultValue={v("follow")} onChange={autoSubmit} className="w-auto" aria-label="跟进">
           <option value="">全部跟进状态</option>
-          <option value="due">今天及逾期待跟进</option>
-          <option value="stale">超过 14 天未跟进</option>
+          {FOLLOW_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </NativeSelect>
       )}
+      <label className="flex items-center gap-1 text-sm text-muted-foreground">
+        <Input name="idle" type="number" min={1} max={3650} defaultValue={v("idle")} placeholder="N" className="w-16" aria-label="多少天未联系" />
+        天未联系
+      </label>
       {v("tag") && <input type="hidden" name="tag" value={v("tag")} />}
       <Button type="submit" variant="secondary">
         查询

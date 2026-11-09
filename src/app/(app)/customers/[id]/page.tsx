@@ -185,8 +185,16 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
           createdAt: customer.createdAt.toISOString(),
           assignedAt: customer.assignedAt?.toISOString() ?? null,
           lastContactAt: customer.lastContactAt?.toISOString() ?? null,
+          lastFollowAt: customer.lastFollowAt?.toISOString() ?? null,
+          lastMailRecvAt: customer.lastMailRecvAt?.toISOString() ?? null,
+          lastMailSentAt: customer.lastMailSentAt?.toISOString() ?? null,
+          lastWaAt: customer.lastWaAt?.toISOString() ?? null,
           nextFollowAt: customer.nextFollowAt?.toISOString() ?? null,
           poolReason: customer.poolReason,
+          poolDueAt: customer.poolDueAt?.toISOString() ?? null,
+          poolCount: customer.poolCount,
+          poolEnteredAt: customer.poolEnteredAt?.toISOString() ?? null,
+          prevOwnerName: customer.prevOwner?.name ?? null,
         }}
         contacts={contacts.map((c) => ({
           id: c.id,

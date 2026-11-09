@@ -135,13 +135,15 @@ export function CustomerTable({
               {mode === "mine" ? (
                 <>
                   <TableHead>负责人</TableHead>
-                  <TableHead>最近跟进</TableHead>
+                  <TableHead>最近联系</TableHead>
                   <TableHead>下次跟进</TableHead>
+                  <TableHead>进公海</TableHead>
                 </>
               ) : (
                 <>
                   <TableHead>进入公海</TableHead>
                   <TableHead>原因</TableHead>
+                  <TableHead>原负责人</TableHead>
                 </>
               )}
             </TableRow>
@@ -149,13 +151,14 @@ export function CustomerTable({
           <TableBody>
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
                   {mode === "mine" ? "没有符合条件的客户" : "公海里暂时没有客户"}
                 </TableCell>
               </TableRow>
             )}
             {rows.map((r) => {
               const overdue = r.nextFollowAt && new Date(r.nextFollowAt) < now;
+              const poolDays = r.poolDueAt ? Math.ceil((new Date(r.poolDueAt).getTime() - now.getTime()) / 86_400_000) : null;
               return (
                 <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
                   <TableCell className="pl-4">
@@ -195,11 +198,21 @@ export function CustomerTable({
                       <TableCell className={cn("whitespace-nowrap tabular-nums", overdue && "font-medium text-destructive")}>
                         {r.nextFollowAt ? formatDate(r.nextFollowAt, tz) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
+                      <TableCell
+                        className={cn("whitespace-nowrap tabular-nums", poolDays !== null && poolDays <= 7 && "font-medium text-amber-600")}
+                        title={r.poolDueAt ? `预计 ${formatDate(r.poolDueAt, tz)} 进入公海` : "不会自动进公海"}
+                      >
+                        {poolDays === null ? <span className="text-muted-foreground">—</span> : poolDays <= 0 ? "即将回收" : `${poolDays} 天后`}
+                      </TableCell>
                     </>
                   ) : (
                     <>
                       <TableCell className="whitespace-nowrap tabular-nums">{formatDate(r.poolEnteredAt, tz) || "—"}</TableCell>
                       <TableCell className="max-w-56 truncate text-muted-foreground">{r.poolReason ?? "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {r.prevOwnerName ?? "—"}
+                        {r.poolCount > 1 && <span className="ml-1 text-xs">（第 {r.poolCount} 次进公海）</span>}
+                      </TableCell>
                     </>
                   )}
                 </TableRow>

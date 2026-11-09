@@ -2,7 +2,7 @@ import "server-only";
 import { tenantDb } from "@/server/db";
 import type { CurrentUser } from "@/server/auth";
 import { scopeOwnerIds } from "@/server/scope";
-import { dayRange } from "@/lib/crm";
+import { customerFilterWhere } from "@/server/customer-where";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const PAGE_SIZE = 20;
@@ -18,6 +18,9 @@ export type CustomerFilters = {
   tag: string;
   owner: string;
   follow: string;
+  idle: string;
+  /** 当前选中的客群 */
+  seg: string;
   page: number;
 };
 
@@ -33,6 +36,8 @@ export function parseFilters(sp: SearchParams): CustomerFilters {
     tag: one(sp.tag),
     owner: one(sp.owner),
     follow: one(sp.follow),
+    idle: one(sp.idle),
+    seg: one(sp.seg),
     page: Math.max(1, Number(one(sp.page)) || 1),
   };
 }
@@ -46,29 +51,8 @@ export async function listCustomers(user: CurrentUser, f: CustomerFilters, mode:
   } else {
     const scope = await scopeOwnerIds(user);
     and.push(scope ? { ownerId: { in: scope } } : { ownerId: { not: null } });
-    if (f.owner) and.push({ ownerId: f.owner });
   }
-
-  if (f.q) {
-    const contains = { contains: f.q, mode: "insensitive" as const };
-    and.push({
-      OR: [
-        { name: contains },
-        { domain: contains },
-        { contacts: { some: { OR: [{ name: contains }, { email: contains }, { phone: contains }, { whatsapp: contains }] } } },
-      ],
-    });
-  }
-  if (f.status) and.push({ statusId: f.status });
-  if (f.group) and.push({ groupId: f.group });
-  if (f.star) and.push({ star: Number(f.star) });
-  if (f.country) and.push({ country: f.country });
-  if (f.tag) and.push({ tags: { has: f.tag } });
-  if (f.follow === "due") and.push({ nextFollowAt: { lt: dayRange(user.timezone).end } });
-  if (f.follow === "stale") {
-    const cutoff = new Date(Date.now() - 14 * 86_400_000);
-    and.push({ OR: [{ lastContactAt: null }, { lastContactAt: { lt: cutoff } }] });
-  }
+  and.push(...customerFilterWhere(mode === "pool" ? { ...f, owner: "" } : f, user.timezone));
 
   const where: Prisma.CustomerWhereInput = { AND: and };
   const orderBy: Prisma.CustomerOrderByWithRelationInput[] =
@@ -93,7 +77,10 @@ export async function listCustomers(user: CurrentUser, f: CustomerFilters, mode:
         tags: true,
         lastContactAt: true,
         nextFollowAt: true,
+        poolDueAt: true,
+        poolCount: true,
         poolEnteredAt: true,
+        prevOwner: { select: { name: true } },
         poolReason: true,
         createdAt: true,
         status: { select: { name: true, color: true } },
@@ -127,6 +114,9 @@ export async function listCustomers(user: CurrentUser, f: CustomerFilters, mode:
       contactCount: r._count.contacts,
       lastContactAt: r.lastContactAt?.toISOString() ?? null,
       nextFollowAt: r.nextFollowAt?.toISOString() ?? null,
+      poolDueAt: r.poolDueAt?.toISOString() ?? null,
+      poolCount: r.poolCount,
+      prevOwnerName: r.prevOwner?.name ?? null,
       poolEnteredAt: r.poolEnteredAt?.toISOString() ?? null,
       poolReason: r.poolReason,
     })),
