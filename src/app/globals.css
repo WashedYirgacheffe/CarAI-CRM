@@ -70,10 +70,10 @@
   --input: oklch(0.9 0.014 262);
   --ring: oklch(0.62 0.17 266);
   --chart-1: oklch(0.56 0.2 266);
-  --chart-2: oklch(0.7 0.13 190);
-  --chart-3: oklch(0.78 0.15 75);
-  --chart-4: oklch(0.62 0.18 305);
-  --chart-5: oklch(0.66 0.19 15);
+  --chart-2: oklch(0.66 0.12 190);
+  --chart-3: oklch(0.72 0.15 70);
+  --chart-4: oklch(0.6 0.18 305);
+  --chart-5: oklch(0.63 0.19 15);
   --radius: 0.75rem;
   --card-shadow: 0 1px 2px oklch(0.3 0.04 265 / 0.04), 0 6px 20px -6px oklch(0.3 0.06 265 / 0.08);
   --sidebar: oklch(1 0 0);

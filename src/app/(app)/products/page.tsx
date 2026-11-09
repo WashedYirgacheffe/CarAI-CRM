@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/page-header";
 import { Pager } from "@/components/crm/customer-filters";
 import { can, requirePermission } from "@/server/auth";
 import { tenantDb } from "@/server/db";
@@ -49,46 +48,40 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
   ]);
 
   return (
-    <>
-      <PageHeader title="产品" description="产品资料会带入报价单和订单明细；停售的产品不会出现在新单据里。" />
-      <ProductFilters filters={filters} categories={categories.map((c) => ({ id: c.id, name: c.name }))} />
-      <ProductTable
-        manage={manage}
-        categories={categories.map((c) => ({ id: c.id, name: c.name, count: c._count.products }))}
-        rows={rows.map((p) => ({
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          nameEn: p.nameEn,
-          categoryId: p.categoryId,
-          categoryName: p.category?.name ?? null,
-          model: p.model,
-          spec: p.spec,
-          unit: p.unit,
-          price: p.price.toString(),
-          currency: p.currency,
-          // 成本价只给有管理权限的人
-          costPrice: manage ? (p.costPrice?.toString() ?? null) : null,
-          moq: p.moq,
-          hsCode: p.hsCode,
-          cartonQty: p.cartonQty,
-          cartonSize: p.cartonSize,
-          grossWeight: p.grossWeight?.toString() ?? null,
-          netWeight: p.netWeight?.toString() ?? null,
-          imageUrl: p.imageUrl,
-          images: p.images,
-          videoUrl: p.videoUrl,
-          status: p.status,
-          remark: p.remark,
-        }))}
-      />
-      <Pager
-        path="/products"
-        filters={filters}
-        page={filters.page}
-        pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
-        total={total}
-      />
-    </>
+    <ProductTable
+      description="产品资料会带入报价单和订单明细；停售的产品不会出现在新单据里。"
+      toolbar={<ProductFilters filters={filters} categories={categories.map((c) => ({ id: c.id, name: c.name }))} />}
+      footer={
+        <Pager path="/products" filters={filters} page={filters.page} pages={Math.max(1, Math.ceil(total / PAGE_SIZE))} total={total} />
+      }
+      manage={manage}
+      categories={categories.map((c) => ({ id: c.id, name: c.name, count: c._count.products }))}
+      rows={rows.map((p) => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        nameEn: p.nameEn,
+        categoryId: p.categoryId,
+        categoryName: p.category?.name ?? null,
+        model: p.model,
+        spec: p.spec,
+        unit: p.unit,
+        price: p.price.toString(),
+        currency: p.currency,
+        // 成本价只给有管理权限的人
+        costPrice: manage ? (p.costPrice?.toString() ?? null) : null,
+        moq: p.moq,
+        hsCode: p.hsCode,
+        cartonQty: p.cartonQty,
+        cartonSize: p.cartonSize,
+        grossWeight: p.grossWeight?.toString() ?? null,
+        netWeight: p.netWeight?.toString() ?? null,
+        imageUrl: p.imageUrl,
+        images: p.images,
+        videoUrl: p.videoUrl,
+        status: p.status,
+        remark: p.remark,
+      }))}
+    />
   );
 }

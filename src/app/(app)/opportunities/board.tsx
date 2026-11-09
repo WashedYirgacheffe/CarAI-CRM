@@ -3,7 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { Building2, CalendarDays, MoreHorizontal, Plus, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NativeSelect } from "@/components/native-select";
+import { PageHeader } from "@/components/page-header";
 import { runAction } from "@/hooks/use-action-form";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/crm";
@@ -42,6 +43,8 @@ function totals(opps: Opp[]) {
 }
 
 export function OpportunityBoard({
+  description,
+  closedDays,
   tz,
   owner,
   members,
@@ -50,6 +53,8 @@ export function OpportunityBoard({
   stages,
   opportunities,
 }: {
+  description: string;
+  closedDays: number;
   tz: string;
   owner: string;
   members: { id: string; name: string }[];
@@ -76,153 +81,202 @@ export function OpportunityBoard({
     });
   }
 
-  const openTotal = totals(opps.filter((o) => stages.find((s) => s.id === o.stageId)?.kind === "OPEN"));
+  const kindOf = (o: Opp) => stages.find((s) => s.id === o.stageId)?.kind;
+  const openOpps = opps.filter((o) => kindOf(o) === "OPEN");
+  const wonOpps = opps.filter((o) => kindOf(o) === "WON");
+  const lostCount = opps.filter((o) => kindOf(o) === "LOST").length;
+  const openStages = stages.filter((s) => s.kind === "OPEN").map((s) => s.id);
+
+  const dropProps = (stageId: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!dragId) return;
+      e.preventDefault();
+      setOverStage(stageId);
+    },
+    onDragLeave: () => setOverStage((v) => (v === stageId ? null : v)),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      if (dragId) move(dragId, stageId);
+      setDragId(null);
+      setOverStage(null);
+    },
+  });
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        {members.length > 1 && (
-          <NativeSelect
-            aria-label="负责人"
-            className="w-auto"
-            value={owner}
-            onChange={(e) => router.push(e.target.value ? `/opportunities?owner=${e.target.value}` : "/opportunities")}
-          >
-            <option value="">全部负责人</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </NativeSelect>
-        )}
-        <span className="text-sm text-muted-foreground">
-          进行中 {opps.filter((o) => stages.find((s) => s.id === o.stageId)?.kind === "OPEN").length} 个 · {openTotal}
-        </span>
-        {perms.create && (
-          <Button size="sm" className="ml-auto" onClick={() => setEditing({ name: "" })}>
-            <Plus /> 新建商机
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="商机"
+        description={description}
+        actions={
+          perms.create && (
+            <Button size="sm" onClick={() => setEditing({ name: "" })}>
+              <Plus /> 新建商机
+            </Button>
+          )
+        }
+      />
 
-      <div className="flex gap-3 overflow-x-auto pb-4">
-        {stages.map((s) => {
-          const items = opps.filter((o) => o.stageId === s.id);
-          return (
-            <section
-              key={s.id}
-              aria-label={s.name}
-              className={cn(
-                "flex w-64 shrink-0 flex-col rounded-xl border bg-muted/40 transition-colors",
-                overStage === s.id && "border-primary bg-primary/5",
-              )}
-              onDragOver={(e) => {
-                if (!dragId) return;
-                e.preventDefault();
-                setOverStage(s.id);
-              }}
-              onDragLeave={() => setOverStage((v) => (v === s.id ? null : v))}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragId) move(dragId, s.id);
-                setDragId(null);
-                setOverStage(null);
-              }}
+      <div className="surface">
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-border/70 px-4 py-3">
+          {members.length > 1 && (
+            <NativeSelect
+              aria-label="负责人"
+              className="h-8 w-auto"
+              value={owner}
+              onChange={(e) => router.push(e.target.value ? `/opportunities?owner=${e.target.value}` : "/opportunities")}
             >
-              <header className="border-b px-3 py-2.5">
-                <div className="flex items-center justify-between">
-                  <h2
+              <option value="">全部负责人</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </NativeSelect>
+          )}
+          <Summary label="进行中金额" value={totals(openOpps)} hint={`${openOpps.length} 个商机`} className="text-primary" />
+          <Summary label="赢单金额" value={totals(wonOpps)} hint={`${wonOpps.length} 个 · 近 ${closedDays} 天`} className="text-emerald-600" />
+          <Summary label="输单" value={`${lostCount}`} hint={`个 · 近 ${closedDays} 天`} />
+        </div>
+
+        <div className="overflow-x-auto p-4">
+          <div className="flex gap-3">
+            {stages.map((s, i) => {
+              const items = opps.filter((o) => o.stageId === s.id);
+              const over = overStage === s.id;
+              // 进行中阶段蓝色由浅到深；赢单绿；输单灰
+              const tint = s.kind === "OPEN" ? 10 + Math.round((openStages.indexOf(s.id) / Math.max(1, openStages.length - 1)) * 18) : 0;
+              return (
+                <div key={s.id} className="flex w-64 shrink-0 flex-col">
+                  <div
+                    {...dropProps(s.id)}
                     className={cn(
-                      "text-sm font-medium",
-                      s.kind === "WON" && "text-emerald-700",
-                      s.kind === "LOST" && "text-muted-foreground",
+                      "relative z-10 flex h-11 w-[calc(100%+20px)] items-center gap-1.5 pr-7 text-sm font-medium transition-[filter]",
+                      i === 0 ? "pl-3" : "pl-6",
+                      s.kind === "WON" && "bg-emerald-500 text-white",
+                      s.kind === "LOST" && "bg-muted text-muted-foreground",
+                      s.kind === "OPEN" && "text-primary",
+                      over && "brightness-95",
+                    )}
+                    style={{
+                      clipPath:
+                        i === 0
+                          ? "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%)"
+                          : "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 16px 50%)",
+                      ...(s.kind === "OPEN"
+                        ? { backgroundColor: `color-mix(in oklab, var(--primary) ${over ? tint + 10 : tint}%, var(--card))` }
+                        : {}),
+                    }}
+                  >
+                    <h2 className="truncate">{s.name}</h2>
+                    <span className="tabular-nums opacity-80">{items.length}</span>
+                    {s.kind === "OPEN" && <span className="ml-auto text-xs font-normal opacity-70 tabular-nums">{s.probability}%</span>}
+                  </div>
+                  <p className="mt-1.5 mb-3 truncate px-1 text-xs text-muted-foreground tabular-nums" title={totals(items)}>
+                    {totals(items)}
+                  </p>
+
+                  <section
+                    aria-label={s.name}
+                    {...dropProps(s.id)}
+                    className={cn(
+                      "flex min-h-40 flex-1 flex-col gap-2 rounded-2xl bg-muted/50 p-2 ring-1 ring-transparent transition-colors",
+                      over && "bg-primary/5 ring-primary/40",
                     )}
                   >
-                    {s.name}
-                    <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">{items.length}</span>
-                  </h2>
-                  <span className="text-xs text-muted-foreground">{s.probability}%</span>
-                </div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground tabular-nums">{totals(items)}</p>
-              </header>
-              <div className="flex min-h-24 flex-1 flex-col gap-2 p-2">
-                {items.map((o) => (
-                  <article
-                    key={o.id}
-                    draggable={perms.edit}
-                    onDragStart={(e) => {
-                      setDragId(o.id);
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragEnd={() => {
-                      setDragId(null);
-                      setOverStage(null);
-                    }}
-                    className={cn(
-                      "group rounded-lg border bg-card p-3 text-sm shadow-xs",
-                      perms.edit && "cursor-grab active:cursor-grabbing",
-                      dragId === o.id && "opacity-50",
+                    {items.length === 0 && (
+                      <p className="py-6 text-center text-xs text-muted-foreground/70">{perms.edit ? "拖动商机到这里" : "暂无商机"}</p>
                     )}
-                  >
-                    <div className="flex items-start gap-1">
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left font-medium hover:text-primary"
-                        onClick={() => perms.edit && setEditing(o)}
+                    {items.map((o) => (
+                      <article
+                        key={o.id}
+                        draggable={perms.edit}
+                        onDragStart={(e) => {
+                          setDragId(o.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => {
+                          setDragId(null);
+                          setOverStage(null);
+                        }}
+                        className={cn(
+                          "group rounded-xl bg-card p-3 text-sm shadow-card",
+                          perms.edit && "cursor-grab active:cursor-grabbing",
+                          dragId === o.id && "opacity-50",
+                        )}
                       >
-                        {o.name}
-                      </button>
-                      {(perms.edit || perms.delete) && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-xs" aria-label="操作" className="-mt-0.5 -mr-1">
-                              <MoreHorizontal />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {perms.edit && (
-                              <>
-                                <DropdownMenuItem onSelect={() => setEditing(o)}>编辑</DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel className="text-xs">移到阶段</DropdownMenuLabel>
-                                {stages
-                                  .filter((x) => x.id !== o.stageId)
-                                  .map((x) => (
-                                    <DropdownMenuItem key={x.id} onSelect={() => move(o.id, x.id)}>
-                                      {x.name}
+                        <div className="flex items-start gap-1">
+                          <button
+                            type="button"
+                            className={cn(
+                              "min-w-0 flex-1 text-left font-medium text-primary",
+                              perms.edit ? "hover:underline" : "cursor-default",
+                            )}
+                            onClick={() => perms.edit && setEditing(o)}
+                          >
+                            {o.name}
+                          </button>
+                          {(perms.edit || perms.delete) && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon-xs" aria-label="操作" className="-mt-0.5 -mr-1">
+                                  <MoreHorizontal />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {perms.edit && (
+                                  <>
+                                    <DropdownMenuItem onSelect={() => setEditing(o)}>编辑</DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuLabel className="text-xs">移到阶段</DropdownMenuLabel>
+                                    {stages
+                                      .filter((x) => x.id !== o.stageId)
+                                      .map((x) => (
+                                        <DropdownMenuItem key={x.id} onSelect={() => move(o.id, x.id)}>
+                                          {x.name}
+                                        </DropdownMenuItem>
+                                      ))}
+                                  </>
+                                )}
+                                {perms.delete && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem variant="destructive" onSelect={() => runAction(deleteOpportunityAction(o.id))}>
+                                      删除
                                     </DropdownMenuItem>
-                                  ))}
-                              </>
-                            )}
-                            {perms.delete && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onSelect={() => runAction(deleteOpportunityAction(o.id))}>
-                                  删除
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
-                    <Link href={`/customers/${o.customerId}`} className="mt-0.5 block truncate text-xs text-muted-foreground hover:text-primary">
-                      {o.customerName}
-                    </Link>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="font-medium tabular-nums">{formatMoney(o.amount, o.currency)}</span>
-                      <span className="text-muted-foreground">
-                        {o.ownerName}
-                        {o.expectedCloseAt && ` · ${formatDate(o.expectedCloseAt, tz).slice(5)}`}
-                      </span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          );
-        })}
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                        <p className="mt-1 text-base font-bold tabular-nums">{formatMoney(o.amount, o.currency)}</p>
+                        <Link
+                          href={`/customers/${o.customerId}`}
+                          className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary"
+                        >
+                          <Building2 className="size-3.5 shrink-0" />
+                          <span className="truncate">{o.customerName}</span>
+                        </Link>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <UserRound className="size-3.5 shrink-0" />
+                            <span className="truncate">{o.ownerName ?? "—"}</span>
+                          </span>
+                          {o.expectedCloseAt && (
+                            <span className="flex shrink-0 items-center gap-1 tabular-nums" title="预计成交日期">
+                              <CalendarDays className="size-3.5" />
+                              {formatDate(o.expectedCloseAt, tz)}
+                            </span>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </section>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
@@ -240,5 +294,17 @@ export function OpportunityBoard({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function Summary({ label, value, hint, className }: { label: string; value: string; hint: string; className?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="flex items-baseline gap-1.5">
+        <span className={cn("text-lg font-bold tabular-nums", className)}>{value}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{hint}</span>
+      </p>
+    </div>
   );
 }

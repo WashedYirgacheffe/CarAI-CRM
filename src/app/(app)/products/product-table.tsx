@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Form from "next/form";
 import Link from "next/link";
-import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { FolderTree, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +18,7 @@ import {
 import { Field, FieldGroup, FieldLabel, FieldDescription } from "@/components/ui/field";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NativeSelect } from "@/components/native-select";
+import { PageHeader } from "@/components/page-header";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { StatusBadge } from "@/components/crm/bits";
 import { ConfirmDialog } from "@/components/crm/confirm-dialog";
@@ -71,12 +72,12 @@ export function ProductFilters({
   const autoSubmit = (e: React.ChangeEvent<HTMLSelectElement>) => e.currentTarget.form?.requestSubmit();
   const active = filters.q || filters.category || filters.status !== "ACTIVE";
   return (
-    <Form action="/products" className="mb-4 flex flex-wrap items-center gap-2">
-      <div className="relative w-full sm:w-64">
+    <Form action="/products" className="flex flex-1 flex-wrap items-center gap-2">
+      <div className="relative w-full sm:w-60">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input name="q" defaultValue={filters.q} placeholder="编号 / 品名 / 型号" className="pl-8" />
+        <Input name="q" defaultValue={filters.q} placeholder="编号 / 品名 / 型号" className="h-8 pl-8" />
       </div>
-      <NativeSelect name="category" defaultValue={filters.category} onChange={autoSubmit} className="w-auto" aria-label="分类">
+      <NativeSelect name="category" defaultValue={filters.category} onChange={autoSubmit} className="h-8 w-auto" aria-label="分类">
         <option value="">全部分类</option>
         {categories.map((c) => (
           <option key={c.id} value={c.id}>
@@ -85,16 +86,16 @@ export function ProductFilters({
         ))}
         <option value="none">未分类</option>
       </NativeSelect>
-      <NativeSelect name="status" defaultValue={filters.status} onChange={autoSubmit} className="w-auto" aria-label="状态">
+      <NativeSelect name="status" defaultValue={filters.status} onChange={autoSubmit} className="h-8 w-auto" aria-label="状态">
         <option value="ACTIVE">在售</option>
         <option value="INACTIVE">停售</option>
         <option value="ALL">全部</option>
       </NativeSelect>
-      <Button type="submit" variant="secondary">
+      <Button type="submit" size="sm" variant="secondary">
         查询
       </Button>
       {active && (
-        <Button variant="ghost" asChild>
+        <Button size="sm" variant="ghost" asChild>
           <Link href="/products">清空筛选</Link>
         </Button>
       )}
@@ -102,24 +103,51 @@ export function ProductFilters({
   );
 }
 
-export function ProductTable({ rows, categories, manage }: { rows: ProductRow[]; categories: Category[]; manage: boolean }) {
+export function ProductTable({
+  rows,
+  categories,
+  manage,
+  description,
+  toolbar,
+  footer,
+}: {
+  rows: ProductRow[];
+  categories: Category[];
+  manage: boolean;
+  description?: React.ReactNode;
+  /** 卡片顶部工具条左侧（筛选） */
+  toolbar?: React.ReactNode;
+  /** 卡片底部（分页） */
+  footer?: React.ReactNode;
+}) {
   const [editing, setEditing] = useState<Partial<ProductRow> | null>(null);
   const [deleting, setDeleting] = useState<ProductRow | null>(null);
   const [managingCats, setManagingCats] = useState(false);
 
   return (
     <>
-      {manage && (
-        <div className="mb-3 flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={() => setManagingCats(true)}>
-            管理分类
-          </Button>
-          <Button size="sm" onClick={() => setEditing({ unit: "pcs", currency: "USD", status: "ACTIVE" })}>
-            <Plus /> 添加产品
-          </Button>
-        </div>
-      )}
-      <div className="overflow-x-auto surface">
+      <PageHeader
+        title="产品"
+        description={description}
+        actions={
+          manage && (
+            <Button size="sm" onClick={() => setEditing({ unit: "pcs", currency: "USD", status: "ACTIVE" })}>
+              <Plus /> 添加产品
+            </Button>
+          )
+        }
+      />
+      <div className="surface">
+        {(toolbar || manage) && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
+            {toolbar}
+            {manage && (
+              <Button size="sm" variant="outline" className="ml-auto" onClick={() => setManagingCats(true)}>
+                <FolderTree /> 管理分类
+              </Button>
+            )}
+          </div>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
@@ -207,6 +235,7 @@ export function ProductTable({ rows, categories, manage }: { rows: ProductRow[];
             ))}
           </TableBody>
         </Table>
+        {footer && <div className="border-t border-border/70 px-4 py-3 [&>div]:mt-0">{footer}</div>}
       </div>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>

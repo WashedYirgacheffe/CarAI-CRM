@@ -1,11 +1,14 @@
-// 工作台卡片目录（前后端共用）。顺序即默认顺序。
+// 工作台卡片目录（前后端共用）。顺序即默认顺序；side 的卡片放在右侧窄栏。
 
 export const DASHBOARD_CARDS = [
   { key: "overview", label: "数据概览", desc: "客户、待跟进、商机、本月订单、新线索、未读消息", wide: true },
   { key: "today", label: "今天要做", desc: "今天到期和已逾期的日程" },
+  { key: "trend", label: "成交趋势", desc: "近 6 个月订单金额（折合人民币）" },
   { key: "recent", label: "最近跟进", desc: "团队最近写的跟进记录" },
-  { key: "clock", label: "世界时钟", desc: "客户所在国家的当地时间，是否在工作时间" },
-  { key: "fx", label: "汇率换算", desc: "按企业汇率表换算报价金额" },
+  { key: "pipeline", label: "商机阶段", desc: "进行中的商机在各阶段的数量", side: true },
+  { key: "distribution", label: "客户分布", desc: "我的客户按状态、国家、分组的分布", side: true },
+  { key: "clock", label: "世界时钟", desc: "客户所在国家的当地时间，是否在工作时间", side: true },
+  { key: "fx", label: "汇率换算", desc: "按企业汇率表换算报价金额", side: true },
 ] as const;
 
 export type DashboardCardKey = (typeof DASHBOARD_CARDS)[number]["key"];
@@ -46,3 +49,6 @@ export const COUNTRY_TZ: Record<string, string> = {
 
 /** 没有客户数据时默认显示的时钟 */
 export const DEFAULT_CLOCK_COUNTRIES = ["US", "GB", "DE", "AE", "BR"];
+
+const SIDE = new Set<string>(DASHBOARD_CARDS.filter((c) => "side" in c && c.side).map((c) => c.key));
+export const isSideCard = (k: DashboardCardKey) => SIDE.has(k);

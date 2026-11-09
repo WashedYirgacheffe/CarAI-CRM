@@ -23,15 +23,28 @@ import type { DuplicateGroup } from "@/server/duplicates";
 import { mergeCustomersAction } from "./actions";
 
 export function DuplicateList({ groups, tz, canMerge }: { groups: DuplicateGroup[]; tz: string; canMerge: boolean }) {
-  if (!groups.length) {
-    return <p className="surface py-16 text-center text-sm text-muted-foreground">没有发现疑似重复的客户</p>;
-  }
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">共 {groups.length} 组疑似重复</p>
-      {groups.map((g) => (
-        <GroupCard key={g.key} group={g} tz={tz} canMerge={canMerge} />
-      ))}
+    <div className="overflow-hidden surface">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+        <h2 className="flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+          疑似重复
+          <span className="text-[13px] font-normal text-muted-foreground">
+            · <span className="tabular-nums">{groups.length}</span> 组
+          </span>
+        </h2>
+        {canMerge && groups.length > 0 && (
+          <span className="ml-auto text-[13px] text-muted-foreground">每组选一个保留，勾选的客户会合并进去</span>
+        )}
+      </div>
+      {groups.length === 0 ? (
+        <p className="py-16 text-center text-sm text-muted-foreground">没有发现疑似重复的客户</p>
+      ) : (
+        <div className="divide-y divide-border/70">
+          {groups.map((g) => (
+            <GroupCard key={g.key} group={g} tz={tz} canMerge={canMerge} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -72,69 +85,83 @@ function GroupCard({ group, tz, canMerge }: { group: DuplicateGroup; tz: string;
   };
 
   return (
-    <div className="surface">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
+    <section>
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/40 px-5 py-2">
         <div className="flex flex-wrap gap-1.5">
           {group.reasons.map((r) => (
-            <span key={r} className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
+            <span key={r} className="rounded-md bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
               {r}
             </span>
           ))}
         </div>
         {canMerge && (
-          <Button size="sm" variant="outline" disabled={!targets.length} onClick={() => setConfirming(true)}>
+          <Button size="xs" variant="outline" className="bg-card" disabled={!targets.length} onClick={() => setConfirming(true)}>
             <Merge /> 合并 {targets.length} 个到保留客户
           </Button>
         )}
       </div>
-      <table className="w-full text-sm">
-        <thead className="text-xs text-muted-foreground">
-          <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:text-left [&>th]:font-normal">
-            {canMerge && <th className="w-16">保留</th>}
-            {canMerge && <th className="w-16">合并</th>}
-            <th>客户</th>
-            <th>国家</th>
-            <th>负责人</th>
-            <th>联系人</th>
-            <th>最近联系</th>
-            <th>创建</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {group.customers.map((c) => (
-            <tr key={c.id} className={cn("[&>td]:px-4 [&>td]:py-2", c.id === keep && "bg-primary/5")}>
-              {canMerge && (
-                <td>
-                  <input type="radio" name={`keep-${group.key}`} checked={c.id === keep} onChange={() => pickKeep(c.id)} aria-label={`保留 ${c.name}`} />
-                </td>
-              )}
-              {canMerge && (
-                <td>
-                  <input
-                    type="checkbox"
-                    disabled={c.id === keep}
-                    checked={c.id !== keep && merge.has(c.id)}
-                    onChange={() => toggle(c.id)}
-                    aria-label={`合并 ${c.name}`}
-                  />
-                </td>
-              )}
-              <td>
-                <Link href={`/customers/${c.id}`} className="font-medium hover:text-primary hover:underline">
-                  {c.name}
-                </Link>
-              </td>
-              <td>
-                <CountryLabel code={c.country} />
-              </td>
-              <td className="text-muted-foreground">{c.ownerName ?? "公海"}</td>
-              <td className="tabular-nums">{c.contactCount}</td>
-              <td className="tabular-nums">{relativeDays(c.lastContactAt)}</td>
-              <td className="tabular-nums text-muted-foreground">{formatDate(c.createdAt, tz)}</td>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium [&>th]:whitespace-nowrap [&>th:first-child]:pl-5 [&>th:last-child]:pr-5">
+              {canMerge && <th className="w-16">保留</th>}
+              {canMerge && <th className="w-16">合并</th>}
+              <th>客户</th>
+              <th>国家</th>
+              <th>负责人</th>
+              <th>联系人</th>
+              <th>最近联系</th>
+              <th>创建</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-border/60 border-t border-border/60">
+            {group.customers.map((c) => (
+              <tr
+                key={c.id}
+                className={cn(
+                  "transition-colors [&>td]:px-3 [&>td]:py-2.5 [&>td]:whitespace-nowrap [&>td:first-child]:pl-5 [&>td:last-child]:pr-5",
+                  c.id === keep ? "bg-accent/50" : "hover:bg-accent/30",
+                )}
+              >
+                {canMerge && (
+                  <td>
+                    <input
+                      type="radio"
+                      name={`keep-${group.key}`}
+                      checked={c.id === keep}
+                      onChange={() => pickKeep(c.id)}
+                      aria-label={`保留 ${c.name}`}
+                    />
+                  </td>
+                )}
+                {canMerge && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      disabled={c.id === keep}
+                      checked={c.id !== keep && merge.has(c.id)}
+                      onChange={() => toggle(c.id)}
+                      aria-label={`合并 ${c.name}`}
+                    />
+                  </td>
+                )}
+                <td>
+                  <Link href={`/customers/${c.id}`} className="font-medium hover:text-primary hover:underline">
+                    {c.name}
+                  </Link>
+                </td>
+                <td>
+                  <CountryLabel code={c.country} />
+                </td>
+                <td className="text-muted-foreground">{c.ownerName ?? "公海"}</td>
+                <td className="tabular-nums">{c.contactCount}</td>
+                <td className="tabular-nums">{relativeDays(c.lastContactAt)}</td>
+                <td className="tabular-nums text-muted-foreground">{formatDate(c.createdAt, tz)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -158,6 +185,6 @@ function GroupCard({ group, tz, canMerge }: { group: DuplicateGroup; tz: string;
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </section>
   );
 }

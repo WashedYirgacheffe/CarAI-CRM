@@ -28,59 +28,69 @@ export function SuggestionList({ rows, tz }: { rows: Suggestion[]; tz: string })
 
   return (
     <>
-      <div className="mb-3 flex gap-1">
-        {(
-          [
-            ["all", "全部", rows.length],
-            ["mail", "邮件", rows.filter((r) => r.kind === "mail").length],
-            ["wa", "WhatsApp", rows.filter((r) => r.kind === "wa").length],
-          ] as const
-        ).map(([k, label, n]) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setKind(k)}
-            className={cn(
-              "rounded-full px-3 py-1 text-sm transition-colors",
-              kind === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
-            )}
-          >
-            {label} <span className="tabular-nums opacity-70">{n}</span>
-          </button>
-        ))}
+      <div className="overflow-hidden surface">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+          <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+            待建档
+            <span className="text-[13px] font-normal text-muted-foreground">
+              · <span className="tabular-nums">{shown.length}</span> 个往来对象
+            </span>
+          </h2>
+          <div className="ml-auto flex gap-1 rounded-full bg-muted p-0.5">
+            {(
+              [
+                ["all", "全部", rows.length],
+                ["mail", "邮件", rows.filter((r) => r.kind === "mail").length],
+                ["wa", "WhatsApp", rows.filter((r) => r.kind === "wa").length],
+              ] as const
+            ).map(([k, label, n]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-[13px] transition-colors",
+                  kind === k ? "bg-card font-semibold text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label} <span className="tabular-nums opacity-70">{n}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {shown.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">暂时没有需要建档的往来对象</p>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {shown.map((s) => (
+              <li key={s.key} className="flex flex-wrap items-center gap-3 px-5 py-3 transition-colors hover:bg-accent/40">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  {s.kind === "mail" ? <Mail className="size-4" /> : <MessageCircle className="size-4" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {s.name || s.address}
+                    {s.name && <span className="ml-2 font-normal text-muted-foreground">{s.address}</span>}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {s.kind === "mail" ? `${s.count} 封往来邮件（收到 ${s.inCount} 封）` : `${s.count} 条消息`} · 最近{" "}
+                    <span className="tabular-nums">{formatDateTime(s.lastAt, tz)}</span>
+                    {s.lastText && ` · ${s.lastText}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button size="xs" variant="ghost" onClick={() => ignore(s)}>
+                    忽略
+                  </Button>
+                  <Button size="xs" onClick={() => setCreating(s)}>
+                    <UserPlus /> 建档
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-      {shown.length === 0 ? (
-        <p className="surface py-16 text-center text-sm text-muted-foreground">暂时没有需要建档的往来对象</p>
-      ) : (
-        <ul className="divide-y surface">
-          {shown.map((s) => (
-            <li key={s.key} className="flex flex-wrap items-center gap-3 px-4 py-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                {s.kind === "mail" ? <Mail className="size-4" /> : <MessageCircle className="size-4" />}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {s.name || s.address}
-                  {s.name && <span className="ml-2 font-normal text-muted-foreground">{s.address}</span>}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {s.kind === "mail" ? `${s.count} 封往来邮件（收到 ${s.inCount} 封）` : `${s.count} 条消息`} · 最近{" "}
-                  <span className="tabular-nums">{formatDateTime(s.lastAt, tz)}</span>
-                  {s.lastText && ` · ${s.lastText}`}
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="ghost" onClick={() => ignore(s)}>
-                  忽略
-                </Button>
-                <Button size="sm" onClick={() => setCreating(s)}>
-                  <UserPlus /> 建档
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
       <Dialog open={!!creating} onOpenChange={(o) => !o && setCreating(null)}>
         <DialogContent className="sm:max-w-md">
           {creating && (
@@ -114,7 +124,9 @@ function CreateForm({ s, onDone }: { s: Suggestion; onDone: (id?: string) => voi
     <>
       <DialogHeader>
         <DialogTitle>建档：{s.address}</DialogTitle>
-        <DialogDescription>新客户的负责人是你，{s.kind === "mail" ? "和这个邮箱的往来邮件" : "这个 WhatsApp 会话"}会自动归到客户下。</DialogDescription>
+        <DialogDescription>
+          新客户的负责人是你，{s.kind === "mail" ? "和这个邮箱的往来邮件" : "这个 WhatsApp 会话"}会自动归到客户下。
+        </DialogDescription>
       </DialogHeader>
       <FieldGroup>
         <Field>

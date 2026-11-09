@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -35,24 +35,50 @@ export type CustomerTablePerms = {
 
 type BatchDialog = "transfer" | "release" | "assign" | null;
 
+/** 新建客户按钮（放在页面标题右侧），自带新建弹窗 */
+export function NewCustomerButton({ options }: { options: CustomerOptionsProp }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>
+        <Plus /> 新建客户
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-2xl">{open && <CustomerForm options={options} onDone={() => setOpen(false)} />}</DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * 客户列表（卡片右栏）：工具条（标题 + 数量、批量操作、toolbar 插槽放筛选）→ 表格 → footer 插槽放分页。
+ * 新建客户按钮见 NewCustomerButton。
+ */
 export function CustomerTable({
   rows,
   mode,
   tz,
   members,
   perms,
-  options,
+  title,
+  total,
+  toolbar,
+  footer,
 }: {
   rows: CustomerRow[];
   mode: "mine" | "pool";
   tz: string;
   members: Member[];
   perms: CustomerTablePerms;
-  options: CustomerOptionsProp;
+  /** @deprecated 新建入口已移到 NewCustomerButton，保留参数兼容 */
+  options?: CustomerOptionsProp;
+  title: string;
+  total: number;
+  toolbar?: React.ReactNode;
+  footer?: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<BatchDialog>(null);
-  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const ids = [...selected].filter((id) => rows.some((r) => r.id === id));
   const allChecked = rows.length > 0 && ids.length === rows.length;
@@ -80,12 +106,12 @@ export function CustomerTable({
     mode === "mine" ? (
       <>
         {perms.transfer && (
-          <Button size="sm" variant="outline" disabled={!ids.length} onClick={() => setDialog("transfer")}>
+          <Button size="xs" variant="outline" className="bg-card" onClick={() => setDialog("transfer")}>
             转移
           </Button>
         )}
         {perms.release && (
-          <Button size="sm" variant="outline" disabled={!ids.length} onClick={() => setDialog("release")}>
+          <Button size="xs" variant="outline" className="bg-card" onClick={() => setDialog("release")}>
             放入公海
           </Button>
         )}
@@ -93,12 +119,12 @@ export function CustomerTable({
     ) : (
       <>
         {perms.claim && (
-          <Button size="sm" variant="outline" disabled={!ids.length || busy} onClick={() => run(claimCustomersAction(ids))}>
+          <Button size="xs" variant="outline" className="bg-card" disabled={busy} onClick={() => run(claimCustomersAction(ids))}>
             领取
           </Button>
         )}
         {perms.assign && (
-          <Button size="sm" variant="outline" disabled={!ids.length} onClick={() => setDialog("assign")}>
+          <Button size="xs" variant="outline" className="bg-card" onClick={() => setDialog("assign")}>
             分配给…
           </Button>
         )}
@@ -107,21 +133,32 @@ export function CustomerTable({
 
   return (
     <>
-      <div className="mb-3 flex min-h-8 flex-wrap items-center gap-2">
-        <span className="text-sm text-muted-foreground">{ids.length ? `已选 ${ids.length} 个` : "勾选客户后可批量操作"}</span>
-        {batchButtons}
-        {perms.create && (
-          <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-            <Plus /> 新建客户
-          </Button>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+          {title}
+          <span className="text-[13px] font-normal text-muted-foreground">
+            · <span className="tabular-nums">{total}</span> 个客户
+          </span>
+        </h2>
+        {ids.length > 0 && (
+          <div className="flex items-center gap-1.5 rounded-full bg-accent py-0.5 pr-1 pl-3 text-[13px] text-accent-foreground">
+            <span>
+              已选 <span className="font-semibold tabular-nums">{ids.length}</span> 个
+            </span>
+            {batchButtons}
+            <Button size="icon-xs" variant="ghost" onClick={() => setSelected(new Set())} aria-label="取消选择">
+              <X />
+            </Button>
+          </div>
         )}
+        {toolbar}
       </div>
 
-      <div className="overflow-x-auto surface">
+      <div>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 pl-4">
+              <TableHead className="w-10">
                 <Checkbox
                   aria-label="全选"
                   checked={allChecked ? true : ids.length ? "indeterminate" : false}
@@ -161,7 +198,7 @@ export function CustomerTable({
               const poolDays = r.poolDueAt ? Math.ceil((new Date(r.poolDueAt).getTime() - now.getTime()) / 86_400_000) : null;
               return (
                 <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
-                  <TableCell className="pl-4">
+                  <TableCell>
                     <Checkbox aria-label={`选择 ${r.name}`} checked={selected.has(r.id)} onCheckedChange={(v) => toggle(r.id, !!v)} />
                   </TableCell>
                   <TableCell className="max-w-72">
@@ -202,7 +239,13 @@ export function CustomerTable({
                         className={cn("whitespace-nowrap tabular-nums", poolDays !== null && poolDays <= 7 && "font-medium text-amber-600")}
                         title={r.poolDueAt ? `预计 ${formatDate(r.poolDueAt, tz)} 进入公海` : "不会自动进公海"}
                       >
-                        {poolDays === null ? <span className="text-muted-foreground">—</span> : poolDays <= 0 ? "即将回收" : `${poolDays} 天后`}
+                        {poolDays === null ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : poolDays <= 0 ? (
+                          "即将回收"
+                        ) : (
+                          `${poolDays} 天后`
+                        )}
                       </TableCell>
                     </>
                   ) : (
@@ -221,17 +264,17 @@ export function CustomerTable({
           </TableBody>
         </Table>
       </div>
-
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent className="sm:max-w-2xl">
-          {creating && <CustomerForm options={options} onDone={() => setCreating(false)} />}
-        </DialogContent>
-      </Dialog>
+      {footer}
 
       <Dialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)}>
         <DialogContent>
           {dialog === "release" ? (
-            <ReleaseForm count={ids.length} busy={busy} onCancel={() => setDialog(null)} onSubmit={(why) => run(releaseCustomersAction(ids, why))} />
+            <ReleaseForm
+              count={ids.length}
+              busy={busy}
+              onCancel={() => setDialog(null)}
+              onSubmit={(why) => run(releaseCustomersAction(ids, why))}
+            />
           ) : dialog ? (
             <MemberPickForm
               title={dialog === "transfer" ? `转移 ${ids.length} 个客户` : `分配 ${ids.length} 个公海客户`}
@@ -239,9 +282,7 @@ export function CustomerTable({
               members={members}
               busy={busy}
               onCancel={() => setDialog(null)}
-              onSubmit={(uid) =>
-                run(dialog === "transfer" ? transferCustomersAction(ids, uid) : assignPoolCustomersAction(ids, uid))
-              }
+              onSubmit={(uid) => run(dialog === "transfer" ? transferCustomersAction(ids, uid) : assignPoolCustomersAction(ids, uid))}
             />
           ) : null}
         </DialogContent>
