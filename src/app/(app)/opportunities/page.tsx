@@ -3,6 +3,8 @@ import { can, requirePermission } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { ownedWhere, scopeMembers } from "@/server/scope";
 import { daysAgo } from "@/lib/crm";
+import { getRates } from "@/server/documents";
+import { monthKeys } from "@/lib/viz";
 import { OpportunityBoard } from "./board";
 
 export const metadata: Metadata = { title: "商机" };
@@ -17,7 +19,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps<"/op
   const members = await scopeMembers(user);
   const ownerFilter = owner && members.some((m) => m.id === owner) ? { ownerId: owner } : scoped;
 
-  const [stages, opps, customers] = await Promise.all([
+  const [stages, opps, customers, rates] = await Promise.all([
     db.stage.findMany({ orderBy: { sort: "asc" } }),
     db.opportunity.findMany({
       where: {
@@ -32,6 +34,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps<"/op
     can(user, "opportunity.create")
       ? db.customer.findMany({ where: scoped, orderBy: { updatedAt: "desc" }, select: { id: true, name: true }, take: 500 })
       : [],
+    getRates(user.tenantId),
   ]);
 
   return (
@@ -39,6 +42,8 @@ export default async function OpportunitiesPage({ searchParams }: PageProps<"/op
       description={`拖动卡片切换阶段 · 赢单 / 输单列只显示最近 ${closedDays} 天`}
       closedDays={closedDays}
       tz={user.timezone}
+      rates={rates}
+      month={monthKeys(user.timezone, 1)[0]}
       owner={owner}
       members={members}
       customers={customers}

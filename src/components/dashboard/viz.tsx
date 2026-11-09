@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { RAMP, compact, yuan } from "@/lib/viz";
+import { OTHER, RAMP, SERIES, compact, yuan } from "@/lib/viz";
 
 /**
  * 工作台可视化组件。
@@ -188,7 +188,7 @@ export function Funnel({ steps }: { steps: { label: string; value: number; href?
         const rate = i > 0 && prev ? Math.round((s.value / prev) * 100) : null;
         const body = (
           <>
-            <span className="w-12 shrink-0 text-sm text-muted-foreground">{s.label}</span>
+            <span className="w-16 shrink-0 text-sm whitespace-nowrap text-muted-foreground">{s.label}</span>
             <span className="relative h-5 flex-1">
               <span
                 className="absolute inset-y-0 left-0 rounded-r-[4px] transition-[width] duration-500"
@@ -203,7 +203,7 @@ export function Funnel({ steps }: { steps: { label: string; value: number; href?
         );
         return (
           <li key={s.label}>
-            {i > 0 && <p className="ml-12 py-0.5 pl-2 text-[11px] text-muted-foreground tabular-nums">↓ {rate === null ? "—" : `${rate}%`}</p>}
+            {i > 0 && <p className="ml-16 py-0.5 pl-2 text-[11px] text-muted-foreground tabular-nums">↓ {rate === null ? "—" : `${rate}%`}</p>}
             {s.href ? (
               <Link href={s.href} className="-mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-0.5 hover:bg-muted/60">
                 {body}
@@ -415,12 +415,22 @@ export function Heatmap({ days, today }: { days: HeatDay[]; today: string }) {
 
 /* ───────────── 按天堆叠柱 ───────────── */
 
-export function StackedDaily({ labels, series }: { labels: string[]; series: { label: string; color: string; values: number[] }[] }) {
+export function StackedDaily({
+  labels,
+  series,
+  empty = "这段时间没有往来消息",
+}: {
+  labels: string[];
+  series: { label: string; color: string; values: number[] }[];
+  empty?: string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const totals = labels.map((_, i) => series.reduce((n, s) => n + s.values[i], 0));
-  const top = niceMax(Math.max(...totals, 0));
+  // 计数图：刻度保持整数（最小 2，中线才是整数）
+  const top = Math.max(2, niceMax(Math.max(...totals, 0)));
+  const mid = top % 2 ? null : top / 2;
   const peak = totals.indexOf(Math.max(...totals));
-  if (!totals.some(Boolean)) return <p className="py-10 text-center text-sm text-muted-foreground">这段时间没有往来消息</p>;
+  if (!totals.some(Boolean)) return <p className="py-10 text-center text-sm text-muted-foreground">{empty}</p>;
   return (
     <div>
       <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
@@ -433,11 +443,13 @@ export function StackedDaily({ labels, series }: { labels: string[]; series: { l
         ))}
       </ul>
       <div className="relative ml-7 h-36">
-        {[0, top / 2, top].map((t) => (
-          <div key={t} className="absolute inset-x-0 border-t border-border/70" style={{ top: `${(1 - t / top) * 100}%` }}>
-            <span className="absolute -left-7 w-5 -translate-y-1/2 text-right text-[11px] text-muted-foreground tabular-nums">{compact(t)}</span>
-          </div>
-        ))}
+        {[0, mid, top]
+          .filter((t): t is number => t !== null)
+          .map((t) => (
+            <div key={t} className="absolute inset-x-0 border-t border-border/70" style={{ top: `${(1 - t / top) * 100}%` }}>
+              <span className="absolute -left-7 w-5 -translate-y-1/2 text-right text-[11px] text-muted-foreground tabular-nums">{compact(t)}</span>
+            </div>
+          ))}
         <div className="absolute inset-0 flex items-end gap-0.5">
           {labels.map((l, i) => (
             <div
@@ -499,6 +511,292 @@ export function StackedDaily({ labels, series }: { labels: string[]; series: { l
             {i % 2 === (labels.length - 1) % 2 ? l : ""}
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────── 分布：细分段条 + 明细行 ───────────── */
+
+export type Part = { label: string; value: number; color?: string; href?: string };
+
+/** 一个整体拆成几部分：顶部 8px 细分段条，下面每行名称、数量、占比。超过 max 类的尾部并入「其他」 */
+export function Breakdown({
+  parts,
+  unit = "",
+  max = 5,
+  sort = true,
+  empty = "暂无数据",
+  money,
+}: {
+  parts: Part[];
+  unit?: string;
+  max?: number;
+  sort?: boolean;
+  empty?: string;
+  money?: boolean;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const list = parts.filter((p) => p.value > 0);
+  if (sort) list.sort((a, b) => b.value - a.value);
+  const head = list.slice(0, max).map((p, i) => ({ ...p, color: p.color ?? SERIES[i % SERIES.length] }));
+  const rest = list.slice(max).reduce((n, p) => n + p.value, 0);
+  const rows = rest > 0 ? [...head, { label: "其他", value: rest, color: OTHER, href: undefined }] : head;
+  const total = rows.reduce((n, p) => n + p.value, 0);
+  if (!total) return <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>;
+  const fmt = (v: number) => (money ? yuan(v) : `${v}${unit}`);
+  return (
+    <div>
+      <div className="flex h-2 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={rows.map((p) => `${p.label} ${fmt(p.value)}`).join("，")}>
+        {rows.map((p, i) => (
+          <span
+            key={p.label}
+            className={cn("min-w-0.5 transition-opacity", hover !== null && hover !== i && "opacity-35")}
+            style={{ flexGrow: p.value, flexBasis: 0, background: p.color }}
+          />
+        ))}
+      </div>
+      <ul className="mt-3 space-y-0.5 text-[13px]">
+        {rows.map((p, i) => {
+          const body = (
+            <>
+              <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color }} />
+              <span className="min-w-0 flex-1 truncate">{p.label}</span>
+              <span className="font-medium tabular-nums">{fmt(p.value)}</span>
+              <span className="w-9 text-right text-xs text-muted-foreground tabular-nums">{Math.round((p.value / total) * 100)}%</span>
+            </>
+          );
+          const cls = cn("-mx-1.5 flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors", hover === i && "bg-muted");
+          return (
+            <li key={p.label} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)}>
+              {p.href ? (
+                <Link href={p.href} className={cn(cls, "hover:bg-muted")}>
+                  {body}
+                </Link>
+              ) : (
+                <div className={cls}>{body}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/* ───────────── 迷你柱状图 ───────────── */
+
+/** 小柱状图（单系列）：最后一根用主色，其余浅色；悬停显示数值，默认标出最高值 */
+export function MiniColumns({
+  data,
+  money,
+  unit = "",
+  empty = "暂无数据",
+  className,
+}: {
+  data: { label: string; value: number }[];
+  money?: boolean;
+  unit?: string;
+  empty?: string;
+  className?: string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(...data.map((d) => d.value), 0);
+  if (!max) return <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">{empty}</p>;
+  const fmt = (v: number) => (money ? yuan(v) : `${compact(v)}${unit}`);
+  const peak = data.findIndex((d) => d.value === max);
+  const last = data.length - 1;
+  const shown = hover ?? peak;
+  return (
+    <div className={className}>
+      <div className="relative flex h-20 items-end gap-1 pt-5">
+        {data.map((d, i) => {
+          const h = Math.max((d.value / max) * 100, d.value > 0 ? 3 : 0);
+          return (
+            <div
+              key={d.label}
+              tabIndex={0}
+              aria-label={`${d.label}：${fmt(d.value)}`}
+              className="relative flex h-full flex-1 items-end justify-center outline-none"
+              onPointerEnter={() => setHover(i)}
+              onPointerLeave={() => setHover(null)}
+              onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+            >
+              <span
+                className={cn(
+                  "w-full max-w-6 rounded-t-[4px] transition-colors",
+                  i === last || hover === i ? "bg-[var(--chart-1)]" : "bg-[color-mix(in_oklch,var(--chart-1)_40%,white)]",
+                )}
+                style={{ height: `${h}%` }}
+              />
+              {i === shown && (
+                <span
+                  className={cn(
+                    "absolute pb-1 text-[11px] font-medium whitespace-nowrap tabular-nums",
+                    i < 2 ? "left-0" : i > last - 2 ? "right-0" : "left-1/2 -translate-x-1/2",
+                  )}
+                  style={{ bottom: `${h}%` }}
+                >
+                  {hover !== null && <span className="mr-1 font-normal text-muted-foreground">{d.label}</span>}
+                  {fmt(d.value)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground tabular-nums">
+        <span>{data[0]?.label}</span>
+        <span>{data[last]?.label}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────── 进度条 ───────────── */
+
+/** 一个比例：主色填充，轨道是同色系浅色 */
+export function Meter({ value, max, label, tone = "var(--chart-1)" }: { value: number; max: number; label?: string; tone?: string }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div
+      className="h-2 overflow-hidden rounded-full"
+      style={{ background: `color-mix(in oklch, ${tone} 16%, white)` }}
+      role="meter"
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={label}
+    >
+      <span className="block h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, background: tone }} />
+    </div>
+  );
+}
+
+/* ───────────── 排行：可切换指标 ───────────── */
+
+export type RankMetric = { key: string; label: string; money?: boolean; unit?: string; rows: { label: string; value: number }[] };
+
+/** 成员对比：切换指标，按值从高到低排，条长按最大值，数值标在条尾 */
+export function RankSwitch({ metrics }: { metrics: RankMetric[] }) {
+  const [key, setKey] = useState(metrics[0]?.key);
+  const m = metrics.find((x) => x.key === key) ?? metrics[0];
+  if (!m) return null;
+  const rows = [...m.rows].sort((a, b) => b.value - a.value);
+  const max = Math.max(...rows.map((r) => r.value), 0);
+  const fmt = (v: number) => (m.money ? yuan(v) : `${v}${m.unit ?? ""}`);
+  return (
+    <div className="space-y-4">
+      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 [scrollbar-width:none]">
+        <div className="inline-flex shrink-0 rounded-full bg-muted p-1 ring-1 ring-border/60">
+          {metrics.map((x) => (
+            <button
+              key={x.key}
+              type="button"
+              onClick={() => setKey(x.key)}
+              aria-pressed={x.key === m.key}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+                x.key === m.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {x.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {!max ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">这段时间没有数据</p>
+      ) : (
+        <ul className="space-y-2.5">
+          {rows.map((r, i) => (
+            <li key={r.label} className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-3 text-sm">
+              <span className={cn("truncate", i === 0 ? "font-medium" : "text-muted-foreground")}>{r.label}</span>
+              <span className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "h-2 rounded-r-[4px] transition-[width] duration-500",
+                    i === 0 ? "bg-[var(--chart-1)]" : "bg-[color-mix(in_oklch,var(--chart-1)_45%,white)]",
+                  )}
+                  style={{ width: `${(r.value / max) * 82}%`, minWidth: r.value ? 3 : 0 }}
+                />
+                <span className={cn("text-xs whitespace-nowrap tabular-nums", r.value ? "font-medium" : "text-muted-foreground/60")}>
+                  {fmt(r.value)}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── 矩阵热力图：行 × 天 ───────────── */
+
+/** 每行一个人，每列一天，颜色深浅表示次数（四档单色） */
+export function MatrixHeat({ rows, labels, unit = "次" }: { rows: { label: string; values: number[] }[]; labels: string[]; unit?: string }) {
+  const [hover, setHover] = useState<[number, number] | null>(null);
+  const max = Math.max(...rows.flatMap((r) => r.values), 0);
+  const level = (v: number) => (v <= 0 || !max ? -1 : Math.min(3, Math.floor((v / max) * 4 - 1e-9)));
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, []);
+  if (!rows.length) return <p className="py-8 text-center text-sm text-muted-foreground">暂无成员</p>;
+  const cur = hover ? { who: rows[hover[0]].label, day: labels[hover[1]], v: rows[hover[0]].values[hover[1]] } : null;
+  return (
+    <div>
+      <div ref={scroller} className="overflow-x-auto pb-1 [scrollbar-width:thin]">
+        <div className="grid w-max min-w-full gap-[3px]" style={{ gridTemplateColumns: `4.5rem repeat(${labels.length}, minmax(12px, 1fr))` }}>
+          <span className="sticky left-0 z-[1] bg-card" />
+          {labels.map((l, j) => (
+            <span key={l} className="h-4 text-center text-[10px] text-muted-foreground tabular-nums">
+              {j % 7 === (labels.length - 1) % 7 ? l : ""}
+            </span>
+          ))}
+          {rows.map((r, i) => (
+            <div key={r.label} className="contents">
+              <span className="sticky left-0 z-[1] flex items-center truncate bg-card pr-2 text-xs text-muted-foreground">{r.label}</span>
+              {r.values.map((v, j) => {
+                const lv = level(v);
+                return (
+                  <span
+                    key={j}
+                    tabIndex={0}
+                    aria-label={`${r.label} ${labels[j]}：${v} ${unit}`}
+                    onPointerEnter={() => setHover([i, j])}
+                    onPointerLeave={() => setHover(null)}
+                    onFocus={() => setHover([i, j])}
+                    onBlur={() => setHover(null)}
+                    className="h-[14px] rounded-[3px] outline-none hover:ring-2 hover:ring-foreground/20 focus-visible:ring-2 focus-visible:ring-ring"
+                    style={{ background: lv < 0 ? NONE : RAMP[lv] }}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <p className="min-h-4 tabular-nums">
+          {cur ? (
+            <>
+              <span className="text-foreground">{cur.who}</span> · {cur.day} · {cur.v} {unit}
+            </>
+          ) : (
+            "悬停格子查看当天次数"
+          )}
+        </p>
+        <span className="flex items-center gap-1">
+          少
+          {[NONE, ...RAMP].map((c) => (
+            <span key={c} className="size-2.5 rounded-[2px]" style={{ background: c }} />
+          ))}
+          多
+        </span>
       </div>
     </div>
   );

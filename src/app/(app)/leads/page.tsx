@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { LEAD_OPEN_STATUSES } from "@/lib/crm";
 import type { Prisma } from "@/generated/prisma/client";
 import { LeadTable, NewLeadButton } from "./lead-table";
+import { LeadInsights } from "./lead-insights";
 
 export const metadata: Metadata = { title: "线索 / 询盘" };
 
@@ -41,9 +42,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const where: Prisma.LeadWhereInput = {
     AND: [
       byTab[tab],
-      q
-        ? { OR: [{ companyName: contains }, { contactName: contains }, { email: contains }, { inquiry: contains }, { products: contains }] }
-        : {},
+      q ? { OR: [{ companyName: contains }, { contactName: contains }, { email: contains }, { inquiry: contains }, { products: contains }] } : {},
     ],
   };
 
@@ -85,6 +84,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
         description="平台询盘、展会名片、网站留言都先进线索，确认有效后转为客户"
         actions={can(user, "lead.create") ? <NewLeadButton canAssign={can(user, "lead.assign")} /> : undefined}
       />
+      <LeadInsights tenantId={user.tenantId} tz={user.timezone} where={byTab.all} />
       <div className="flex flex-col overflow-hidden surface lg:flex-row">
         <aside className="border-b border-border/70 p-2.5 lg:w-48 lg:shrink-0 lg:border-r lg:border-b-0">
           <nav className="flex gap-1 overflow-x-auto lg:flex-col lg:gap-0.5 lg:overflow-visible" aria-label="线索筛选">
