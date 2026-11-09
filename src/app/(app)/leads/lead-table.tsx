@@ -23,7 +23,7 @@ import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
 import { cn } from "@/lib/utils";
-import { COUNTRIES, CURRENCIES, CUSTOMER_SOURCES, LEAD_STATUSES, countryName, formatDate } from "@/lib/crm";
+import { COUNTRIES, CURRENCIES, CUSTOMER_SOURCES, LEAD_INVALID_REASONS, LEAD_STATUSES, countryName, formatDate } from "@/lib/crm";
 import {
   assignLeadsAction,
   claimLeadAction,
@@ -44,8 +44,9 @@ export type LeadRow = {
   source: string | null;
   products: string | null;
   inquiry: string | null;
-  status: "NEW" | "CONTACTED" | "CONVERTED" | "INVALID";
+  status: "NEW" | "QUALIFYING" | "CONTACTED" | "CONVERTED" | "INVALID";
   invalidReason: string | null;
+  invalidNote: string | null;
   ownerId: string | null;
   ownerName: string | null;
   customerId: string | null;
@@ -56,8 +57,14 @@ export type LeadRow = {
 type Perms = { create: boolean; edit: boolean; delete: boolean; assign: boolean; createOpportunity: boolean };
 type Modal = { kind: "edit"; lead: Partial<LeadRow> } | { kind: "convert" | "invalid"; lead: LeadRow } | { kind: "assign"; ids: string[] } | null;
 
+/** 跟进中的三个阶段，可以互相切换 */
+const PROGRESS = LEAD_STATUSES.filter((s): s is Extract<(typeof LEAD_STATUSES)[number], { value: "NEW" | "QUALIFYING" | "CONTACTED" }> =>
+  s.value === "NEW" || s.value === "QUALIFYING" || s.value === "CONTACTED",
+);
+
 const STATUS_STYLE: Record<LeadRow["status"], string> = {
   NEW: "bg-blue-50 text-blue-700 border-blue-200",
+  QUALIFYING: "bg-violet-50 text-violet-700 border-violet-200",
   CONTACTED: "bg-amber-50 text-amber-800 border-amber-200",
   CONVERTED: "bg-emerald-50 text-emerald-700 border-emerald-200",
   INVALID: "bg-muted text-muted-foreground",
@@ -140,7 +147,7 @@ export function LeadTable({
               </TableRow>
             )}
             {rows.map((l) => {
-              const open = l.status === "NEW" || l.status === "CONTACTED";
+              const open = l.status === "NEW" || l.status === "QUALIFYING" || l.status === "CONTACTED";
               return (
                 <TableRow key={l.id}>
                   {perms.assign && (
@@ -180,7 +187,10 @@ export function LeadTable({
                       </Link>
                     )}
                     {l.status === "INVALID" && l.invalidReason && (
-                      <div className="mt-0.5 max-w-40 truncate text-xs text-muted-foreground">{l.invalidReason}</div>
+                      <div className="mt-0.5 max-w-40 truncate text-xs text-muted-foreground" title={l.invalidNote ?? undefined}>
+                        {l.invalidReason}
+                        {l.invalidNote && `：${l.invalidNote}`}
+                      </div>
                     )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{l.ownerName ?? <span className="text-muted-foreground">待分配</span>}</TableCell>
@@ -204,16 +214,20 @@ export function LeadTable({
                               <MoreHorizontal />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
+                          <DropdownMenuContent align="end" className="min-w-40">
                             {perms.edit && <DropdownMenuItem onSelect={() => setModal({ kind: "edit", lead: l })}>编辑</DropdownMenuItem>}
-                            {perms.edit && l.status === "NEW" && (
-                              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "CONTACTED"))}>标记为已联系</DropdownMenuItem>
-                            )}
+                            {perms.edit &&
+                              open &&
+                              PROGRESS.filter((p) => p.value !== l.status).map((p) => (
+                                <DropdownMenuItem key={p.value} onSelect={() => runAction(setLeadStatusAction(l.id, p.value))}>
+                                  改为「{p.label}」
+                                </DropdownMenuItem>
+                              ))}
                             {perms.edit && open && (
                               <DropdownMenuItem onSelect={() => setModal({ kind: "invalid", lead: l })}>标记为无效</DropdownMenuItem>
                             )}
                             {perms.edit && l.status === "INVALID" && (
-                              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "NEW"))}>恢复为待处理</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "NEW"))}>恢复为新线索</DropdownMenuItem>
                             )}
                             {perms.assign && open && (
                               <DropdownMenuItem onSelect={() => setModal({ kind: "assign", ids: [l.id] })}>分配给…</DropdownMenuItem>
@@ -403,36 +417,42 @@ function ConvertForm({ lead, canOpp, onDone }: { lead: LeadRow; canOpp: boolean;
 
 function InvalidForm({ lead, onDone }: { lead: LeadRow; onDone: () => void }) {
   const [why, setWhy] = useState("");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
-        const r = await runAction(setLeadStatusAction(lead.id, "INVALID", why));
+        const r = await runAction(setLeadStatusAction(lead.id, "INVALID", { reason: why, note }));
         setBusy(false);
         if (r.ok) onDone();
       }}
     >
       <DialogHeader>
         <DialogTitle>标记为无效</DialogTitle>
+        <DialogDescription>无效原因会单独统计，方便回头看哪些渠道的询盘质量差。</DialogDescription>
       </DialogHeader>
-      <FieldGroup className="py-4">
+      <FieldGroup className="gap-4 py-4">
         <Field>
           <FieldLabel htmlFor="inv-why">原因</FieldLabel>
-          <NativeSelect id="inv-why" value={why} onChange={(e) => setWhy(e.target.value)}>
+          <NativeSelect id="inv-why" value={why} onChange={(e) => setWhy(e.target.value)} required>
             <option value="">请选择</option>
-            {["垃圾询盘 / 广告", "同行套价", "联系方式无效", "需求不匹配", "重复线索", "其他"].map((r) => (
+            {LEAD_INVALID_REASONS.map((r) => (
               <option key={r}>{r}</option>
             ))}
           </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="inv-note">补充说明（选填）</FieldLabel>
+          <Textarea id="inv-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={500} />
         </Field>
       </FieldGroup>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           取消
         </Button>
-        <Button type="submit" variant="destructive" disabled={busy}>
+        <Button type="submit" variant="destructive" disabled={busy || !why}>
           确定
         </Button>
       </DialogFooter>

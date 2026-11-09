@@ -68,7 +68,7 @@ export default async function NewOrderPage({ searchParams }: PageProps<"/orders/
     <>
       <PageHeader
         title="新建订单"
-        description={q ? `由报价单 ${q.no} 转入，保存后报价单会标记为「已接受」` : "保存后可打印 PI（形式发票）发给客户确认"}
+        description={q ? `由报价单 ${q.no} 转入，保存后报价单会标记为「已转订单」` : "保存后可打印 PI（形式发票）发给客户确认"}
       />
       <DocEditor
         kind="order"

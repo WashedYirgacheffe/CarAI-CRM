@@ -18,19 +18,39 @@ export const PAYMENT_METHODS = ["T/T 电汇", "L/C 信用证", "PayPal", "西联
 
 export const QUOTATION_STATUSES = [
   { value: "DRAFT", label: "草稿", color: "slate" },
+  { value: "APPROVED", label: "已批准", color: "violet" },
   { value: "SENT", label: "已发送", color: "blue" },
   { value: "ACCEPTED", label: "已接受", color: "emerald" },
   { value: "REJECTED", label: "已拒绝", color: "rose" },
   { value: "EXPIRED", label: "已失效", color: "amber" },
+  { value: "CONVERTED", label: "已转订单", color: "emerald" },
 ] as const;
 
 export const ORDER_STATUSES = [
+  { value: "DRAFT", label: "草稿", color: "slate" },
   { value: "CONFIRMED", label: "已确认", color: "blue" },
   { value: "PRODUCING", label: "生产中", color: "violet" },
   { value: "SHIPPED", label: "已发货", color: "amber" },
+  { value: "AWAITING_PAYMENT", label: "待收款", color: "rose" },
   { value: "COMPLETED", label: "已完成", color: "emerald" },
+  { value: "AFTER_SALES", label: "售后", color: "amber" },
   { value: "CANCELLED", label: "已取消", color: "slate" },
 ] as const;
+
+/** 不计入业绩的订单状态（草稿、已取消） */
+export const ORDER_NOT_COUNTED = ["DRAFT", "CANCELLED"] as const;
+
+/** 审批状态（与业务状态分开记，P7 审批流使用） */
+export const APPROVAL_STATUSES = [
+  { value: "NONE", label: "无需审批", color: "slate" },
+  { value: "PENDING", label: "审批中", color: "amber" },
+  { value: "APPROVED", label: "审批通过", color: "emerald" },
+  { value: "REJECTED", label: "审批驳回", color: "rose" },
+] as const;
+
+export function approvalStatus(v: string) {
+  return APPROVAL_STATUSES.find((s) => s.value === v) ?? APPROVAL_STATUSES[0];
+}
 
 export type QuotationStatusValue = (typeof QUOTATION_STATUSES)[number]["value"];
 export type OrderStatusValue = (typeof ORDER_STATUSES)[number]["value"];

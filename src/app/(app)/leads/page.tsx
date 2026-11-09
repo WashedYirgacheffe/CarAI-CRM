@@ -7,6 +7,7 @@ import { tenantDb } from "@/server/db";
 import { allMembers, scopeOwnerIds } from "@/server/scope";
 import { PAGE_SIZE } from "@/server/customer-list";
 import { cn } from "@/lib/utils";
+import { LEAD_OPEN_STATUSES } from "@/lib/crm";
 import type { Prisma } from "@/generated/prisma/client";
 import { LeadTable } from "./lead-table";
 
@@ -30,8 +31,8 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const scope = await scopeOwnerIds(user);
   const mine: Prisma.LeadWhereInput = scope ? { ownerId: { in: scope } } : { ownerId: { not: null } };
   const byTab: Record<typeof tab, Prisma.LeadWhereInput> = {
-    todo: { ...mine, status: { in: ["NEW", "CONTACTED"] } },
-    unassigned: { ownerId: null, status: { in: ["NEW", "CONTACTED"] } },
+    todo: { ...mine, status: { in: [...LEAD_OPEN_STATUSES] } },
+    unassigned: { ownerId: null, status: { in: [...LEAD_OPEN_STATUSES] } },
     converted: { ...mine, status: "CONVERTED" },
     invalid: { ...mine, status: "INVALID" },
     all: { OR: [mine, { ownerId: null }] },
@@ -104,6 +105,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
           inquiry: l.inquiry,
           status: l.status,
           invalidReason: l.invalidReason,
+          invalidNote: l.invalidNote,
           ownerId: l.ownerId,
           ownerName: l.owner?.name ?? null,
           customerId: l.customer?.id ?? null,

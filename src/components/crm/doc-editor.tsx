@@ -592,6 +592,11 @@ export function DocEditor({
         <Button type="button" variant="outline" onClick={() => router.push(cancelHref)}>
           取消
         </Button>
+        {!initial.id && !isQuote && (
+          <Button type="submit" variant="outline" name="asDraft" value="1" disabled={pending}>
+            存为草稿
+          </Button>
+        )}
         <Button type="submit" disabled={pending}>
           {pending ? "保存中…" : initial.id ? "保存" : isQuote ? "创建报价单" : "创建订单"}
         </Button>

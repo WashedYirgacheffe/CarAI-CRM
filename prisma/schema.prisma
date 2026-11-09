@@ -70,19 +70,21 @@ enum UserStatus {
 
 /// 账号。isOwner = 主账号（企业创建者，不可被禁用/删除）。
 model User {
-  id           String     @id @default(cuid())
-  tenantId     String
-  email        String     @unique
-  name         String
-  phone        String?
-  passwordHash String
-  isOwner      Boolean    @default(false)
-  status       UserStatus @default(ACTIVE)
-  departmentId String?
-  roleId       String
-  lastLoginAt  DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  tenantId       String
+  email          String     @unique
+  name           String
+  phone          String?
+  passwordHash   String
+  isOwner        Boolean    @default(false)
+  status         UserStatus @default(ACTIVE)
+  departmentId   String?
+  roleId         String
+  lastLoginAt    DateTime?
+  /// 工作台卡片（顺序即显示顺序）；空数组表示用默认布局
+  dashboardCards String[]   @default([])
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -267,8 +269,9 @@ model Contact {
 }
 
 enum LeadStatus {
-  NEW // 待处理
-  CONTACTED // 已联系
+  NEW // 新线索
+  QUALIFYING // 完善信息
+  CONTACTED // 联系互动
   CONVERTED // 已转客户
   INVALID // 无效
 }
@@ -287,7 +290,10 @@ model Lead {
   products      String?
   inquiry       String?
   status        LeadStatus @default(NEW)
+  /// 无效原因（固定选项），补充说明见 invalidNote
   invalidReason String?
+  invalidNote   String?
+  invalidAt     DateTime?
   ownerId       String?
   assignedAt    DateTime?
   customerId    String?
@@ -493,12 +499,22 @@ model ExchangeRate {
   @@unique([tenantId, currency])
 }
 
+/// 审批状态（与单据业务状态分开记）。P7 审批流上线前都是 NONE
+enum ApprovalStatus {
+  NONE // 无需审批
+  PENDING // 审批中
+  APPROVED // 已通过
+  REJECTED // 已驳回
+}
+
 enum QuotationStatus {
   DRAFT // 草稿
+  APPROVED // 已批准
   SENT // 已发送
   ACCEPTED // 客户接受
   REJECTED // 客户拒绝
   EXPIRED // 已失效
+  CONVERTED // 已转订单
 }
 
 model Quotation {
@@ -510,6 +526,7 @@ model Quotation {
   opportunityId String?
   ownerId       String?
   status        QuotationStatus @default(DRAFT)
+  approval      ApprovalStatus  @default(NONE)
   title         String?
   // 买方信息快照（打印用）
   buyerName     String
@@ -572,15 +589,18 @@ model QuotationItem {
 }
 
 enum OrderStatus {
+  DRAFT // 草稿（不计业绩）
   CONFIRMED // 已确认
   PRODUCING // 生产中
   SHIPPED // 已发货
+  AWAITING_PAYMENT // 待收款
   COMPLETED // 已完成
+  AFTER_SALES // 售后
   CANCELLED // 已取消
 }
 
 model Order {
-  id            String      @id @default(cuid())
+  id            String         @id @default(cuid())
   tenantId      String
   /// 单号，如 SO20261107-001；PI 号沿用它
   no            String
@@ -588,14 +608,15 @@ model Order {
   opportunityId String?
   quotationId   String?
   ownerId       String?
-  status        OrderStatus @default(CONFIRMED)
+  status        OrderStatus    @default(CONFIRMED)
+  approval      ApprovalStatus @default(NONE)
   buyerName     String
   buyerContact  String?
   buyerEmail    String?
   buyerPhone    String?
   buyerAddress  String?
-  currency      String      @default("USD")
-  exchangeRate  Decimal     @default(1) @db.Decimal(14, 6)
+  currency      String         @default("USD")
+  exchangeRate  Decimal        @default(1) @db.Decimal(14, 6)
   orderDate     DateTime
   /// 交货期
   deliveryDate  DateTime?
@@ -603,18 +624,18 @@ model Order {
   port          String?
   paymentTerm   String?
   shippingMark  String?
-  subtotal      Decimal     @default(0) @db.Decimal(14, 2)
-  discount      Decimal     @default(0) @db.Decimal(14, 2)
-  shippingFee   Decimal     @default(0) @db.Decimal(14, 2)
-  otherFee      Decimal     @default(0) @db.Decimal(14, 2)
-  total         Decimal     @default(0) @db.Decimal(14, 2)
+  subtotal      Decimal        @default(0) @db.Decimal(14, 2)
+  discount      Decimal        @default(0) @db.Decimal(14, 2)
+  shippingFee   Decimal        @default(0) @db.Decimal(14, 2)
+  otherFee      Decimal        @default(0) @db.Decimal(14, 2)
+  total         Decimal        @default(0) @db.Decimal(14, 2)
   /// 已收款合计（随收款记录更新）
-  paidAmount    Decimal     @default(0) @db.Decimal(14, 2)
+  paidAmount    Decimal        @default(0) @db.Decimal(14, 2)
   terms         String?
   remark        String?
   createdById   String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer    Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)

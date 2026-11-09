@@ -8,7 +8,7 @@ import { InfoGrid, ItemsCard, moneyOf, viewItems } from "@/components/crm/doc-vi
 import { can, requireUser } from "@/server/auth";
 import { getQuotationForUser } from "@/server/documents";
 import { formatDate, formatDateTime } from "@/lib/crm";
-import { isPast, orderStatus, quotationStatus } from "@/lib/docs";
+import { isPast, orderStatus, quotationStatus, approvalStatus } from "@/lib/docs";
 import { QuotationActions } from "./quotation-actions";
 
 export async function generateMetadata({ params }: PageProps<"/quotations/[id]">): Promise<Metadata> {
@@ -37,6 +37,7 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight tabular-nums">{q.no}</h1>
             <StatusBadge name={st.label} color={st.color} />
+            {q.approval !== "NONE" && <StatusBadge name={approvalStatus(q.approval).label} color={approvalStatus(q.approval).color} />}
           </div>
           <p className="text-sm text-muted-foreground">
             <Link href={`/customers/${q.customer.id}`} className="text-foreground hover:text-primary hover:underline">

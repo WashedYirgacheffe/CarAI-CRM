@@ -7,6 +7,7 @@ import { FOLLOW_METHODS, formatMoney, parseLocalInput, toLocalInput } from "@/li
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { ORDER_NOT_COUNTED, QUOTATION_STATUSES } from "@/lib/docs";
 
 export const metadata: Metadata = { title: "统计" };
 
@@ -82,7 +83,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       select: { ownerId: true, status: true, total: true, exchangeRate: true },
     }),
     prisma.order.findMany({
-      where: { tenantId: t, orderDate: when, status: { not: "CANCELLED" }, ...owner },
+      where: { tenantId: t, orderDate: when, status: { notIn: [...ORDER_NOT_COUNTED] }, ...owner },
       select: { ownerId: true, total: true, exchangeRate: true },
     }),
     prisma.orderPayment.findMany({
@@ -125,14 +126,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const methodRows = FOLLOW_METHODS.map((m) => ({ label: m.label, value: follows.filter((f) => f.method === m.value).length })).filter(
     (x) => x.value > 0,
   );
-  const quoteStatus = [
-    { k: "DRAFT", label: "草稿" },
-    { k: "SENT", label: "已发送" },
-    { k: "ACCEPTED", label: "已接受" },
-    { k: "REJECTED", label: "已拒绝" },
-    { k: "EXPIRED", label: "已失效" },
-  ]
-    .map((s) => ({ label: s.label, value: quotes.filter((q) => q.status === s.k).length }))
+  const quoteStatus = QUOTATION_STATUSES.map((s) => ({ label: s.label, value: quotes.filter((q) => q.status === s.value).length }))
     .filter((x) => x.value > 0);
 
   // 团队业绩

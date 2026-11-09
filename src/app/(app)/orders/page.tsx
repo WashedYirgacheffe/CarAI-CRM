@@ -13,7 +13,7 @@ import { scopeMembers } from "@/server/scope";
 import { docScopeWhere } from "@/server/documents";
 import type { Prisma } from "@/generated/prisma/client";
 import { formatDate, parseLocalInput } from "@/lib/crm";
-import { ORDER_STATUSES, dateInput, formatAmount, orderStatus, round2 } from "@/lib/docs";
+import { ORDER_NOT_COUNTED, ORDER_STATUSES, dateInput, formatAmount, orderStatus, round2 } from "@/lib/docs";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "订单" };
@@ -54,9 +54,9 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
       take: PAGE_SIZE,
       include: { owner: { select: { name: true } } },
     }),
-    // 统计：数据范围内未取消的订单，按开单汇率折成人民币
+    // 统计：数据范围内计业绩的订单（不含草稿、已取消），按开单汇率折成人民币
     db.order.findMany({
-      where: { ...scope, status: { not: "CANCELLED" } },
+      where: { ...scope, status: { notIn: [...ORDER_NOT_COUNTED] } },
       select: { total: true, paidAmount: true, exchangeRate: true, orderDate: true },
       take: 10000,
     }),
@@ -85,9 +85,9 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
       />
       <section className="mb-4 grid gap-3 sm:grid-cols-3">
         {[
-          ["本月订单", `${monthCount} 单`, "按下单日期，不含已取消"],
+          ["本月订单", `${monthCount} 单`, "按下单日期，不含草稿和已取消"],
           ["本月订单额", formatAmount(monthTotal, "CNY"), "按开单汇率折算"],
-          ["待收款", formatAmount(receivable, "CNY"), "未取消订单的未收金额"],
+          ["待收款", formatAmount(receivable, "CNY"), "已确认订单的未收金额"],
         ].map(([label, value, hint]) => (
           <div key={label} className="rounded-xl border bg-card p-4">
             <p className="text-sm text-muted-foreground">{label}</p>
@@ -137,7 +137,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
                   <TableCell className="text-right font-medium whitespace-nowrap tabular-nums">{formatAmount(o.total.toString(), o.currency)}</TableCell>
                   <TableCell className="text-right text-sm whitespace-nowrap tabular-nums">
                     {formatAmount(o.paidAmount.toString())}
-                    <span className={cn("block text-xs", due > 0 && o.status !== "CANCELLED" ? "text-amber-700" : "text-muted-foreground")}>
+                    <span className={cn("block text-xs", due > 0 && o.status !== "CANCELLED" && o.status !== "DRAFT" ? "text-amber-700" : "text-muted-foreground")}>
                       {due > 0 ? `待收 ${formatAmount(due)}` : "已收齐"}
                     </span>
                   </TableCell>

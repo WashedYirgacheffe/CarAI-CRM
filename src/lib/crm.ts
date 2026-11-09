@@ -47,11 +47,17 @@ export function followMethodLabel(v: string | null | undefined) {
 export const CURRENCIES = ["USD", "EUR", "CNY", "GBP", "JPY", "AUD", "CAD", "HKD"] as const;
 
 export const LEAD_STATUSES = [
-  { value: "NEW", label: "待处理" },
-  { value: "CONTACTED", label: "已联系" },
+  { value: "NEW", label: "新线索" },
+  { value: "QUALIFYING", label: "完善信息" },
+  { value: "CONTACTED", label: "联系互动" },
   { value: "CONVERTED", label: "已转客户" },
   { value: "INVALID", label: "无效" },
 ] as const;
+
+/** 还在跟进中的线索状态 */
+export const LEAD_OPEN_STATUSES = ["NEW", "QUALIFYING", "CONTACTED"] as const;
+
+export const LEAD_INVALID_REASONS = ["垃圾询盘 / 广告", "同行套价", "联系方式无效", "需求不匹配", "重复线索", "长期无回复", "其他"] as const;
 
 export const STATUS_COLORS: Record<string, string> = {
   slate: "bg-slate-100 text-slate-700 border-slate-200",

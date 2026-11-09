@@ -26,6 +26,7 @@ const orderSchema = docBaseSchema.extend({
   orderDate: z.string().min(1, "请选择下单日期"),
   deliveryDate: z.string().optional(),
   shippingMark: optText(1000),
+  asDraft: z.string().optional(),
 });
 
 function revalidate(id?: string, customerId?: string | null) {
@@ -102,6 +103,7 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
     if (q && (await docInScope(user, q.ownerId))) quotation = q;
   }
 
+  const draft = !!d.asDraft;
   const created = await withDocNo(user.tenantId, "order", tz, (no) =>
     prisma.$transaction(async (tx) => {
       const o = await tx.order.create({
@@ -112,13 +114,14 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
           customerId: d.customerId,
           opportunityId,
           quotationId: quotation?.id ?? null,
+          status: draft ? "DRAFT" : "CONFIRMED",
           ownerId: found.customer.ownerId ?? user.id,
           createdById: user.id,
         },
       });
       await tx.orderItem.createMany({ data: items.map((it) => ({ ...it, orderId: o.id })) });
-      if (quotation && quotation.status !== "ACCEPTED") {
-        await tx.quotation.updateMany({ where: { tenantId: user.tenantId, id: quotation.id }, data: { status: "ACCEPTED" } });
+      if (quotation && quotation.status !== "CONVERTED") {
+        await tx.quotation.updateMany({ where: { tenantId: user.tenantId, id: quotation.id }, data: { status: "CONVERTED" } });
       }
       return o;
     }),
@@ -129,17 +132,18 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
     customerId: d.customerId,
     opportunityId,
     event: "order",
-    content: `新建订单 ${created.no}（${formatAmount(total, d.currency)}）${quotation ? `，来自报价单 ${quotation.no}` : ""}`,
+    content: `新建${draft ? "草稿" : ""}订单 ${created.no}（${formatAmount(total, d.currency)}）${quotation ? `，来自报价单 ${quotation.no}` : ""}`,
     userId: user.id,
   });
-  const won = opportunityId ? await winOpportunity(user, opportunityId) : null;
+  // 草稿不推进商机，确认后再推进
+  const won = opportunityId && !draft ? await winOpportunity(user, opportunityId) : null;
 
   revalidate(created.id, d.customerId);
   if (quotation) revalidatePath(`/quotations/${quotation.id}`);
   if (won) revalidatePath("/opportunities");
   return {
     ok: true,
-    message: `订单 ${created.no} 已创建${won ? `，商机已移到「${won}」` : ""}`,
+    message: `${draft ? "草稿" : ""}订单 ${created.no} 已创建${won ? `，商机已移到「${won}」` : ""}`,
     id: created.id,
   };
 }
@@ -190,8 +194,11 @@ export async function setOrderStatusAction(id: string, status: string): Promise<
     content: `订单 ${o.no} 状态：${orderStatus(o.status).label} → ${orderStatus(status).label}`,
     userId: user.id,
   });
+  // 草稿确认后才推进商机到赢单
+  const won = o.status === "DRAFT" && status !== "CANCELLED" && o.opportunityId ? await winOpportunity(user, o.opportunityId) : null;
+  if (won) revalidatePath("/opportunities");
   revalidate(id, o.customerId);
-  return { ok: true, message: `已标记为「${orderStatus(status).label}」` };
+  return { ok: true, message: `已标记为「${orderStatus(status).label}」${won ? `，商机已移到「${won}」` : ""}` };
 }
 
 export async function deleteOrderAction(id: string): Promise<ActionState> {
