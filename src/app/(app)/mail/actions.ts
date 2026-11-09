@@ -1,5 +1,6 @@
 "use server";
 
+import { syncCustomerTimes } from "@/server/pool";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma, tenantDb } from "@/server/db";
@@ -317,6 +318,7 @@ export async function linkMailAction(id: string, customerId: string): Promise<Ac
     content: `把邮件「${m.subject || "(无主题)"}」归档到客户`,
     userId: user.id,
   });
+  await syncCustomerTimes(user.tenantId, customerId);
   revalidatePath("/mail", "layout");
   revalidatePath(`/customers/${customerId}`);
   return { ok: true, message: `已归档到「${found.customer.name}」` };

@@ -43,6 +43,8 @@ const TENANT_MODELS = new Set<string>([
   "WaChat",
   "WaMessage",
   "AiInsight",
+  "CustomerSegment",
+  "SuggestionIgnore",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([

@@ -1,5 +1,6 @@
 "use server";
 
+import { syncCustomerTimes } from "@/server/pool";
 import { revalidatePath } from "next/cache";
 import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser, type CurrentUser } from "@/server/auth";
@@ -146,6 +147,7 @@ export async function linkChatAction(chatId: string, customerId: string): Promis
   }
   await prisma.waChat.update({ where: { id: chat.id }, data: { customerId, contactId } });
   await logActivity({ tenantId: user.tenantId, customerId, event: "wa_linked", content: `关联了 WhatsApp 会话 ${chat.name ?? ""} +${chat.phone ?? ""}`.trim(), userId: user.id });
+  await syncCustomerTimes(user.tenantId, customerId);
   revalidatePath("/whatsapp", "layout");
   revalidatePath(`/customers/${customerId}`);
   return { ok: true, message: `已关联到「${found.customer.name}」` };

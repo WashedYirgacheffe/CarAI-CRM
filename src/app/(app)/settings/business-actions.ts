@@ -6,6 +6,7 @@ import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser } from "@/server/auth";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 import { CURRENCIES, STATUS_COLOR_NAMES } from "@/lib/crm";
+import { recyclePool } from "@/server/pool";
 
 async function guard() {
   const user = await requireUser();
@@ -23,6 +24,8 @@ const poolSchema = z.object({
   poolRecycleDays: z.coerce.number().int("请输入整数").min(0).max(3650),
   poolDailyClaimLimit: z.coerce.number().int("请输入整数").min(0).max(10000),
   privateCustomerLimit: z.coerce.number().int("请输入整数").min(0).max(1000000),
+  poolBasis: z.enum(["contact", "follow"]),
+  poolWarnDays: z.coerce.number().int("请输入整数").min(0).max(60),
 });
 
 export async function savePoolRulesAction(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -31,6 +34,19 @@ export async function savePoolRulesAction(_p: ActionState, fd: FormData): Promis
   const parsed = poolSchema.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fieldErrorsOf(parsed.error);
   await prisma.tenant.update({ where: { id: user.tenantId }, data: parsed.data });
+
+  // 客群单独规则：字段名 seg_<id>，留空 = 用默认天数
+  const db = tenantDb(user.tenantId);
+  const segs = await db.customerSegment.findMany({ where: { shared: true }, select: { id: true, poolDays: true } });
+  for (const seg of segs) {
+    const raw = String(fd.get(`seg_${seg.id}`) ?? "").trim();
+    const days = raw === "" ? null : Math.floor(Number(raw));
+    if (days !== null && (!Number.isFinite(days) || days < 0 || days > 3650)) {
+      return { ok: false, message: "客群回收天数需在 0-3650 之间" };
+    }
+    if (days !== seg.poolDays) await db.customerSegment.updateMany({ where: { id: seg.id }, data: { poolDays: days } });
+  }
+  await recyclePool(user.tenantId);
   revalidatePath("/settings/pool-rules");
   revalidatePath("/customers/pool");
   return { ok: true, message: "公海规则已保存" };

@@ -57,7 +57,7 @@ export async function customerInsightAction(customerId: string, kind: keyof type
     `星级：${c.star}`,
     c.tags.length && `标签：${c.tags.join("、")}`,
     c.remark && `备注：${clip(c.remark, 500)}`,
-    `创建于 ${formatDate(c.createdAt, tz)}；最近跟进 ${c.lastContactAt ? formatDate(c.lastContactAt, tz) : "从未"}；下次跟进 ${c.nextFollowAt ? formatDate(c.nextFollowAt, tz) : "未安排"}`,
+    `创建于 ${formatDate(c.createdAt, tz)}；最近联系 ${c.lastContactAt ? formatDate(c.lastContactAt, tz) : "从未"}；下次跟进 ${c.nextFollowAt ? formatDate(c.nextFollowAt, tz) : "未安排"}`,
   ]
     .filter(Boolean)
     .join("\n");

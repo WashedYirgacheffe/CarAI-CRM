@@ -16,6 +16,7 @@ import pino from "pino";
 import { prisma } from "@/server/db";
 import { putObject } from "@/server/storage";
 import { matchContactByPhone } from "@/server/whatsapp/match";
+import { touchCustomer } from "@/server/pool";
 
 /**
  * WhatsApp 会话管理（只在 worker 进程里运行）。
@@ -284,6 +285,7 @@ async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, 
     },
   });
   if (fromMe && chat.customerId) await logOutgoing(account.tenantId, chat.customerId, account.userId, c.body, ts);
+  else if (chat.customerId) await touchCustomer(account.tenantId, chat.customerId, ts, ["lastWaAt"]);
   if (c.media) {
     await saveMedia(sock, msg, row, c.media).catch((e) => log(accountId, "media download failed", (e as Error).message));
   }
@@ -300,10 +302,7 @@ export async function logOutgoing(tenantId: string, customerId: string, userId: 
       data: { tenantId, customerId, type: "FOLLOW_UP", method: "WHATSAPP", event: "wa_out", content: `【WhatsApp】${body.slice(0, 300)}`, userId, createdAt: at },
     });
   }
-  await prisma.customer.updateMany({
-    where: { tenantId, id: customerId, OR: [{ lastContactAt: null }, { lastContactAt: { lt: at } }] },
-    data: { lastContactAt: at },
-  });
+  await touchCustomer(tenantId, customerId, at, ["lastWaAt"]);
 }
 
 async function sendQueued() {

@@ -37,6 +37,7 @@ export async function getCustomerForUser(user: CurrentUser, id: string) {
     where: { id },
     include: {
       owner: { select: { id: true, name: true } },
+      prevOwner: { select: { name: true } },
       status: true,
       group: true,
     },

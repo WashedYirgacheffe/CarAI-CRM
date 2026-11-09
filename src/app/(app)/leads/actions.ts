@@ -251,7 +251,7 @@ export async function convertLeadAction(_p: ActionState, fd: FormData): Promise<
         userId: user.id,
       },
     });
-    await tx.customer.updateMany({ where: { tenantId: user.tenantId, id: customerId }, data: { lastContactAt: now } });
+    await tx.customer.updateMany({ where: { tenantId: user.tenantId, id: customerId }, data: { lastContactAt: now, lastFollowAt: now } });
     if (firstStage && can(user, "opportunity.create")) {
       const opp = await tx.opportunity.create({
         data: {

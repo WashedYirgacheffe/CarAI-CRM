@@ -12,7 +12,7 @@ import { getBadges } from "@/server/badges";
 import { getRates } from "@/server/documents";
 import { ownedWhere } from "@/server/scope";
 import { docScopeWhere } from "@/server/documents";
-import { CURRENCIES, LEAD_OPEN_STATUSES, dayRange, daysAgo, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
+import { CURRENCIES, LEAD_OPEN_STATUSES, dayRange, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
 import { ORDER_NOT_COUNTED, dateInput } from "@/lib/docs";
 import { COUNTRY_TZ, DEFAULT_CLOCK_COUNTRIES, resolveDashboard } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
@@ -46,12 +46,12 @@ export default async function DashboardPage() {
   ]);
   const clockCountries = topCountries.map((c) => c.country!).filter((c) => COUNTRY_TZ[c] && c !== "CN").slice(0, 6);
 
-  const [myCustomers, dueCustomers, staleCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent, monthOrders] =
+  const [myCustomers, dueCustomers, poolSoonCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent, monthOrders] =
     await Promise.all([
       canCustomers ? db.customer.count({ where: mine }) : 0,
       canCustomers ? db.customer.count({ where: { ...mine, nextFollowAt: { lt: end } } }) : 0,
       canCustomers
-        ? db.customer.count({ where: { ...mine, OR: [{ lastContactAt: null }, { lastContactAt: { lt: daysAgo(14) } }] } })
+        ? db.customer.count({ where: { ...mine, poolDueAt: { lt: new Date(end.getTime() + 7 * 86_400_000) } } })
         : 0,
       db.task.findMany({
         where: { ...mine, done: false, dueAt: { lt: end } },
@@ -92,7 +92,7 @@ export default async function DashboardPage() {
   const oppSum = openOpps.map((o) => formatMoney(o._sum.amount?.toString() ?? 0, o.currency)).join(" + ") || "—";
 
   const stats = [
-    canCustomers && { label: "我的客户", value: myCustomers, hint: `${staleCustomers} 个超过 14 天未跟进`, href: "/customers" },
+    canCustomers && { label: "我的客户", value: myCustomers, hint: `${poolSoonCustomers} 个 7 天内将进公海`, href: "/customers?follow=soon" },
     canCustomers && {
       label: "今天待跟进客户",
       value: dueCustomers,

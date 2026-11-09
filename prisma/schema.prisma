@@ -22,6 +22,10 @@ model Tenant {
   poolDailyClaimLimit  Int      @default(20)
   /// 每人最多持有的私海客户数（0 = 不限）
   privateCustomerLimit Int      @default(0)
+  /// 公海回收依据：contact = 最近联系（收发邮件、WhatsApp、跟进都算）；follow = 最近跟进（销售手写的跟进）
+  poolBasis            String   @default("contact")
+  /// 进公海前 N 天给负责人建提醒任务（0 = 不提醒）
+  poolWarnDays         Int      @default(7)
   // ── 单据抬头（报价单 / PI 上显示，英文） ──
   docCompanyName       String?
   docAddress           String?
@@ -61,6 +65,8 @@ model Tenant {
   waChats           WaChat[]
   waMessages        WaMessage[]
   aiInsights        AiInsight[]
+  segments          CustomerSegment[]
+  suggestionIgnores SuggestionIgnore[]
 }
 
 enum UserStatus {
@@ -92,6 +98,7 @@ model User {
   sessions   Session[]
 
   ownedCustomers     Customer[]    @relation("CustomerOwner")
+  prevCustomers      Customer[]    @relation("CustomerPrevOwner")
   ownedLeads         Lead[]        @relation("LeadOwner")
   ownedOpportunities Opportunity[] @relation("OpportunityOwner")
   activities         Activity[]
@@ -218,16 +225,31 @@ model Customer {
   remark        String?
   ownerId       String?
   assignedAt    DateTime?
-  lastContactAt DateTime?
-  nextFollowAt  DateTime?
-  poolEnteredAt DateTime?
-  poolReason    String?
+  /// 最近联系：任何往来（收发邮件、WhatsApp、跟进）
+  lastContactAt  DateTime?
+  /// 最近跟进：销售手写的跟进记录
+  lastFollowAt   DateTime?
+  lastMailRecvAt DateTime?
+  lastMailSentAt DateTime?
+  lastWaAt       DateTime?
+  nextFollowAt   DateTime?
+  poolEnteredAt  DateTime?
+  poolReason     String?
+  /// 累计进入公海次数
+  poolCount      Int       @default(0)
+  /// 上一任负责人（进公海或转移前）
+  prevOwnerId    String?
+  /// 按公海规则算出的下次自动进公海时间（worker 每小时刷新）
+  poolDueAt      DateTime?
+  /// 已发过进公海提醒的时间；下次进公海时间推后会清空
+  poolWarnedAt   DateTime?
   createdById   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   owner         User?           @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  prevOwner     User?           @relation("CustomerPrevOwner", fields: [prevOwnerId], references: [id], onDelete: SetNull)
   status        CustomerStatus? @relation(fields: [statusId], references: [id], onDelete: SetNull)
   group         CustomerGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
   contacts      Contact[]
@@ -243,6 +265,39 @@ model Customer {
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
   @@index([tenantId, domain])
+  @@index([tenantId, poolDueAt])
+}
+
+/// 客群：保存的客户筛选条件。poolDays 非空时按该客群单独设置公海回收天数（0 = 不回收），按 sort 先匹配先生效
+model CustomerSegment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  /// 筛选条件，与客户列表 URL 参数同名
+  filters     Json     @default("{}")
+  /// 是否全公司可见；否则只有创建人可见
+  shared      Boolean  @default(false)
+  sort        Int      @default(0)
+  poolDays    Int?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+/// 建档建议里被忽略的邮箱 / WhatsApp 号码。key 形如 mail:foo@bar.com、wa:8613800000000
+model SuggestionIgnore {
+  id        String   @id @default(cuid())
+  tenantId  String
+  key       String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
 }
 
 model Contact {

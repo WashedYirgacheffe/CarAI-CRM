@@ -13,6 +13,7 @@ import {
   logActivity,
   type DuplicateHit,
 } from "@/server/customers";
+import { moveToPoolQuery, refreshPoolDue } from "@/server/pool";
 
 export type { DuplicateHit };
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
@@ -141,6 +142,7 @@ export async function createCustomerAction(_p: ActionState, fd: FormData): Promi
     },
   });
   await logActivity({ tenantId: user.tenantId, customerId: customer.id, event: "created", content: "创建了客户", userId: user.id });
+  await refreshPoolDue(user.tenantId, [customer.id]);
   revalidateCustomers();
   return { ok: true, message: "客户已创建", id: customer.id };
 }
@@ -214,10 +216,9 @@ export async function transferCustomersAction(ids: string[], toUserId: string): 
 
   const now = new Date();
   await prisma.$transaction([
-    prisma.customer.updateMany({
-      where: { tenantId: user.tenantId, id: { in: rows.map((r) => r.id) } },
-      data: { ownerId: toUserId, assignedAt: now },
-    }),
+    prisma.$executeRaw`
+      UPDATE "Customer" SET "prevOwnerId" = "ownerId", "ownerId" = ${toUserId}, "assignedAt" = ${now}, "updatedAt" = ${now}
+      WHERE "tenantId" = ${user.tenantId} AND "id" = ANY(${rows.map((r) => r.id)}) AND "ownerId" IS DISTINCT FROM ${toUserId}`,
     prisma.activity.createMany({
       data: rows.map((r) => ({
         tenantId: user.tenantId,
@@ -229,6 +230,7 @@ export async function transferCustomersAction(ids: string[], toUserId: string): 
       })),
     }),
   ]);
+  await refreshPoolDue(user.tenantId, rows.map((r) => r.id));
   revalidateCustomers();
   return { ok: true, message: `已转移 ${rows.length} 个客户给 ${target.name}` };
 }
@@ -241,10 +243,12 @@ export async function releaseCustomersAction(ids: string[], reason: string): Pro
   const why = reason.trim().slice(0, 200) || "手动放入公海";
   const now = new Date();
   await prisma.$transaction([
-    prisma.customer.updateMany({
-      where: { tenantId: user.tenantId, id: { in: rows.map((r) => r.id) } },
-      data: { ownerId: null, assignedAt: null, poolEnteredAt: now, poolReason: why, nextFollowAt: null },
-    }),
+    moveToPoolQuery(
+      user.tenantId,
+      rows.map((r) => r.id),
+      why,
+      now,
+    ),
     prisma.activity.createMany({
       data: rows.map((r) => ({
         tenantId: user.tenantId,
@@ -277,7 +281,7 @@ async function takeFromPool(
     const freeIds = free.map((f) => f.id);
     const { count } = await tx.customer.updateMany({
       where: { tenantId: user.tenantId, id: { in: freeIds }, ownerId: null },
-      data: { ownerId, assignedAt: now, lastContactAt: null, poolEnteredAt: null, poolReason: null },
+      data: { ownerId, assignedAt: now, poolEnteredAt: null, poolReason: null },
     });
     if (count !== freeIds.length) throw new Error("部分客户已被他人领取，请刷新后重试");
     await tx.activity.createMany({
@@ -301,6 +305,7 @@ export async function claimCustomersAction(ids: string[]): Promise<ActionState> 
   if (limit) return denied(`私海客户会超过上限（${limit} 个）`);
   try {
     const n = await takeFromPool(user, ids, user.id, "claimed", "从公海领取了客户");
+    await refreshPoolDue(user.tenantId, ids);
     revalidateCustomers();
     return { ok: true, message: `已领取 ${n} 个客户` };
   } catch (e) {
@@ -317,6 +322,7 @@ export async function assignPoolCustomersAction(ids: string[], toUserId: string)
   if (limit) return denied(`${target.name} 的私海客户会超过上限（${limit} 个）`);
   try {
     const n = await takeFromPool(user, ids, toUserId, "assigned", `把公海客户分配给 ${target.name}`);
+    await refreshPoolDue(user.tenantId, ids);
     revalidateCustomers();
     return { ok: true, message: `已分配 ${n} 个客户给 ${target.name}` };
   } catch (e) {
@@ -351,7 +357,7 @@ export async function addFollowUpAction(_p: ActionState, fd: FormData): Promise<
     }),
     prisma.customer.updateMany({
       where: { tenantId: user.tenantId, id: customerId },
-      data: { lastContactAt: now, ...(next ? { nextFollowAt: next } : {}) },
+      data: { lastContactAt: now, lastFollowAt: now, ...(next ? { nextFollowAt: next } : {}) },
     }),
     ...(next && createTask
       ? [
@@ -369,6 +375,7 @@ export async function addFollowUpAction(_p: ActionState, fd: FormData): Promise<
         ]
       : []),
   ]);
+  await refreshPoolDue(user.tenantId, [customerId]);
   revalidateCustomers(customerId);
   revalidatePath("/schedule");
   return { ok: true, message: "已记录跟进" };

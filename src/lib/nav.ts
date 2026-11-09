@@ -34,6 +34,8 @@ export const NAV: NavSection[] = [
           { title: "我的客户", href: "/customers", permission: "customer.view" },
           { title: "公海客户", href: "/customers/pool", permission: "pool.view" },
           { title: "联系人", href: "/customers/contacts", permission: "customer.view" },
+          { title: "建档建议", href: "/customers/suggestions", permission: "customer.create" },
+          { title: "查重合并", href: "/customers/duplicates", permission: "customer.view" },
         ],
       },
       { title: "线索 / 询盘", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
