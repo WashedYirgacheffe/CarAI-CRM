@@ -29,18 +29,18 @@ export function StageTable({ stages }: { stages: Stage[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-24 pl-4">顺序</TableHead>
+              <TableHead className="w-16 pl-2 md:w-24 md:pl-4">顺序</TableHead>
               <TableHead>阶段</TableHead>
-              <TableHead>赢率</TableHead>
-              <TableHead>类型</TableHead>
-              <TableHead>商机数</TableHead>
+              <TableHead className="hidden md:table-cell">赢率</TableHead>
+              <TableHead className="hidden md:table-cell">类型</TableHead>
+              <TableHead className="hidden md:table-cell">商机数</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {stages.map((s, i) => (
               <TableRow key={s.id}>
-                <TableCell className="pl-4">
+                <TableCell className="pl-2 whitespace-nowrap md:pl-4">
                   <Button variant="ghost" size="icon-xs" aria-label="上移" disabled={i === 0} onClick={() => runAction(moveStageAction(s.id, -1))}>
                     <ArrowUp />
                   </Button>
@@ -54,13 +54,18 @@ export function StageTable({ stages }: { stages: Stage[] }) {
                     <ArrowDown />
                   </Button>
                 </TableCell>
-                <TableCell className="font-medium">{s.name}</TableCell>
-                <TableCell className="tabular-nums">{s.probability}%</TableCell>
-                <TableCell>
+                <TableCell className="font-medium whitespace-normal">
+                  {s.name}
+                  <span className="block text-xs font-normal text-muted-foreground md:hidden">
+                    赢率 {s.probability}% · {KIND[s.kind]} · {s.count} 个商机
+                  </span>
+                </TableCell>
+                <TableCell className="hidden tabular-nums md:table-cell">{s.probability}%</TableCell>
+                <TableCell className="hidden md:table-cell">
                   <Badge variant={s.kind === "OPEN" ? "outline" : "secondary"}>{KIND[s.kind]}</Badge>
                 </TableCell>
-                <TableCell className="tabular-nums">{s.count}</TableCell>
-                <TableCell>
+                <TableCell className="hidden tabular-nums md:table-cell">{s.count}</TableCell>
+                <TableCell className="pr-2 whitespace-nowrap md:pr-4">
                   <Button variant="ghost" size="icon-sm" aria-label={`编辑 ${s.name}`} onClick={() => setEditing(s)}>
                     <Pencil />
                   </Button>

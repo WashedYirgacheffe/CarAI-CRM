@@ -13,6 +13,7 @@ import {
   MessageCircle,
   MoreVertical,
   PenSquare,
+  NotebookPen,
   Pencil,
   Phone,
   Plus,
@@ -222,9 +223,16 @@ export function CustomerDetail({
   }
 
   const overdue = c.nextFollowAt && new Date(c.nextFollowAt) < new Date();
+  const primaryPhone = contacts.find((x) => x.phone)?.phone ?? null;
+  const waHref = comms.waEnabled && primaryWa ? `/whatsapp?phone=${encodeURIComponent(primaryWa)}&customerId=${c.id}` : null;
+  const focusFollowUp = () => {
+    const el = document.getElementById("follow-up");
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.querySelector("textarea")?.focus({ preventScroll: true });
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 md:space-y-4">
       {/* 标题栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -236,31 +244,39 @@ export function CustomerDetail({
           <h1 className="text-lg font-semibold tracking-tight">客户详情</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canClaim && (
-            <Button disabled={busy} onClick={() => run(claimCustomersAction([c.id]))}>
-              领取到我的客户
-            </Button>
-          )}
-          {canEdit && (
-            <Button variant="outline" onClick={() => setModal("edit")}>
-              <Pencil /> 编辑
-            </Button>
-          )}
-          {composeHref && (
-            <Button variant={canClaim ? "outline" : "default"} asChild>
-              <Link href={composeHref}>
-                <PenSquare /> 写邮件
-              </Link>
-            </Button>
-          )}
+          {/* 手机端这些操作在底部操作栏 */}
+          <span className="hidden items-center gap-2 md:flex">
+            {canClaim && (
+              <Button disabled={busy} onClick={() => run(claimCustomersAction([c.id]))}>
+                领取到我的客户
+              </Button>
+            )}
+            {canEdit && (
+              <Button variant="outline" onClick={() => setModal("edit")}>
+                <Pencil /> 编辑
+              </Button>
+            )}
+            {composeHref && (
+              <Button variant={canClaim ? "outline" : "default"} asChild>
+                <Link href={composeHref}>
+                  <PenSquare /> 写邮件
+                </Link>
+              </Button>
+            )}
+          </span>
           {(canEdit || (access.inPool && perms.delete)) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="更多操作">
+                <Button variant="outline" size="icon" aria-label="更多操作" className="max-md:size-9 max-md:rounded-full">
                   <MoreVertical />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {canEdit && (
+                  <DropdownMenuItem className="md:hidden" onSelect={() => setModal("edit")}>
+                    编辑客户
+                  </DropdownMenuItem>
+                )}
                 {canEdit && perms.transfer && <DropdownMenuItem onSelect={() => setModal("transfer")}>转移给同事</DropdownMenuItem>}
                 {canEdit && <DropdownMenuItem onSelect={() => setModal("release")}>放入公海</DropdownMenuItem>}
                 {perms.delete && (
@@ -277,11 +293,12 @@ export function CustomerDetail({
         </div>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[23.5rem_minmax(0,1fr)]">
+      {/* 手机 / 平板单栏时用 order 重新排：档案 → AI → 联系人 → 商机/日程 → 写跟进 → 页签 → 资料 */}
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 md:gap-4 xl:grid-cols-[23.5rem_minmax(0,1fr)]">
         {/* 左栏：客户档案 + AI + 联系人 + 资料 */}
-        <div className="min-w-0 space-y-4">
-          <section className="surface">
-            <div className="space-y-4 p-5">
+        <div className="min-w-0 max-xl:contents xl:space-y-4">
+          <section className="surface max-xl:order-1">
+            <div className="space-y-4 p-4 md:p-5">
               <div className="flex items-start gap-4">
                 <div className="relative shrink-0">
                   <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-bold text-primary">
@@ -342,7 +359,7 @@ export function CustomerDetail({
               )}
             </div>
 
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3.5 border-t border-border/70 p-5 text-sm">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3.5 border-t border-border/70 p-4 text-sm md:p-5">
               <GridField label="客户分组">{c.groupName}</GridField>
               <GridField label="客户来源">{c.source}</GridField>
               <GridField label="客户类型">{c.customerType}</GridField>
@@ -362,11 +379,17 @@ export function CustomerDetail({
             </dl>
           </section>
 
-          {comms.ai && <CustomerAiPanel customerId={c.id} brief={comms.ai.brief} next={comms.ai.next} tz={tz} />}
+          {comms.ai && (
+            <div className="max-xl:order-2">
+              <CustomerAiPanel customerId={c.id} brief={comms.ai.brief} next={comms.ai.next} tz={tz} />
+            </div>
+          )}
 
-          <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
+          <div className="max-xl:order-3">
+            <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
+          </div>
 
-          <Panel title="客户资料" bodyClassName="space-y-5">
+          <Panel title="客户资料" bodyClassName="space-y-5" className="max-xl:order-7">
             <InfoSection title="公司信息">
               <Info label="主营产品">{c.mainProducts}</Info>
               <Info label="年采购额">{c.annualVolume}</Info>
@@ -396,8 +419,8 @@ export function CustomerDetail({
         </div>
 
         {/* 右栏：进行中的商机 / 计划日程 + 写跟进 + 页签 */}
-        <div className="min-w-0 space-y-4">
-          <div className="space-y-3">
+        <div className="min-w-0 max-xl:contents xl:space-y-4">
+          <div className="space-y-3 max-xl:order-4">
             {perms.viewOpportunity && (
               <CollapseBar
                 title="进行中的商机"
@@ -437,11 +460,16 @@ export function CustomerDetail({
             </CollapseBar>
           </div>
 
-          {canEdit && <FollowUpForm customerId={c.id} tz={tz} />}
+          {canEdit && (
+            <div id="follow-up" className="scroll-mt-24 max-xl:order-5">
+              <FollowUpForm customerId={c.id} tz={tz} />
+            </div>
+          )}
 
-          <section className="surface">
+          <section className="surface max-xl:order-6">
             <Tabs defaultValue="timeline" className="gap-0">
-              <div className="overflow-x-auto border-b border-border/70 px-3">
+              {/* 页签吸顶（顶栏下方） */}
+              <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 overflow-x-auto rounded-t-2xl border-b border-border/70 bg-card px-1 [scrollbar-width:none] md:top-[calc(3.5rem+env(safe-area-inset-top))] md:px-3">
                 <TabsList variant="line" className="h-12">
                   <TabsTrigger value="timeline" className="px-3">
                     动态 {activities.length > 0 && <TabCount n={activities.length} />}
@@ -474,7 +502,7 @@ export function CustomerDetail({
                   )}
                 </TabsList>
               </div>
-              <div className="p-5">
+              <div className="p-4 md:p-5">
                 <TabsContent value="timeline">
                   <Timeline activities={activities} tz={tz} />
                 </TabsContent>
@@ -543,7 +571,7 @@ export function CustomerDetail({
                     <CustomerWhatsapp
                       rows={comms.wa}
                       tz={tz}
-                      chatHref={comms.waEnabled && primaryWa ? `/whatsapp?phone=${encodeURIComponent(primaryWa)}&customerId=${c.id}` : null}
+                      chatHref={waHref}
                     />
                   </TabsContent>
                 )}
@@ -551,6 +579,23 @@ export function CustomerDetail({
             </Tabs>
           </section>
         </div>
+      </div>
+
+      {/* 手机端底部操作栏（在底部导航上方） */}
+      <div className="h-14 md:hidden" aria-hidden />
+      <div className="fixed inset-x-0 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-1 border-t border-border/70 bg-card/95 px-2 py-1.5 backdrop-blur md:hidden">
+        {composeHref && <BarLink href={composeHref} icon={<Mail />} label="邮件" />}
+        {waHref && <BarLink href={waHref} icon={<MessageCircle />} label="WhatsApp" />}
+        {primaryPhone && <BarLink href={`tel:${primaryPhone.replace(/[^\d+]/g, "")}`} icon={<Phone />} label="电话" />}
+        {canClaim ? (
+          <Button className="ml-auto h-10 flex-1 rounded-full" disabled={busy} onClick={() => run(claimCustomersAction([c.id]))}>
+            领取到我的客户
+          </Button>
+        ) : canEdit ? (
+          <Button className="ml-auto h-10 flex-1 rounded-full" onClick={focusFollowUp}>
+            <NotebookPen /> 写跟进
+          </Button>
+        ) : null}
       </div>
 
       {/* 弹窗 */}
@@ -624,6 +669,18 @@ export function CustomerDetail({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function BarLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex h-11 min-w-14 flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-[11px] text-muted-foreground active:bg-muted [&_svg]:size-5 [&_svg]:text-foreground/80"
+    >
+      {icon}
+      {label}
+    </Link>
   );
 }
 
@@ -744,7 +801,7 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
   const [method, setMethod] = useState("EMAIL");
   const [defaultNext] = useState(() => toLocalInput(new Date(Date.now() + 3 * 86_400_000), tz, false) + "T10:00");
   return (
-    <form onSubmit={submit} className="surface p-5">
+    <form onSubmit={submit} className="surface p-4 md:p-5">
       <input type="hidden" name="customerId" value={customerId} />
       <input type="hidden" name="method" value={method} />
       <div className="mb-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="跟进方式">

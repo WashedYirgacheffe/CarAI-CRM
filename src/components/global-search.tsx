@@ -82,7 +82,7 @@ export function GlobalSearch() {
         <kbd className="hidden rounded-md bg-card px-1.5 py-0.5 font-sans text-[10px] ring-1 ring-border sm:inline">⌘K</kbd>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="top-[15%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>
+        <DialogContent className="inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] bottom-auto w-auto gap-0 overflow-hidden rounded-2xl p-0 data-open:slide-in-from-top-4 data-closed:slide-out-to-top-4 sm:inset-x-auto sm:top-[15%] sm:w-full sm:max-w-xl sm:translate-y-0 [&>[data-slot=dialog-handle]]:hidden" showCloseButton={false}>
           <DialogTitle className="sr-only">全局搜索</DialogTitle>
           <div className="flex items-center gap-2 border-b px-3">
             {loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : <Search className="size-4 text-muted-foreground" />}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MobileCard, MobileList } from "@/components/crm/mobile-list";
 import Link from "next/link";
 import { requirePermission } from "@/server/auth";
 import { prisma } from "@/server/db";
@@ -193,15 +194,15 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         title="团队数据"
         description={`${range.from} 至 ${range.to} · ${ids ? `数据范围内 ${members.length} 名成员` : "全公司"} · 金额按单据汇率折合人民币`}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <nav className="inline-flex rounded-full bg-muted p-1 ring-1 ring-border/60" aria-label="统计区间">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+            <nav className="inline-flex max-w-full overflow-x-auto rounded-full bg-muted p-1 ring-1 ring-border/60 [scrollbar-width:none]" aria-label="统计区间">
               {PRESETS.map((p) => (
                 <Link
                   key={p.key}
                   href={`/reports?range=${p.key}`}
                   aria-current={range.key === p.key ? "page" : undefined}
                   className={cn(
-                    "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                    "shrink-0 rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors sm:px-3",
                     range.key === p.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -209,10 +210,10 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                 </Link>
               ))}
             </nav>
-            <form className="flex items-center gap-1.5" action="/reports">
-              <Input type="date" name="from" defaultValue={range.from} className="h-8 w-36" aria-label="开始日期" />
+            <form className="flex w-full items-center gap-1.5 sm:w-auto" action="/reports">
+              <Input type="date" name="from" defaultValue={range.from} className="h-8 min-w-0 flex-1 sm:w-36 sm:flex-none" aria-label="开始日期" />
               <span className="text-muted-foreground">–</span>
-              <Input type="date" name="to" defaultValue={range.to} className="h-8 w-36" aria-label="结束日期" />
+              <Input type="date" name="to" defaultValue={range.to} className="h-8 min-w-0 flex-1 sm:w-36 sm:flex-none" aria-label="结束日期" />
               <Button size="sm" variant={range.key === "custom" ? "default" : "outline"}>
                 查询
               </Button>
@@ -221,23 +222,23 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         }
       />
 
-      <div className="space-y-4">
-        <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="space-y-3 md:space-y-4">
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-6">
           {kpis.map((k) => (
-            <div key={k.label} className="surface flex flex-col gap-3 p-5">
+            <div key={k.label} className="surface flex min-w-0 flex-col gap-2.5 p-3.5 md:gap-3 md:p-5">
               <span className={cn("flex size-9 items-center justify-center rounded-xl", k.strong ? "bg-primary text-primary-foreground" : "bg-accent text-primary")}>
                 <k.icon className="size-[18px]" />
               </span>
               <span className="min-w-0">
                 <span className="block text-sm text-muted-foreground">{k.label}</span>
-                <span className="mt-0.5 block truncate text-[26px] leading-tight font-bold tabular-nums">{k.value}</span>
+                <span className="mt-0.5 block truncate text-xl leading-tight md:text-[26px] font-bold tabular-nums">{k.value}</span>
                 {k.hint && <span className="mt-0.5 block truncate text-xs text-muted-foreground tabular-nums">{k.hint}</span>}
               </span>
             </div>
           ))}
         </section>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">成交趋势</CardTitle>
@@ -258,7 +259,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           </Card>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-3 md:gap-4 lg:grid-cols-3">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">询盘来源与转化</CardTitle>
@@ -315,11 +316,43 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         </div>
 
         <section className="overflow-hidden surface">
-          <div className="flex items-baseline justify-between gap-3 px-5 pt-5 pb-3">
+          <div className="flex items-baseline justify-between gap-3 px-4 pt-4 pb-1 md:px-5 md:pt-5 md:pb-3">
             <h2 className="text-base font-semibold">团队业绩</h2>
             <span className="text-xs text-muted-foreground">按成交额排序</span>
           </div>
-          <div className="overflow-x-auto">
+          <MobileList empty="暂无成员数据">
+            {team.map((r, i) => (
+              <MobileCard
+                key={r.id}
+                leading={<Rank i={i} on={r.orderAmount > 0} />}
+                title={r.name}
+                aside={<span className={cn("text-sm font-semibold tabular-nums", !r.orderAmount && "font-normal text-muted-foreground/60")}>{money(r.orderAmount)}</span>}
+                sub={`${r.orders} 单 · 回款 ${money(r.paid)}`}
+              >
+                <div className="mb-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${(r.orderAmount / teamMaxAmount) * 100}%` }} />
+                </div>
+                <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[13px]">
+                  {(
+                    [
+                      ["询盘", r.leads],
+                      ["新客户", r.customers],
+                      ["跟进", r.follows],
+                      ["发邮件", r.mailsOut],
+                      ["发 WA", r.waOut],
+                      ["报价", r.quotes],
+                    ] as const
+                  ).map(([k, v]) => (
+                    <div key={k}>
+                      <dt className="text-xs text-muted-foreground">{k}</dt>
+                      <dd className={cn("tabular-nums", !v && "text-muted-foreground/60")}>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </MobileCard>
+            ))}
+          </MobileList>
+          <div className="hidden overflow-x-auto md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -340,14 +373,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   <TableRow key={r.id}>
                     <TableCell>
                       <span className="flex items-center gap-2.5 font-medium">
-                        <span
-                          className={cn(
-                            "flex size-6 shrink-0 items-center justify-center rounded-full text-xs tabular-nums",
-                            i < 3 && r.orderAmount > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                          )}
-                        >
-                          {i + 1}
-                        </span>
+                        <Rank i={i} on={r.orderAmount > 0} />
                         {r.name}
                       </span>
                     </TableCell>
@@ -377,6 +403,19 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         </section>
       </div>
     </>
+  );
+}
+
+function Rank({ i, on }: { i: number; on: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-full text-xs tabular-nums",
+        i < 3 && on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+      )}
+    >
+      {i + 1}
+    </span>
   );
 }
 

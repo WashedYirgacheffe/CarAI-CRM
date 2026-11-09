@@ -19,7 +19,7 @@ export function Panel({
   return (
     <section className={cn("surface", className)}>
       {title && (
-        <header className="flex min-h-12 items-center gap-2 px-5 pt-3 pb-2">
+        <header className="flex min-h-12 items-center gap-2 px-4 pt-3 pb-2 md:px-5">
           <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             {icon}
             {title}
@@ -27,7 +27,7 @@ export function Panel({
           {action && <div className="ml-auto flex shrink-0 items-center gap-1">{action}</div>}
         </header>
       )}
-      <div className={cn("px-5 pb-5", !title && "pt-5", bodyClassName)}>{children}</div>
+      <div className={cn("px-4 pb-4 md:px-5 md:pb-5", !title && "pt-4 md:pt-5", bodyClassName)}>{children}</div>
     </section>
   );
 }

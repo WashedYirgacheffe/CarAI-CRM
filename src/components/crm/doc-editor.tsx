@@ -588,7 +588,7 @@ export function DocEditor({
         </CardContent>
       </Card>
 
-      <div className="sticky bottom-0 -mx-4 flex justify-end gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
+      <div className="sticky bottom-[calc(3.75rem+env(safe-area-inset-bottom))] -mx-3 flex justify-end gap-2 border-t bg-background/95 px-3 py-3 backdrop-blur md:bottom-0 md:-mx-6 md:px-6">
         <Button type="button" variant="outline" onClick={() => router.push(cancelHref)}>
           取消
         </Button>
