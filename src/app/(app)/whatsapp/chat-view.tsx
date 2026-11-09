@@ -1,23 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, ChevronLeft, Clock, Link2, Plus, Send } from "lucide-react";
+import { AlertCircle, Building2, Check, ChevronLeft, Clock, Link2, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AiWriter } from "@/components/ai/ai-writer";
 import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
 import { runAction } from "@/hooks/use-action-form";
-import { formatDateTime } from "@/lib/crm";
+import { waClock, waDayKey, waDayLabel } from "@/lib/wa-time";
+import { WaAvatar } from "@/components/crm/wa-avatar";
 import { cn } from "@/lib/utils";
 import { searchCustomersAction } from "@/app/(app)/mail/actions";
 import { linkChatAction, markChatReadAction, retryWaMessageAction, sendWaMessageAction, startChatAction } from "./actions";
 
 type Msg = { id: string; fromMe: boolean; body: string; media: WaMediaInfo; status: "QUEUED" | "SENT" | "FAILED" | "RECEIVED"; error: string | null; timestamp: string };
+
+/** 定时刷新服务端数据（同步中、等新消息） */
+export function LiveRefresh({ ms }: { ms: number }) {
+  const router = useRouter();
+  useEffect(() => {
+    const t = setInterval(() => router.refresh(), ms);
+    return () => clearInterval(t);
+  }, [router, ms]);
+  return null;
+}
+
+/** 同一个人 5 分钟内的连续消息归成一组：组内只有第一条带小尾巴，间距更紧 */
+const GROUP_GAP = 5 * 60_000;
 
 export function ChatView({
   chat,
@@ -27,7 +40,7 @@ export function ChatView({
   connected,
   canAi,
 }: {
-  chat: { id: string; name: string | null; phone: string | null; unread: number; customer: { id: string; name: string } | null };
+  chat: { id: string; name: string | null; phone: string | null; unread: number; avatar: string | null; customer: { id: string; name: string } | null };
   messages: Msg[];
   tz: string;
   backHref: string;
@@ -39,6 +52,7 @@ export function ChatView({
   const [sending, setSending] = useState(false);
   const [linking, setLinking] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const title = chat.name || (chat.phone ? `+${chat.phone}` : "未知号码");
 
   // 打开会话时清未读；每 4 秒拉一次新消息
   useEffect(() => {
@@ -71,89 +85,154 @@ export function ChatView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <Button asChild variant="ghost" size="icon-sm" className="md:hidden" aria-label="返回">
+      <header className="flex items-center gap-3 border-b border-border/70 px-4 py-2.5">
+        <Button asChild variant="ghost" size="icon-sm" className="-ml-1 md:hidden" aria-label="返回">
           <Link href={backHref}>
             <ChevronLeft />
           </Link>
         </Button>
+        <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className="size-10 text-sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{chat.name || (chat.phone ? `+${chat.phone}` : "未知号码")}</p>
+          <p className="truncate font-semibold">{title}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {chat.phone && `+${chat.phone}`}
+            {chat.phone && <span className="tabular-nums">+{chat.phone}</span>}
             {chat.customer && (
               <>
-                {" · "}
-                <Link href={`/customers/${chat.customer.id}`} className="hover:text-primary">
-                  客户：{chat.customer.name}
+                {chat.phone && " · "}
+                <Link href={`/customers/${chat.customer.id}`} className="text-primary hover:underline">
+                  {chat.customer.name}
                 </Link>
               </>
             )}
           </p>
         </div>
-        {!chat.customer && (
+        {chat.customer ? (
+          <Button asChild size="sm" variant="outline" className="hidden sm:inline-flex xl:hidden">
+            <Link href={`/customers/${chat.customer.id}`}>
+              <Building2 /> 客户详情
+            </Link>
+          </Button>
+        ) : (
           <Button size="sm" variant="outline" onClick={() => setLinking(true)}>
             <Link2 /> 关联客户
           </Button>
         )}
-      </div>
+      </header>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-[#efeae2]/50 px-4 py-3">
-        {messages.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">还没有消息，发一条打个招呼吧</p>}
-        {messages.map((m) => (
-          <div key={m.id} className={cn("flex", m.fromMe ? "justify-end" : "justify-start")}>
-            <div
-              className={cn(
-                "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-xs",
-                m.fromMe ? "bg-[#d9fdd3] text-foreground" : "bg-white text-foreground",
-                m.status === "FAILED" && "ring-1 ring-rose-300",
-              )}
-            >
-              <WaMedia id={m.id} media={m.media} />
-              {waCaption(m.body, m.media) && <p className="whitespace-pre-wrap break-words">{waCaption(m.body, m.media)}</p>}
-              <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-muted-foreground tabular-nums">
-                {formatDateTime(m.timestamp, tz)}
-                {m.fromMe && m.status === "QUEUED" && <Clock className="size-3" aria-label="发送中" />}
-                {m.fromMe && m.status === "SENT" && <Check className="size-3" aria-label="已发送" />}
-                {m.status === "FAILED" && (
-                  <button type="button" className="inline-flex items-center gap-0.5 text-rose-600" title={m.error ?? ""} onClick={() => runAction(retryWaMessageAction(m.id))}>
-                    <AlertCircle className="size-3" /> 发送失败，点击重试
-                  </button>
-                )}
-              </p>
-            </div>
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-8"
+        style={{
+          backgroundColor: "#efeae2",
+          backgroundImage: "radial-gradient(oklch(0.55 0.03 80 / 0.09) 1px, transparent 1px)",
+          backgroundSize: "18px 18px",
+        }}
+      >
+        {messages.length === 0 && (
+          <div className="mx-auto mt-10 max-w-xs rounded-xl bg-[#fff8c5] px-4 py-3 text-center text-xs text-[#54656f] shadow-xs">
+            还没有消息。发一条打个招呼吧，消息会从你的 WhatsApp 号码发出。
           </div>
-        ))}
-        <div ref={bottom} />
+        )}
+        {messages.map((m, i) => {
+          const prev = messages[i - 1];
+          const day = waDayKey(m.timestamp, tz);
+          const newDay = !prev || waDayKey(prev.timestamp, tz) !== day;
+          const grouped = !newDay && prev.fromMe === m.fromMe && Date.parse(m.timestamp) - Date.parse(prev.timestamp) < GROUP_GAP;
+          const caption = waCaption(m.body, m.media);
+          return (
+            <Fragment key={m.id}>
+              {newDay && (
+                <div className="sticky top-0 z-10 flex justify-center py-2">
+                  <span className="rounded-lg bg-white/95 px-3 py-1 text-xs text-[#54656f] shadow-xs">{waDayLabel(day, tz)}</span>
+                </div>
+              )}
+              <div className={cn("flex", m.fromMe ? "justify-end" : "justify-start", grouped ? "mt-0.5" : "mt-2.5")}>
+                <div
+                  className={cn(
+                    "relative max-w-[min(75%,36rem)] rounded-xl px-2.5 pt-1.5 pb-1 text-[14.5px] leading-snug text-[#111b21] shadow-[0_1px_0.5px_oklch(0_0_0/0.13)]",
+                    m.fromMe ? "bg-[#d9fdd3]" : "bg-white",
+                    !grouped && (m.fromMe ? "rounded-tr-none" : "rounded-tl-none"),
+                    m.status === "FAILED" && "ring-1 ring-rose-300",
+                  )}
+                >
+                  {!grouped && <BubbleTail fromMe={m.fromMe} />}
+                  <WaMedia id={m.id} media={m.media} />
+                  {caption && <span className="break-words whitespace-pre-wrap">{caption}</span>}
+                  <span
+                    className={cn(
+                      "float-right ml-2.5 inline-flex translate-y-1 items-center gap-0.5 text-[11px] text-[#667781] tabular-nums",
+                      !caption && "mt-1",
+                    )}
+                  >
+                    {waClock(m.timestamp, tz)}
+                    {m.fromMe && m.status === "QUEUED" && <Clock className="size-3" aria-label="发送中" />}
+                    {m.fromMe && m.status === "SENT" && <Check className="size-3.5" aria-label="已发送" />}
+                  </span>
+                  {m.status === "FAILED" && (
+                    <button
+                      type="button"
+                      className="clear-both flex items-center gap-1 pt-1 text-xs text-rose-600 hover:underline"
+                      title={m.error ?? ""}
+                      onClick={() => runAction(retryWaMessageAction(m.id))}
+                    >
+                      <AlertCircle className="size-3.5" /> 发送失败，点击重试
+                    </button>
+                  )}
+                </div>
+              </div>
+            </Fragment>
+          );
+        })}
+        <div ref={bottom} className="h-1" />
       </div>
 
-      <div className="space-y-2 border-t p-3">
-        {!connected && <p className="text-xs text-amber-700">WhatsApp 未连接，消息暂时发不出去。</p>}
+      <footer className="space-y-2 border-t border-border/70 bg-[#f7f8fa] px-3 py-3 sm:px-4">
+        {!connected && (
+          <p className="flex items-center gap-1.5 text-xs text-amber-700">
+            <AlertCircle className="size-3.5" /> WhatsApp 未连接，消息暂时发不出去。
+          </p>
+        )}
         {canAi && <AiWriter channel="whatsapp" compact original={lastIncoming || undefined} getDraft={() => text} onApply={setText} />}
         <div className="flex items-end gap-2">
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={2}
-            className="min-h-10 resize-none"
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-          />
-          <Button onClick={send} disabled={sending || !text.trim()} aria-label="发送">
+          <div className="flex min-w-0 flex-1 items-end rounded-3xl bg-card px-4 py-2 shadow-xs ring-1 ring-border/70 focus-within:ring-primary/40">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={1}
+              className="field-sizing-content max-h-40 min-h-6 w-full resize-none bg-transparent text-[14.5px] leading-6 outline-none placeholder:text-muted-foreground"
+              placeholder="输入消息"
+              title="Enter 发送，Shift+Enter 换行"
+              aria-label="消息"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+            />
+          </div>
+          <Button onClick={send} disabled={sending || !text.trim()} size="icon" className="size-10 shrink-0 rounded-full" aria-label="发送">
             <Send />
           </Button>
         </div>
-      </div>
+      </footer>
 
       <Dialog open={linking} onOpenChange={setLinking}>
         <DialogContent>{linking && <LinkChat chatId={chat.id} onDone={() => setLinking(false)} />}</DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** 气泡顶角的小尾巴（WhatsApp 样式） */
+function BubbleTail({ fromMe }: { fromMe: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 8 13"
+      className={cn("absolute top-0 h-[13px] w-2", fromMe ? "-right-2 fill-[#d9fdd3]" : "-left-2 -scale-x-100 fill-white")}
+      aria-hidden
+    >
+      <path d="M0 0h8L1.5 9.5C1 10.3 0 10 0 9V0z" />
+    </svg>
   );
 }
 

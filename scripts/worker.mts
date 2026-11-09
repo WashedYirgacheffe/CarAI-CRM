@@ -5,7 +5,7 @@ import { prisma } from "@/server/db";
 import { syncMailAccount } from "@/server/mail/sync";
 import { aiConfigured, analyzeMail } from "@/server/ai";
 import { recyclePool } from "@/server/pool";
-import { reconcileWhatsapp, shutdownWhatsapp } from "@/server/whatsapp/runtime.mjs";
+import { reconcileWhatsapp, refreshWaAvatars, shutdownWhatsapp } from "@/server/whatsapp/runtime.mjs";
 
 const MAIL_EVERY = Number(process.env.MAIL_SYNC_MINUTES || 3) * 60_000;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
@@ -80,6 +80,7 @@ const timers = [
   every(30_000, "mail", syncMail),
   every(60_000, "ai", analyzeNewMail),
   every(3_000, "wa", reconcileWhatsapp),
+  every(20_000, "wa-avatar", refreshWaAvatars),
   every(60 * 60_000, "pool", recycle),
 ];
 

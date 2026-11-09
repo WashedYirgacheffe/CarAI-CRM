@@ -73,7 +73,7 @@ export async function sendWaMessageAction(chatId: string, body: string): Promise
     prisma.waMessage.create({
       data: { tenantId: user.tenantId, accountId: chat.accountId, chatId, fromMe: true, body: text, status: "QUEUED", sentById: user.id, timestamp: now },
     }),
-    prisma.waChat.update({ where: { id: chatId }, data: { lastMessageAt: now, lastText: text.slice(0, 200), unread: 0 } }),
+    prisma.waChat.update({ where: { id: chatId }, data: { lastMessageAt: now, lastText: text.slice(0, 200), lastFromMe: true, unread: 0 } }),
   ]);
   revalidatePath("/whatsapp", "layout");
   return { ok: true };
