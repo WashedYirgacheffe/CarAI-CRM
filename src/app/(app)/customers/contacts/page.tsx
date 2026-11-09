@@ -7,6 +7,7 @@ import { Pager } from "@/components/crm/customer-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DesktopOnly, MobileCard, MobileList } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/server/auth";
 import { tenantDb } from "@/server/db";
@@ -44,7 +45,7 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
     <>
       <PageHeader title="联系人" description="你数据范围内私海客户的全部联系人" />
       <div className="overflow-hidden surface">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-5">
           <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
             {q ? "搜索结果" : "全部联系人"}
             <span className="text-[13px] font-normal text-muted-foreground">
@@ -69,6 +70,33 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
             )}
           </Form>
         </div>
+        <MobileList empty="没有联系人">
+          {rows.map((r) => (
+            <MobileCard
+              key={r.id}
+              href={`/customers/${r.customer.id}`}
+              title={
+                <>
+                  {r.name}
+                  {r.isPrimary && (
+                    <Badge variant="secondary" className="ml-2 align-middle">
+                      主
+                    </Badge>
+                  )}
+                </>
+              }
+              sub={[r.title, r.customer.name, r.customer.country && countryName(r.customer.country)].filter(Boolean).join(" · ")}
+            >
+              <div className="space-y-0.5 text-[13px] break-all">
+                {r.email && <p>{r.email}</p>}
+                {r.phone && <p className="tabular-nums">{r.phone}</p>}
+                {r.whatsapp && <p className="text-muted-foreground tabular-nums">WA {r.whatsapp}</p>}
+                {r.customer.owner?.name && <p className="text-xs text-muted-foreground">负责人：{r.customer.owner.name}</p>}
+              </div>
+            </MobileCard>
+          ))}
+        </MobileList>
+        <DesktopOnly>
         <Table>
           <TableHeader>
             <TableRow>
@@ -115,13 +143,14 @@ export default async function ContactsPage({ searchParams }: PageProps<"/custome
             ))}
           </TableBody>
         </Table>
+        </DesktopOnly>
         <Pager
           path="/customers/contacts"
           filters={{ q }}
           page={page}
           pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
           total={total}
-          className="mt-0 border-t border-border/70 px-5 py-3"
+          className="mt-0 border-t border-border/70 px-3 py-3 md:px-5"
         />
       </div>
     </>

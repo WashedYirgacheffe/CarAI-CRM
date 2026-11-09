@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/crm/bits";
 import { Pager } from "@/components/crm/customer-filters";
@@ -72,9 +73,39 @@ export default async function QuotationsPage({ searchParams }: PageProps<"/quota
         }
       />
       <div className="surface">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-4">
           <DocFilters action="/quotations" filters={filters} statuses={QUOTATION_STATUSES} members={members} />
         </div>
+        <MobileList empty={filters.q || filters.status || filters.owner ? "没有符合条件的报价单" : "还没有报价单，可以在客户详情页或右上角新建"}>
+          {rows.map((q) => {
+            const st = quotationStatus(q.status);
+            const expired = (q.status === "DRAFT" || q.status === "SENT") && isPast(q.validUntil);
+            return (
+              <MobileCard
+                key={q.id}
+                href={`/quotations/${q.id}`}
+                title={q.buyerName}
+                sub={
+                  <>
+                    <span className="tabular-nums">{q.no}</span>
+                    {q.title && ` · ${q.title}`}
+                  </>
+                }
+                aside={<StatusBadge name={st.label} color={st.color} />}
+              >
+                <MobileMeta
+                  items={[
+                    ["金额", formatAmount(q.total.toString(), q.currency), "font-semibold"],
+                    ["产品", `${q._count.items} 项`],
+                    ["报价日期", formatDate(q.quoteDate, tz)],
+                    ["有效期至", q.validUntil ? formatDate(q.validUntil, tz) : "—", expired ? "text-destructive" : undefined],
+                  ]}
+                />
+              </MobileCard>
+            );
+          })}
+        </MobileList>
+        <DesktopOnly>
         <Table>
           <TableHeader>
             <TableRow>
@@ -126,7 +157,8 @@ export default async function QuotationsPage({ searchParams }: PageProps<"/quota
             })}
           </TableBody>
         </Table>
-        <div className="border-t border-border/70 px-4 py-3 [&>div]:mt-0">
+        </DesktopOnly>
+        <div className="border-t border-border/70 px-3 py-3 md:px-4 [&>div]:mt-0">
           <Pager path="/quotations" filters={filters} page={filters.page} pages={Math.max(1, Math.ceil(total / PAGE_SIZE))} total={total} />
         </div>
       </div>

@@ -22,6 +22,7 @@ import {
   transferCustomersAction,
 } from "@/app/(app)/customers/actions";
 import type { CustomerRow } from "@/server/customer-list";
+import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 
 type Member = { id: string; name: string };
 
@@ -133,7 +134,7 @@ export function CustomerTable({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-5">
         <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
           {title}
           <span className="text-[13px] font-normal text-muted-foreground">
@@ -154,7 +155,60 @@ export function CustomerTable({
         {toolbar}
       </div>
 
-      <div>
+      <MobileList empty={mode === "mine" ? "没有符合条件的客户" : "公海里暂时没有客户"}>
+        {rows.map((r) => {
+          const overdue = r.nextFollowAt && new Date(r.nextFollowAt) < now;
+          const poolDays = r.poolDueAt ? Math.ceil((new Date(r.poolDueAt).getTime() - now.getTime()) / 86_400_000) : null;
+          return (
+            <MobileCard
+              key={r.id}
+              href={`/customers/${r.id}`}
+              title={r.name}
+              aside={<StatusBadge name={r.statusName} color={r.statusColor} />}
+              sub={
+                <span className="flex items-center gap-2">
+                  <CountryLabel code={r.country} />
+                  {r.contactName && (
+                    <span className="truncate">
+                      · {r.contactName}
+                      {r.contactCount > 1 && ` 等 ${r.contactCount} 人`}
+                    </span>
+                  )}
+                </span>
+              }
+              select={{ checked: selected.has(r.id), onChange: (v) => toggle(r.id, v), label: `选择 ${r.name}` }}
+              footer={
+                (r.star > 0 || r.groupName || r.tags.length > 0) && (
+                  <>
+                    {r.star > 0 && <StarRating value={r.star} />}
+                    {r.groupName && <span className="text-xs text-muted-foreground">{r.groupName}</span>}
+                    <Tags tags={r.tags} max={2} />
+                  </>
+                )
+              }
+            >
+              <MobileMeta
+                items={
+                  mode === "mine"
+                    ? [
+                        ["最近联系", relativeDays(r.lastContactAt, now)],
+                        ["下次跟进", r.nextFollowAt ? formatDate(r.nextFollowAt, tz) : "—", overdue ? "font-medium text-destructive" : undefined],
+                        ["负责人", r.ownerName],
+                        poolDays !== null && ["进公海", poolDays <= 0 ? "即将回收" : `${poolDays} 天后`, poolDays <= 7 ? "font-medium text-amber-600" : undefined],
+                      ]
+                    : [
+                        ["进入公海", formatDate(r.poolEnteredAt, tz) || "—"],
+                        ["原负责人", r.prevOwnerName ?? "—"],
+                        r.poolReason && ["原因", r.poolReason],
+                      ]
+                }
+              />
+            </MobileCard>
+          );
+        })}
+      </MobileList>
+
+      <DesktopOnly>
         <Table>
           <TableHeader>
             <TableRow>
@@ -263,7 +317,7 @@ export function CustomerTable({
             })}
           </TableBody>
         </Table>
-      </div>
+      </DesktopOnly>
       {footer}
 
       <Dialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)}>
