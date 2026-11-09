@@ -87,7 +87,7 @@ export function MailReader({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-1 border-b px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1 border-b px-2 py-2 md:px-3">
         <Button asChild variant="ghost" size="icon-sm" className="lg:hidden" aria-label="返回列表">
           <Link href={backHref}>
             <ChevronLeft />
@@ -100,12 +100,12 @@ export function MailReader({
         </Button>
         <Button asChild size="sm" variant="ghost">
           <Link href={`/mail/compose?reply=${m.id}&all=1`}>
-            <ReplyAll /> 回复全部
+            <ReplyAll /> <span className="max-sm:sr-only">回复全部</span>
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">
           <Link href={`/mail/compose?forward=${m.id}`}>
-            <Forward /> 转发
+            <Forward /> <span className="max-sm:sr-only">转发</span>
           </Link>
         </Button>
         <span className="ml-auto flex items-center gap-1">
@@ -127,9 +127,9 @@ export function MailReader({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-3 border-b px-5 py-4">
+        <div className="space-y-3 border-b px-4 py-4 md:px-5">
           <h2 className="text-lg font-semibold">{m.subject || "(无主题)"}</h2>
-          <div className="space-y-0.5 text-sm">
+          <div className="space-y-0.5 text-sm break-words">
             <p>
               <span className="font-medium">{m.fromName || m.fromAddr}</span>{" "}
               <span className="text-muted-foreground">&lt;{m.fromAddr}&gt;</span>
@@ -212,7 +212,7 @@ export function MailReader({
           )}
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-4 py-4 md:px-5">
           {srcDoc ? (
             <iframe
               title="邮件正文"
@@ -226,7 +226,7 @@ export function MailReader({
         </div>
 
         {m.attachments.length > 0 && (
-          <div className="border-t px-5 py-3">
+          <div className="border-t px-4 py-3 md:px-5">
             <p className="mb-2 text-xs text-muted-foreground">附件（{m.attachments.length}）</p>
             <div className="flex flex-wrap gap-2">
               {m.attachments.map((a) => (

@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { DesktopOnly, MobileCard, MobileList } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
@@ -117,10 +118,68 @@ export function LeadTable({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const ids = [...selected].filter((id) => rows.some((r) => r.id === id));
   const close = () => setModal(null);
+  const toggle = (id: string, v: boolean) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (v) n.add(id);
+      else n.delete(id);
+      return n;
+    });
+  const actions = (l: LeadRow, open: boolean) => (
+    <div className="flex items-center gap-1">
+      {!l.ownerId && open && perms.edit && (
+        <Button size="sm" variant="outline" onClick={() => runAction(claimLeadAction(l.id))}>
+          领取
+        </Button>
+      )}
+      {l.ownerId && open && perms.edit && (
+        <Button size="sm" variant="outline" onClick={() => setModal({ kind: "convert", lead: l })}>
+          转客户
+        </Button>
+      )}
+      {(perms.edit || perms.delete) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40">
+            {perms.edit && <DropdownMenuItem onSelect={() => setModal({ kind: "edit", lead: l })}>编辑</DropdownMenuItem>}
+            {perms.edit &&
+              open &&
+              PROGRESS.filter((p) => p.value !== l.status).map((p) => (
+                <DropdownMenuItem key={p.value} onSelect={() => runAction(setLeadStatusAction(l.id, p.value))}>
+                  改为「{p.label}」
+                </DropdownMenuItem>
+              ))}
+            {perms.edit && open && (
+              <DropdownMenuItem onSelect={() => setModal({ kind: "invalid", lead: l })}>标记为无效</DropdownMenuItem>
+            )}
+            {perms.edit && l.status === "INVALID" && (
+              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "NEW"))}>恢复为新线索</DropdownMenuItem>
+            )}
+            {perms.assign && open && (
+              <DropdownMenuItem onSelect={() => setModal({ kind: "assign", ids: [l.id] })}>分配给…</DropdownMenuItem>
+            )}
+            {perms.delete && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => runAction(deleteLeadAction(l.id))}>
+                  删除
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  );
+
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-5">
         <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
           {title}
           <span className="text-[13px] font-normal text-muted-foreground">
@@ -155,7 +214,48 @@ export function LeadTable({
         </Form>
       </div>
 
-      <div>
+      <MobileList empty="没有线索">
+        {rows.map((l) => {
+          const open = l.status === "NEW" || l.status === "QUALIFYING" || l.status === "CONTACTED";
+          return (
+            <MobileCard
+              key={l.id}
+              title={l.companyName ?? l.contactName ?? l.email}
+              sub={[l.companyName && l.contactName, l.email, l.country && countryName(l.country)].filter(Boolean).join(" · ")}
+              aside={
+                <span className={cn("inline-flex rounded-md border px-1.5 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
+                  {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
+                </span>
+              }
+              select={perms.assign ? { checked: selected.has(l.id), onChange: (v) => toggle(l.id, v), label: "选择" } : undefined}
+              footer={
+                <>
+                  <span className="mr-auto text-xs text-muted-foreground">
+                    {[l.source, l.ownerName ?? "待分配", formatDate(l.createdAt, tz)].filter(Boolean).join(" · ")}
+                  </span>
+                  {actions(l, open)}
+                </>
+              }
+            >
+              {l.products && <p className="truncate text-[13px] font-medium">{l.products}</p>}
+              {l.inquiry && <p className="line-clamp-2 text-[13px] text-muted-foreground">{l.inquiry}</p>}
+              {l.status === "CONVERTED" && l.customerId && (
+                <Link href={`/customers/${l.customerId}`} className="relative z-10 mt-1 inline-block text-xs text-primary">
+                  已转客户：{l.customerName}
+                </Link>
+              )}
+              {l.status === "INVALID" && l.invalidReason && (
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  无效：{l.invalidReason}
+                  {l.invalidNote && `：${l.invalidNote}`}
+                </p>
+              )}
+            </MobileCard>
+          );
+        })}
+      </MobileList>
+
+      <DesktopOnly>
         <Table>
           <TableHeader>
             <TableRow>
@@ -234,62 +334,14 @@ export function LeadTable({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{l.ownerName ?? <span className="text-muted-foreground">待分配</span>}</TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">{formatDate(l.createdAt, tz)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      {!l.ownerId && open && perms.edit && (
-                        <Button size="sm" variant="outline" onClick={() => runAction(claimLeadAction(l.id))}>
-                          领取
-                        </Button>
-                      )}
-                      {l.ownerId && open && perms.edit && (
-                        <Button size="sm" variant="outline" onClick={() => setModal({ kind: "convert", lead: l })}>
-                          转客户
-                        </Button>
-                      )}
-                      {(perms.edit || perms.delete) && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" aria-label="更多操作">
-                              <MoreHorizontal />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="min-w-40">
-                            {perms.edit && <DropdownMenuItem onSelect={() => setModal({ kind: "edit", lead: l })}>编辑</DropdownMenuItem>}
-                            {perms.edit &&
-                              open &&
-                              PROGRESS.filter((p) => p.value !== l.status).map((p) => (
-                                <DropdownMenuItem key={p.value} onSelect={() => runAction(setLeadStatusAction(l.id, p.value))}>
-                                  改为「{p.label}」
-                                </DropdownMenuItem>
-                              ))}
-                            {perms.edit && open && (
-                              <DropdownMenuItem onSelect={() => setModal({ kind: "invalid", lead: l })}>标记为无效</DropdownMenuItem>
-                            )}
-                            {perms.edit && l.status === "INVALID" && (
-                              <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "NEW"))}>恢复为新线索</DropdownMenuItem>
-                            )}
-                            {perms.assign && open && (
-                              <DropdownMenuItem onSelect={() => setModal({ kind: "assign", ids: [l.id] })}>分配给…</DropdownMenuItem>
-                            )}
-                            {perms.delete && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onSelect={() => runAction(deleteLeadAction(l.id))}>
-                                  删除
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
+                  <TableCell>{actions(l, open)}
                   </TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
-      </div>
+      </DesktopOnly>
       {footer}
 
       <Dialog open={!!modal} onOpenChange={(o) => !o && close()}>

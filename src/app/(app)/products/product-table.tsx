@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel, FieldDescription } from "@/components/ui/field";
+import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NativeSelect } from "@/components/native-select";
 import { PageHeader } from "@/components/page-header";
@@ -123,6 +124,29 @@ export function ProductTable({
   const [editing, setEditing] = useState<Partial<ProductRow> | null>(null);
   const [deleting, setDeleting] = useState<ProductRow | null>(null);
   const [managingCats, setManagingCats] = useState(false);
+  const menu = (p: ProductRow) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-8" aria-label="更多操作">
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => setEditing(p)}>
+          <Pencil /> 编辑
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => runAction(setProductStatusAction(p.id, p.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"))}
+        >
+          {p.status === "ACTIVE" ? "停售" : "恢复在售"}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(p)}>
+          <Trash2 /> 删除
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <>
@@ -139,7 +163,7 @@ export function ProductTable({
       />
       <div className="surface">
         {(toolbar || manage) && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-4">
             {toolbar}
             {manage && (
               <Button size="sm" variant="outline" className="ml-auto" onClick={() => setManagingCats(true)}>
@@ -148,6 +172,51 @@ export function ProductTable({
             )}
           </div>
         )}
+        <MobileList empty={manage ? "还没有产品，点右上角「添加产品」建立产品库" : "还没有产品"}>
+          {rows.map((p) => (
+            <MobileCard
+              key={p.id}
+              leading={<Thumb src={p.imageUrl} alt={p.name} />}
+              title={
+                manage ? (
+                  <button type="button" className="text-left" onClick={() => setEditing(p)}>
+                    {p.name}
+                  </button>
+                ) : (
+                  p.name
+                )
+              }
+              sub={
+                <>
+                  <span className="tabular-nums">{p.sku}</span>
+                  {p.nameEn && ` · ${p.nameEn}`}
+                </>
+              }
+              aside={
+                <span className="text-sm font-semibold whitespace-nowrap tabular-nums">
+                  {p.currency} {formatPrice(p.price)}
+                  <span className="block text-xs font-normal text-muted-foreground">/ {p.unit}</span>
+                </span>
+              }
+              footer={
+                <>
+                  {p.status === "ACTIVE" ? <StatusBadge name="在售" color="emerald" /> : <StatusBadge name="停售" color="slate" />}
+                  {p.categoryName && <span className="text-xs text-muted-foreground">{p.categoryName}</span>}
+                  {manage && <span className="ml-auto">{menu(p)}</span>}
+                </>
+              }
+            >
+              <MobileMeta
+                items={[
+                  (p.model || p.spec) && ["规格", [p.model, p.spec].filter(Boolean).join(" · ")],
+                  p.moq != null && ["MOQ", p.moq],
+                  p.cartonQty && ["包装", `${p.cartonQty} ${p.unit}/箱${p.cartonSize ? ` · ${p.cartonSize}` : ""}`],
+                ]}
+              />
+            </MobileCard>
+          ))}
+        </MobileList>
+        <DesktopOnly>
         <Table>
           <TableHeader>
             <TableRow>
@@ -208,34 +277,15 @@ export function ProductTable({
                 </TableCell>
                 {manage && (
                   <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8" aria-label="更多操作">
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => setEditing(p)}>
-                          <Pencil /> 编辑
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => runAction(setProductStatusAction(p.id, p.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"))}
-                        >
-                          {p.status === "ACTIVE" ? "停售" : "恢复在售"}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(p)}>
-                          <Trash2 /> 删除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {menu(p)}
                   </TableCell>
                 )}
               </TableRow>
             ))}
           </TableBody>
         </Table>
-        {footer && <div className="border-t border-border/70 px-4 py-3 [&>div]:mt-0">{footer}</div>}
+        </DesktopOnly>
+        {footer && <div className="border-t border-border/70 px-3 py-3 md:px-4 [&>div]:mt-0">{footer}</div>}
       </div>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>

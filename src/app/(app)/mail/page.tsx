@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Inbox, Mail, Paperclip, PenSquare, Send, Star, UserRound, Sparkles } from "lucide-react";
+import { Inbox, Mail, Paperclip, PenSquare, Search, Send, Star, UserRound, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { WaAvatar } from "@/components/crm/wa-avatar";
+import { waListTime } from "@/lib/wa-time";
 import { can, requirePermission } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { aiConfigured } from "@/server/ai";
@@ -176,31 +177,37 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
       {/* 列表 */}
       <section className={cn("flex w-full min-w-0 flex-col border-r lg:w-[24rem] lg:shrink-0", selected && "hidden lg:flex")}>
         <div className="space-y-2 border-b p-3">
-          <div className="flex gap-2 xl:hidden">
-            <Button asChild size="sm">
+          <div className="-mx-3 flex gap-2 overflow-x-auto px-3 [scrollbar-width:none] xl:hidden">
+            <Button asChild size="sm" className="shrink-0">
               <Link href="/mail/compose">
                 <PenSquare /> 写邮件
               </Link>
             </Button>
             {BOXES.map((b) => (
-              <Button key={b.key} asChild size="sm" variant={box === b.key ? "secondary" : "ghost"}>
+              <Button key={b.key} asChild size="sm" variant={box === b.key ? "secondary" : "ghost"} className="shrink-0">
                 <Link href={href({ box: b.key, page: 1, id: null })}>{b.label}</Link>
               </Button>
             ))}
           </div>
-          <form action="/mail" className="flex gap-2">
+          <form action="/mail" className="relative flex gap-2">
             {box !== "inbox" && <input type="hidden" name="box" value={box} />}
             {acc && <input type="hidden" name="acc" value={acc} />}
             {tag && <input type="hidden" name="tag" value={tag} />}
-            <Input name="q" defaultValue={q} placeholder="搜索主题、发件人、内容" className="h-8" />
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="搜索主题、发件人、内容"
+              className="h-9 w-full rounded-full bg-muted/70 pr-3 pl-9 text-sm outline-none ring-1 ring-transparent transition placeholder:text-muted-foreground focus:bg-card focus:ring-primary/40"
+            />
           </form>
-          <div className="flex flex-wrap gap-1">
+          <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 [scrollbar-width:none] lg:flex-wrap">
             {TAGS.map((t) => (
               <Link
                 key={t.key}
                 href={href({ tag: t.key || null, page: 1, id: null })}
                 className={cn(
-                  "rounded-full border px-2 py-0.5 text-xs",
+                  "shrink-0 rounded-full border px-2.5 py-1 text-xs lg:px-2 lg:py-0.5",
                   tag === t.key ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
                 )}
               >
@@ -218,8 +225,10 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               <li key={m.id}>
                 <Link
                   href={href({ id: m.id })}
-                  className={cn("block px-3 py-2.5 hover:bg-muted/60", selectedId === m.id && "bg-sidebar-accent")}
+                  className={cn("flex gap-3 px-4 py-3 hover:bg-muted/60 lg:block lg:px-3 lg:py-2.5", selectedId === m.id && "bg-sidebar-accent")}
                 >
+                  <WaAvatar src={null} name={peer || null} phone={null} className="size-10 text-sm lg:hidden" />
+                  <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     {!m.seen && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
                     {m.aiPriority && (
@@ -228,13 +237,15 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                         title={`AI 判断：${MAIL_PRIORITY_LABELS[m.aiPriority]?.label}`}
                       />
                     )}
-                    <span className={cn("min-w-0 flex-1 truncate text-sm", !m.seen && "font-semibold")}>
+                    <span className={cn("min-w-0 flex-1 truncate text-[15px] lg:text-sm", !m.seen && "font-semibold")}>
                       {m.folder === "SENT" && <span className="text-muted-foreground">发给 </span>}
                       {peer || "—"}
                     </span>
                     {m.starred && <Star className="size-3 fill-amber-400 text-amber-400" />}
                     {asAttachments(m.attachments).length > 0 && <Paperclip className="size-3 text-muted-foreground" />}
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatDateTime(m.date, user.timezone)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums"><span className="lg:hidden">{waListTime(m.date, user.timezone)}</span>
+                      <span className="hidden lg:inline">{formatDateTime(m.date, user.timezone)}</span>
+                    </span>
                   </div>
                   <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
                   <p className="truncate text-xs text-muted-foreground">{m.snippet}</p>
@@ -255,6 +266,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                       )}
                     </div>
                   )}
+                  </div>
                 </Link>
               </li>
             );
@@ -267,12 +279,12 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
             </span>
             <span className="flex gap-1">
               {page > 1 && (
-                <Button asChild size="xs" variant="outline">
+                <Button asChild size="sm" variant="outline" className="lg:h-6 lg:px-2 lg:text-xs">
                   <Link href={href({ page: page - 1, id: null })}>上一页</Link>
                 </Button>
               )}
               {page < pages && (
-                <Button asChild size="xs" variant="outline">
+                <Button asChild size="sm" variant="outline" className="lg:h-6 lg:px-2 lg:text-xs">
                   <Link href={href({ page: page + 1, id: null })}>下一页</Link>
                 </Button>
               )}

@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/crm/bits";
 import { Pager } from "@/components/crm/customer-filters";
@@ -114,22 +115,22 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
   return (
     <>
       <PageHeader title="回款" description="所有订单的收款记录汇总。登记收款请到订单详情页。" />
-      <section className="mb-4 grid gap-3 sm:grid-cols-3">
+      <section className="mb-3 grid grid-cols-2 gap-3 md:mb-4 sm:grid-cols-3">
         {[
           ["本月回款", formatAmount(monthIn, "CNY"), "按收款日期，按开单汇率折算"],
           ["今年回款", formatAmount(yearIn, "CNY"), `${today.slice(0, 4)} 年至今`],
           ["待收款", formatAmount(dueCny, "CNY"), `${dueOrders.length} 个订单未收齐`],
-        ].map(([label, value, hint]) => (
-          <div key={label} className="surface p-4">
-            <p className="text-sm text-muted-foreground">{label}</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+        ].map(([label, value, hint], i) => (
+          <div key={label} className={cn("surface p-3.5 md:p-4", i === 2 && "col-span-2 sm:col-span-1")}>
+            <p className="text-[13px] text-muted-foreground md:text-sm">{label}</p>
+            <p className="mt-1 truncate text-lg font-bold tabular-nums sm:text-xl md:text-2xl">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
           </div>
         ))}
       </section>
 
       <div className="surface">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/70 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/70 px-3 py-3 md:px-4">
           <nav aria-label="回款视图" className="inline-flex shrink-0 items-center rounded-full bg-muted p-0.5 ring-1 ring-border/60">
             {TABS.map((t) => (
               <Link
@@ -146,7 +147,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
             ))}
           </nav>
 
-          <Form action="/payments" className="flex flex-1 flex-wrap items-center gap-2">
+          <Form action="/payments" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
             {tab === "due" && <input type="hidden" name="tab" value="due" />}
             <div className="relative w-full sm:w-56">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -170,6 +171,51 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
           </Form>
         </div>
 
+        <MobileList empty={tab === "records" ? (q || from || to ? "没有符合条件的收款记录" : "还没有收款记录，在订单详情页登记收款后会出现在这里") : "没有待收款的订单"}>
+          {tab === "records"
+            ? payRows.map((p) => (
+                <MobileCard
+                  key={p.id}
+                  href={`/orders/${p.order.id}`}
+                  title={p.order.customer.name}
+                  sub={
+                    <>
+                      <span className="tabular-nums">{p.order.no}</span>
+                      {p.method && ` · ${p.method}`}
+                      {p.remark && ` · ${p.remark}`}
+                    </>
+                  }
+                  aside={
+                    <span className="text-sm font-semibold whitespace-nowrap text-emerald-700 tabular-nums">
+                      +{formatAmount(p.amount.toString(), p.order.currency)}
+                      <span className="block text-xs font-normal text-muted-foreground">{formatDate(p.receivedAt, tz)}</span>
+                    </span>
+                  }
+                />
+              ))
+            : dueSlice.map((o) => {
+                const st = orderStatus(o.status);
+                return (
+                  <MobileCard
+                    key={o.id}
+                    href={`/orders/${o.id}`}
+                    title={o.customer.name}
+                    sub={<span className="tabular-nums">{o.no}</span>}
+                    aside={<StatusBadge name={st.label} color={st.color} />}
+                  >
+                    <MobileMeta
+                      items={[
+                        ["待收", formatAmount(o.due), "font-semibold text-amber-700"],
+                        ["订单金额", formatAmount(o.total.toString(), o.currency)],
+                        ["已收", formatAmount(o.paidAmount.toString())],
+                        ["交货", o.deliveryDate ? formatDate(o.deliveryDate, tz) : "未定"],
+                      ]}
+                    />
+                  </MobileCard>
+                );
+              })}
+        </MobileList>
+        <DesktopOnly>
         {tab === "records" ? (
           <Table>
             <TableHeader>
@@ -265,7 +311,8 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
             </TableBody>
           </Table>
         )}
-        <div className="border-t border-border/70 px-4 py-3 [&>div]:mt-0">
+        </DesktopOnly>
+        <div className="border-t border-border/70 px-3 py-3 md:px-4 [&>div]:mt-0">
           <Pager
             path="/payments"
             filters={{ tab: tab === "records" ? "" : tab, q, from, to }}
