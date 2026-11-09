@@ -121,7 +121,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
   const errored = accounts.filter((a) => a.status === "ERROR");
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[32rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)]">
+    <div className="flex h-[calc(100svh-8.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)] md:min-h-[32rem]">
       {/* 文件夹 */}
       <aside className="hidden w-52 shrink-0 flex-col gap-4 border-r p-3 xl:flex">
         <Button asChild>

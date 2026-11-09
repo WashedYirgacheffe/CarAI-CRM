@@ -15,7 +15,7 @@ import {
   KanbanSquare,
   LayoutDashboard,
   Mail,
-  Menu,
+  LayoutGrid,
   MessageCircle,
   Package,
   Settings,
@@ -24,7 +24,7 @@ import {
 import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +53,9 @@ type Badges = Partial<Record<BadgeKey, number>>;
 type UserInfo = { name: string; email: string; roleName: string; isOwner: boolean };
 
 const MENU_COOKIE = "navmenu";
+
+/** 手机底部标签栏固定的 4 个模块（按顺序，没权限的跳过），第 5 个是「更多」 */
+const TAB_KEYS = ["dashboard", "customers", "whatsapp", "schedule"] as const;
 
 /** 后台外壳：顶栏（品牌 + 搜索 + 提醒 + 账号）、左侧 72px 模块图标栏、模块二级菜单 */
 export function AppShell({
@@ -84,29 +87,20 @@ export function AppShell({
 
   return (
     <div className="min-h-svh">
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-sidebar-border bg-card/95 pr-4 pl-3 backdrop-blur md:pl-0">
-        <button
-          type="button"
-          onClick={() => setMobileOpen(true)}
-          className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted md:hidden"
-          aria-label="打开菜单"
-        >
-          <Menu className="size-5" />
-        </button>
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
         <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
           <span className="hidden w-[72px] shrink-0 justify-center md:flex">
             <BrandMark className="size-9" />
           </span>
-          <BrandMark className="size-8 md:hidden" />
           <span className="grid min-w-0 gap-1">
-            <Brand className="h-[18px]" />
+            <Brand className="h-5 md:h-[18px]" />
             <span className="hidden truncate text-xs leading-none text-muted-foreground sm:block">{tenantName}</span>
           </span>
         </Link>
-        <div className="flex flex-1 justify-center">
+        <div className="flex flex-1 justify-end md:justify-center">
           <GlobalSearch />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center md:gap-1">
           <Reminders modules={modules} badges={badges} />
           <UserMenu {...user} />
         </div>
@@ -158,49 +152,163 @@ export function AppShell({
           </aside>
         )}
 
-        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+        <main className="min-w-0 flex-1 px-3 pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6">
+          {menu && <SubTabs groups={menu} activeLeaf={active.leaf} />}
+          {children}
+        </main>
       </div>
+
+      <TabBar modules={modules} activeKey={active?.module.key} badges={badges} moreOpen={mobileOpen} onMore={() => setMobileOpen(true)} />
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
-          side="left"
-          className="w-72 gap-0 overflow-y-auto p-3"
-          // 点了任一链接就收起抽屉
+          side="bottom"
+          className="max-h-[85svh] gap-0 overflow-y-auto rounded-t-3xl px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+          // 点了任一链接就收起
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("a")) setMobileOpen(false);
           }}
         >
-          <SheetTitle className="px-2 py-2">
-            <Brand className="h-6" />
-          </SheetTitle>
-          {modules.map((m) => {
-            const Icon = ICONS[m.icon] ?? ChevronRight;
-            const isActive = active?.module.key === m.key;
-            const count = m.badge ? badges[m.badge] ?? 0 : 0;
-            return (
-              <div key={m.key} className="py-0.5">
-                <Link
-                  href={m.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium",
-                    isActive && !m.menu ? "bg-primary text-primary-foreground" : "hover:bg-muted",
-                  )}
-                >
-                  <Icon className="size-[18px]" />
-                  <span className="flex-1">{m.title}</span>
-                  {count > 0 && <CountPill count={count} />}
-                </Link>
-                {m.menu && isActive && (
-                  <div className="ml-7 py-1">
-                    <MenuGroups groups={m.menu} activeLeaf={active.leaf} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <span className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+          <SheetTitle className="px-1 text-base">全部功能</SheetTitle>
+          <SheetDescription className="sr-only">在这里进入所有模块</SheetDescription>
+          <ul className="mt-3 grid grid-cols-4 gap-y-4">
+            {modules.map((m) => {
+              const Icon = ICONS[m.icon] ?? ChevronRight;
+              const on = active?.module.key === m.key;
+              const count = m.badge ? badges[m.badge] ?? 0 : 0;
+              return (
+                <li key={m.key}>
+                  <Link href={m.href} className="flex flex-col items-center gap-1.5 text-xs font-medium">
+                    <span
+                      className={cn(
+                        "relative flex size-12 items-center justify-center rounded-2xl",
+                        on ? "bg-primary text-primary-foreground" : "bg-accent text-primary",
+                      )}
+                    >
+                      <Icon className="size-[22px]" />
+                      {count > 0 && (
+                        <span className="absolute -top-1 -right-1">
+                          <CountPill count={count} />
+                        </span>
+                      )}
+                    </span>
+                    {m.title}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          {modules
+            .filter((m) => m.menu?.length)
+            .map((m) => (
+              <section key={m.key} className="mt-5">
+                <h3 className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">{m.title}</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {m.menu!.flatMap((g) => g.items).map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex h-11 items-center rounded-xl px-3.5 text-sm",
+                        item.href === active?.leaf ? "bg-accent font-semibold text-primary" : "bg-muted/60",
+                      )}
+                    >
+                      {item.title}
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ))}
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+/** 手机底部标签栏：4 个常用模块 + 更多 */
+function TabBar({
+  modules,
+  activeKey,
+  badges,
+  moreOpen,
+  onMore,
+}: {
+  modules: NavModule[];
+  activeKey?: string;
+  badges: Badges;
+  moreOpen: boolean;
+  onMore: () => void;
+}) {
+  // 没有 WhatsApp 权限时，「沟通」位换成邮件
+  const tabs = TAB_KEYS.map((k) => modules.find((m) => m.key === k) ?? (k === "whatsapp" ? modules.find((m) => m.key === "mail") : undefined)).filter(
+    (m): m is NavModule => !!m,
+  );
+  const inTabs = tabs.some((t) => t.key === activeKey);
+  // 「更多」上的红点：不在标签栏里的模块的未读数
+  const moreCount = modules.filter((m) => m.badge && !tabs.includes(m)).reduce((n, m) => n + (badges[m.badge!] ?? 0), 0);
+  const item = "relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] leading-none font-medium transition-colors";
+  return (
+    <nav
+      aria-label="主导航"
+      className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(3.75rem+env(safe-area-inset-bottom))] border-t border-sidebar-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+    >
+      {tabs.map((m) => {
+        const Icon = ICONS[m.icon] ?? ChevronRight;
+        const on = !moreOpen && m.key === activeKey;
+        const count = m.badge ? badges[m.badge] ?? 0 : 0;
+        return (
+          <Link key={m.key} href={m.href} aria-current={on ? "page" : undefined} className={cn(item, on ? "text-primary" : "text-muted-foreground")}>
+            <span className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", on && "bg-accent")}>
+              <Icon className="size-[21px]" strokeWidth={on ? 2.2 : 1.8} />
+              {count > 0 && (
+                <span className="absolute -top-1 right-1">
+                  <CountPill count={count} />
+                </span>
+              )}
+            </span>
+            {m.title}
+          </Link>
+        );
+      })}
+      <button type="button" onClick={onMore} className={cn(item, moreOpen || !inTabs ? "text-primary" : "text-muted-foreground")}>
+        <span className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", (moreOpen || !inTabs) && "bg-accent")}>
+          <LayoutGrid className="size-[21px]" strokeWidth={moreOpen || !inTabs ? 2.2 : 1.8} />
+          {moreCount > 0 && (
+            <span className="absolute -top-1 right-1">
+              <CountPill count={moreCount} />
+            </span>
+          )}
+        </span>
+        更多
+      </button>
+    </nav>
+  );
+}
+
+/** 手机上模块的二级菜单：页面顶部一行可横滑的胶囊（客户列表 / 公海 / 联系人…） */
+function SubTabs({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]>; activeLeaf?: string }) {
+  const items = groups.flatMap((g) => g.items);
+  if (items.length < 2) return null;
+  return (
+    <nav aria-label="二级菜单" className="-mx-3 mb-3 flex gap-2 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] md:hidden">
+      {items.map((i) => {
+        const on = i.href === activeLeaf;
+        return (
+          <Link
+            key={i.href}
+            href={i.href}
+            aria-current={on ? "page" : undefined}
+            className={cn(
+              "flex h-8 shrink-0 items-center rounded-full px-3.5 text-[13px] font-medium whitespace-nowrap ring-1 transition-colors",
+              on ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-foreground/75 ring-border/70",
+            )}
+          >
+            {i.title}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }
 

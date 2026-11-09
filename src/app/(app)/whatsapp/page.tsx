@@ -98,7 +98,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
   const syncing = connected && account.syncStatus === "syncing";
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[34rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)]">
+    <div className="flex h-[calc(100svh-8.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)] md:min-h-[34rem]">
       {s("phone") && <StartFromParams phone={s("phone")} customerId={s("customerId") || undefined} />}
       {/* 会话页自己每 4 秒刷新；只看列表时，同步中刷得快一些 */}
       {!chat && <LiveRefresh ms={syncing ? 3000 : 10_000} />}
