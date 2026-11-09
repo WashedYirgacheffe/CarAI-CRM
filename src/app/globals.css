@@ -142,6 +142,13 @@
     font-variant-numeric: tabular-nums;
   }
 }
+/* 大白卡片容器：无边框，柔和阴影（与 Card 一致） */
+@utility surface {
+  background-color: var(--card);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--card-shadow);
+}
+
 /* 单据打印：A4，去掉浏览器默认页边距里的页眉页脚 */
 @media print {
   @page {

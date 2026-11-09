@@ -41,7 +41,7 @@ export function ComposeForm({ accounts, initial, canAi }: { accounts: { id: stri
 
   return (
     <form onSubmit={submit} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <div className="space-y-3 rounded-xl border bg-card p-4">
+      <div className="space-y-3 surface p-4">
         {initial.replyToId && <input type="hidden" name="replyToId" value={initial.replyToId} />}
         {initial.forwardId && <input type="hidden" name="forwardId" value={initial.forwardId} />}
         <FormMessage state={state} />

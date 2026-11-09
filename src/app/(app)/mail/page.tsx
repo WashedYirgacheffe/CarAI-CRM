@@ -57,7 +57,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
 
   if (!accounts.length) {
     return (
-      <div className="mx-auto max-w-md rounded-xl border bg-card p-10 text-center">
+      <div className="mx-auto max-w-md surface p-10 text-center">
         <Mail className="mx-auto mb-3 size-8 text-muted-foreground" />
         <p className="font-medium">还没有绑定邮箱</p>
         <p className="mt-1 text-sm text-muted-foreground">绑定工作邮箱后，就能在这里收发邮件，往来邮件自动归档到客户。</p>
@@ -121,7 +121,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
   const errored = accounts.filter((a) => a.status === "ERROR");
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[32rem] overflow-hidden rounded-xl border bg-card md:h-[calc(100svh-6.5rem)]">
+    <div className="flex h-[calc(100svh-5.5rem)] min-h-[32rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)]">
       {/* 文件夹 */}
       <aside className="hidden w-52 shrink-0 flex-col gap-4 border-r p-3 xl:flex">
         <Button asChild>

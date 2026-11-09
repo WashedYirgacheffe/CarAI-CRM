@@ -68,7 +68,7 @@ export default async function ComposePage({ searchParams }: PageProps<"/mail/com
         邮件
       </Link>
       {accounts.length === 0 ? (
-        <p className="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground">
+        <p className="surface p-10 text-center text-sm text-muted-foreground">
           请先到 <Link href="/settings/mailboxes" className="text-primary underline">邮箱绑定</Link> 绑定发件邮箱。
         </p>
       ) : (

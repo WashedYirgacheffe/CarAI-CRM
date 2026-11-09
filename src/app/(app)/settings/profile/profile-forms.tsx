@@ -11,7 +11,7 @@ import { changePasswordAction, updateProfileAction } from "../actions";
 export function ProfileForm({ name, phone }: { name: string; phone: string }) {
   const [state, action, pending] = useActionForm(updateProfileAction);
   return (
-    <form onSubmit={action} className="rounded-xl border bg-card p-6">
+    <form onSubmit={action} className="surface p-6">
       <h2 className="mb-4 font-medium">基本信息</h2>
       <FieldGroup>
         <FormMessage state={state} />
@@ -36,7 +36,7 @@ export function PasswordForm() {
   const ref = useRef<HTMLFormElement>(null);
   const [state, action, pending] = useActionForm(changePasswordAction, (form) => form.reset());
   return (
-    <form ref={ref} onSubmit={action} className="rounded-xl border bg-card p-6">
+    <form ref={ref} onSubmit={action} className="surface p-6">
       <h2 className="mb-4 font-medium">修改密码</h2>
       <FieldGroup>
         <FormMessage state={state} />

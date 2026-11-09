@@ -21,7 +21,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
 
   if (!account) {
     return (
-      <div className="mx-auto max-w-md rounded-xl border bg-card p-10 text-center">
+      <div className="mx-auto max-w-md surface p-10 text-center">
         <MessageCircle className="mx-auto mb-3 size-8 text-muted-foreground" />
         <p className="font-medium">还没有绑定 WhatsApp</p>
         <p className="mt-1 text-sm text-muted-foreground">用手机号配对码或扫码登录后，就能在这里和客户聊天。</p>
@@ -62,7 +62,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
   };
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[32rem] overflow-hidden rounded-xl border bg-card md:h-[calc(100svh-6.5rem)]">
+    <div className="flex h-[calc(100svh-5.5rem)] min-h-[32rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)]">
       {s("phone") && <StartFromParams phone={s("phone")} customerId={s("customerId") || undefined} />}
       <section className={cn("flex w-full min-w-0 flex-col border-r md:w-80 md:shrink-0", chat && "hidden md:flex")}>
         <div className="space-y-2 border-b p-3">

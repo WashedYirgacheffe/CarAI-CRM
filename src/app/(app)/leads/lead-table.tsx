@@ -116,7 +116,7 @@ export function LeadTable({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto surface">
         <Table>
           <TableHeader>
             <TableRow>

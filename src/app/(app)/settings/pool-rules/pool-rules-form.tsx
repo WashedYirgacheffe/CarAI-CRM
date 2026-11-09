@@ -17,7 +17,7 @@ export function PoolRulesForm({
 }) {
   const [state, submit, pending] = useActionForm(savePoolRulesAction);
   return (
-    <form onSubmit={submit} className="max-w-2xl rounded-xl border bg-card p-6">
+    <form onSubmit={submit} className="max-w-2xl surface p-6">
       <FieldGroup>
         <FormMessage state={state} />
         <Field>

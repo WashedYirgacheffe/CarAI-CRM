@@ -62,7 +62,7 @@ export function MemberTable({
           <Plus /> 添加成员
         </Button>
       </div>
-      <div className="rounded-xl border bg-card">
+      <div className="surface">
         <Table>
           <TableHeader>
             <TableRow>

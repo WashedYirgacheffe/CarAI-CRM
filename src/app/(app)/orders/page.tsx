@@ -89,7 +89,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
           ["本月订单额", formatAmount(monthTotal, "CNY"), "按开单汇率折算"],
           ["待收款", formatAmount(receivable, "CNY"), "已确认订单的未收金额"],
         ].map(([label, value, hint]) => (
-          <div key={label} className="rounded-xl border bg-card p-4">
+          <div key={label} className="surface p-4">
             <p className="text-sm text-muted-foreground">{label}</p>
             <p className="mt-1.5 text-2xl font-semibold tabular-nums">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
@@ -97,7 +97,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
         ))}
       </section>
       <DocFilters action="/orders" filters={filters} statuses={ORDER_STATUSES} members={members} />
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto surface">
         <Table>
           <TableHeader>
             <TableRow>

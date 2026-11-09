@@ -24,7 +24,7 @@ import { mergeCustomersAction } from "./actions";
 
 export function DuplicateList({ groups, tz, canMerge }: { groups: DuplicateGroup[]; tz: string; canMerge: boolean }) {
   if (!groups.length) {
-    return <p className="rounded-xl border bg-card py-16 text-center text-sm text-muted-foreground">没有发现疑似重复的客户</p>;
+    return <p className="surface py-16 text-center text-sm text-muted-foreground">没有发现疑似重复的客户</p>;
   }
   return (
     <div className="space-y-4">
@@ -72,7 +72,7 @@ function GroupCard({ group, tz, canMerge }: { group: DuplicateGroup; tz: string;
   };
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="surface">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
         <div className="flex flex-wrap gap-1.5">
           {group.reasons.map((r) => (

@@ -29,7 +29,7 @@ export function DepartmentTree({ nodes }: { nodes: DeptNode[] }) {
           <Plus /> 新建部门
         </Button>
       </div>
-      <ul className="divide-y rounded-xl border bg-card">
+      <ul className="divide-y surface">
         {nodes.map((d) => (
           <li key={d.id} className="group flex items-center gap-3 px-4 py-3">
             <span style={{ paddingLeft: d.depth * 20 }} className="flex items-center gap-2">

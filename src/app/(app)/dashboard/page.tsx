@@ -124,7 +124,7 @@ export default async function DashboardPage() {
     overview: (
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         {stats.map((s) => (
-          <Link key={s.label} href={s.href} className="rounded-xl border bg-card p-4 transition-colors hover:border-primary/40">
+          <Link key={s.label} href={s.href} className="surface p-4 transition-colors hover:border-primary/40">
             <p className="text-sm text-muted-foreground">{s.label}</p>
             <p className={cn("mt-1.5 text-2xl font-semibold tabular-nums", s.alert && "text-destructive")}>{s.value}</p>
             <p className="mt-1 truncate text-xs text-muted-foreground tabular-nums">{s.hint}</p>

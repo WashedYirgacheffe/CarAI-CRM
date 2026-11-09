@@ -72,7 +72,7 @@ export default async function QuotationsPage({ searchParams }: PageProps<"/quota
         }
       />
       <DocFilters action="/quotations" filters={filters} statuses={QUOTATION_STATUSES} members={members} />
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto surface">
         <Table>
           <TableHeader>
             <TableRow>
