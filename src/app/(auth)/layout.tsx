@@ -15,7 +15,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-[oklch(0.27_0.06_245)] p-10 text-white lg:flex">
-        <Brand className="[&>span:last-child]:text-white" />
+        <Brand onDark className="h-8" />
         <div className="max-w-md space-y-8">
           <p className="text-3xl leading-tight font-semibold">
             给中小外贸团队的
