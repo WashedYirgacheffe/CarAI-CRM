@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
@@ -54,6 +55,34 @@ export function MemberTable({
   currentUserId: string;
 }) {
   const [editing, setEditing] = useState<Partial<MemberRow> | null>(null);
+  const status = (m: MemberRow) =>
+    m.active ? (
+      <Badge variant="outline" className="border-emerald-600/30 text-emerald-700">
+        在用
+      </Badge>
+    ) : (
+      <Badge variant="outline">已停用</Badge>
+    );
+  const menu = (m: MemberRow) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={`操作 ${m.name}`}>
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => setEditing(m)}>编辑</DropdownMenuItem>
+        {!m.isOwner && m.id !== currentUserId && (
+          <DropdownMenuItem
+            variant={m.active ? "destructive" : "default"}
+            onSelect={() => runAction(setMemberStatusAction(m.id, !m.active))}
+          >
+            {m.active ? "停用账号" : "启用账号"}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <>
@@ -63,6 +92,35 @@ export function MemberTable({
         </Button>
       </div>
       <div className="surface">
+        <MobileList empty="还没有成员">
+          {members.map((m) => (
+            <MobileCard
+              key={m.id}
+              className={m.active ? undefined : "opacity-60"}
+              title={
+                <>
+                  {m.name}
+                  {m.isOwner && (
+                    <Badge variant="secondary" className="ml-2 align-middle">
+                      主账号
+                    </Badge>
+                  )}
+                </>
+              }
+              sub={m.email}
+              aside={<span className="flex items-center gap-1">{status(m)}{menu(m)}</span>}
+            >
+              <MobileMeta
+                items={[
+                  ["部门", m.departmentName ?? "—"],
+                  ["角色", m.roleName],
+                  ["最近登录", m.lastLoginAt ? fmt.format(new Date(m.lastLoginAt)) : "从未登录"],
+                ]}
+              />
+            </MobileCard>
+          ))}
+        </MobileList>
+        <DesktopOnly>
         <Table>
           <TableHeader>
             <TableRow>
@@ -100,29 +158,13 @@ export function MemberTable({
                 </TableCell>
                 <TableCell className="tabular-nums">{m.lastLoginAt ? fmt.format(new Date(m.lastLoginAt)) : "从未登录"}</TableCell>
                 <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-sm" aria-label={`操作 ${m.name}`}>
-                        <MoreHorizontal />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => setEditing(m)}>编辑</DropdownMenuItem>
-                      {!m.isOwner && m.id !== currentUserId && (
-                        <DropdownMenuItem
-                          variant={m.active ? "destructive" : "default"}
-                          onSelect={() => runAction(setMemberStatusAction(m.id, !m.active))}
-                        >
-                          {m.active ? "停用账号" : "启用账号"}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {menu(m)}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+        </DesktopOnly>
       </div>
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
