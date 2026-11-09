@@ -29,7 +29,8 @@ export function useActionForm<S extends ActionState = ActionState>(
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
-    const fd = new FormData(form);
+    // 带上点击的提交按钮（name/value），用于「存为草稿」这类多按钮表单
+    const fd = new FormData(form, (e.nativeEvent as SubmitEvent).submitter);
     startTransition(() => dispatch({ fd, form }));
   };
 

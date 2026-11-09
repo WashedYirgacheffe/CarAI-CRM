@@ -7,7 +7,7 @@ import { can, requireUser, type CurrentUser } from "@/server/auth";
 import { allMembers, inScope } from "@/server/scope";
 import { findDuplicates, getCustomerForUser } from "@/server/customers";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
-import { CURRENCIES, extractDomain, normalizeCompanyName } from "@/lib/crm";
+import { CURRENCIES, LEAD_INVALID_REASONS, LEAD_OPEN_STATUSES, LEAD_STATUSES, extractDomain, normalizeCompanyName } from "@/lib/crm";
 
 const opt = z.string().trim().max(500).optional().transform((v) => v || null);
 
@@ -109,17 +109,32 @@ export async function assignLeadsAction(ids: string[], toUserId: string): Promis
   return { ok: true, message: `已分配 ${count} 条线索给 ${target.name}` };
 }
 
-export async function setLeadStatusAction(id: string, status: "NEW" | "CONTACTED" | "INVALID", reason?: string): Promise<ActionState> {
+const LEAD_STATUS_LABEL: Record<string, string> = Object.fromEntries(LEAD_STATUSES.map((s) => [s.value, s.label]));
+
+export async function setLeadStatusAction(
+  id: string,
+  status: "NEW" | "QUALIFYING" | "CONTACTED" | "INVALID",
+  invalid?: { reason?: string; note?: string },
+): Promise<ActionState> {
   const user = await requireUser();
   if (!can(user, "lead.edit")) return denied();
+  if (![...LEAD_OPEN_STATUSES, "INVALID"].includes(status)) return denied("状态不正确");
   const lead = await workableLead(user, id);
   if (!lead || lead.status === "CONVERTED") return denied();
+  const isInvalid = status === "INVALID";
+  const reason = invalid?.reason?.trim();
+  if (isInvalid && !(LEAD_INVALID_REASONS as readonly string[]).includes(reason ?? "")) return denied("请选择无效原因");
   await tenantDb(user.tenantId).lead.updateMany({
     where: { id },
-    data: { status, invalidReason: status === "INVALID" ? reason?.trim().slice(0, 200) || "无效线索" : null },
+    data: {
+      status,
+      invalidReason: isInvalid ? reason : null,
+      invalidNote: isInvalid ? invalid?.note?.trim().slice(0, 500) || null : null,
+      invalidAt: isInvalid ? new Date() : null,
+    },
   });
   revalidate();
-  return { ok: true, message: status === "INVALID" ? "已标记为无效" : status === "CONTACTED" ? "已标记为已联系" : "已恢复为待处理" };
+  return { ok: true, message: isInvalid ? "已标记为无效" : `已改为「${LEAD_STATUS_LABEL[status]}」` };
 }
 
 export async function deleteLeadAction(id: string): Promise<ActionState> {

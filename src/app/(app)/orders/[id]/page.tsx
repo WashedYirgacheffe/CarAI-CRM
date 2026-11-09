@@ -8,7 +8,7 @@ import { InfoGrid, ItemsCard, moneyOf, viewItems } from "@/components/crm/doc-vi
 import { can, requireUser } from "@/server/auth";
 import { getOrderForUser } from "@/server/documents";
 import { formatDate, formatDateTime, toLocalInput } from "@/lib/crm";
-import { dateInput, orderStatus } from "@/lib/docs";
+import { dateInput, orderStatus, approvalStatus } from "@/lib/docs";
 import { OrderActions } from "./order-actions";
 import { PaymentsCard } from "./payments-card";
 
@@ -38,6 +38,7 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight tabular-nums">{o.no}</h1>
             <StatusBadge name={st.label} color={st.color} />
+            {o.approval !== "NONE" && <StatusBadge name={approvalStatus(o.approval).label} color={approvalStatus(o.approval).color} />}
           </div>
           <p className="text-sm text-muted-foreground">
             <Link href={`/customers/${o.customer.id}`} className="text-foreground hover:text-primary hover:underline">

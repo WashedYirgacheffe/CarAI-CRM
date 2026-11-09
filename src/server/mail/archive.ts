@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/server/db";
-import { extractDomain } from "@/lib/crm";
+import { LEAD_OPEN_STATUSES, extractDomain } from "@/lib/crm";
 import type { MailAddress } from "@/server/mail/store";
 
 const AUTOMATED = /(^|[._-])(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|newsletter|bounce|alerts?)([._-]|@)/i;
@@ -134,7 +134,7 @@ export async function archiveMail(m: ArchiveInput): Promise<ArchiveResult> {
     where: {
       tenantId: m.tenantId,
       email: { equals: m.from.address, mode: "insensitive" },
-      status: { in: ["NEW", "CONTACTED"] },
+      status: { in: [...LEAD_OPEN_STATUSES] },
     },
     select: { id: true },
   });

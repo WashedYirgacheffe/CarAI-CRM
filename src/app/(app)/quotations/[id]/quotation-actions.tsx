@@ -61,7 +61,7 @@ export function QuotationActions({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {QUOTATION_STATUSES.map((s) => (
+              {QUOTATION_STATUSES.filter((s) => s.value !== "CONVERTED" || status === "CONVERTED").map((s) => (
                 <DropdownMenuItem key={s.value} disabled={s.value === status} onSelect={() => runAction(setQuotationStatusAction(id, s.value))}>
                   {s.label}
                 </DropdownMenuItem>

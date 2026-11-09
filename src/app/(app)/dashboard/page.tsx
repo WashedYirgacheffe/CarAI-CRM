@@ -3,12 +3,18 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskList } from "@/components/crm/tasks";
+import { WorldClock } from "@/components/dashboard/world-clock";
+import { FxCalculator } from "@/components/dashboard/fx-calculator";
+import { CustomizeDashboard } from "@/components/dashboard/customize-dashboard";
 import { can, requireUser } from "@/server/auth";
-import { tenantDb } from "@/server/db";
+import { prisma, tenantDb } from "@/server/db";
+import { getBadges } from "@/server/badges";
+import { getRates } from "@/server/documents";
 import { ownedWhere } from "@/server/scope";
 import { docScopeWhere } from "@/server/documents";
-import { dayRange, daysAgo, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
-import { dateInput } from "@/lib/docs";
+import { CURRENCIES, LEAD_OPEN_STATUSES, dayRange, daysAgo, followMethodLabel, formatDateTime, formatMoney, parseLocalInput } from "@/lib/crm";
+import { ORDER_NOT_COUNTED, dateInput } from "@/lib/docs";
+import { COUNTRY_TZ, DEFAULT_CLOCK_COUNTRIES, resolveDashboard } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -26,6 +32,19 @@ export default async function DashboardPage() {
   const scoped = await ownedWhere(user);
   const docScope = await docScopeWhere(user);
   const mine = { ownerId: user.id };
+  const saved = await prisma.user.findUnique({ where: { id: user.id }, select: { dashboardCards: true } });
+  const cards = resolveDashboard(saved?.dashboardCards);
+  const show = (k: (typeof cards)[number]) => cards.includes(k);
+
+  const [badges, rates, topCountries] = await Promise.all([
+    show("overview") ? getBadges(user) : null,
+    show("fx") ? getRates(user.tenantId) : null,
+    // 世界时钟默认显示「我的客户」最多的国家
+    show("clock") && canCustomers
+      ? db.customer.groupBy({ by: ["country"], where: { ...mine, country: { not: null } }, _count: true, orderBy: { _count: { country: "desc" } }, take: 12 })
+      : [],
+  ]);
+  const clockCountries = topCountries.map((c) => c.country!).filter((c) => COUNTRY_TZ[c] && c !== "CN").slice(0, 6);
 
   const [myCustomers, dueCustomers, staleCustomers, tasks, overdueTasks, openOpps, newLeads, unassignedLeads, recent, monthOrders] =
     await Promise.all([
@@ -50,7 +69,7 @@ export default async function DashboardPage() {
           })
         : [],
       canLeads ? db.lead.count({ where: { ...mine, status: "NEW" } }) : 0,
-      canLeads && can(user, "lead.assign") ? db.lead.count({ where: { ownerId: null, status: { in: ["NEW", "CONTACTED"] } } }) : null,
+      canLeads && can(user, "lead.assign") ? db.lead.count({ where: { ownerId: null, status: { in: [...LEAD_OPEN_STATUSES] } } }) : null,
       canCustomers
         ? db.activity.findMany({
             where: { type: "FOLLOW_UP", customer: scoped },
@@ -62,7 +81,7 @@ export default async function DashboardPage() {
       canOrders
         ? db.order.findMany({
             // 与订单列表一致：按数据范围统计（经理看到团队的订单）
-            where: { ...docScope, status: { not: "CANCELLED" }, orderDate: { gte: monthStart } },
+            where: { ...docScope, status: { notIn: [...ORDER_NOT_COUNTED] }, orderDate: { gte: monthStart } },
             select: { total: true, exchangeRate: true },
           })
         : [],
@@ -95,15 +114,15 @@ export default async function DashboardPage() {
       hint: unassignedLeads !== null ? `另有 ${unassignedLeads} 条待分配` : "分配给我、未处理",
       href: unassignedLeads ? "/leads?tab=unassigned" : "/leads",
     },
+    can(user, "mail.use") &&
+      badges && { label: "未读邮件", value: badges.mail, hint: "我的收件箱", href: "/mail?tag=unread", alert: badges.mail > 0 },
+    can(user, "whatsapp.use") &&
+      badges && { label: "WhatsApp 未读", value: badges.whatsapp, hint: "我的会话", href: "/whatsapp", alert: badges.whatsapp > 0 },
   ].filter(Boolean) as { label: string; value: number; hint: string; href: string; alert?: boolean }[];
 
-  return (
-    <>
-      <PageHeader
-        title={`你好，${user.name}`}
-        description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`}
-      />
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+  const blocks: Record<(typeof cards)[number], React.ReactNode> = {
+    overview: (
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         {stats.map((s) => (
           <Link key={s.label} href={s.href} className="rounded-xl border bg-card p-4 transition-colors hover:border-primary/40">
             <p className="text-sm text-muted-foreground">{s.label}</p>
@@ -112,61 +131,97 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </section>
+    ),
+    today: (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">今天要做</CardTitle>
+          <CardAction>
+            <Link href="/schedule" className="text-sm text-muted-foreground hover:text-primary">
+              全部日程
+            </Link>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <TaskList
+            tz={tz}
+            empty="今天没有待办，去客户列表看看谁该跟进了"
+            tasks={tasks.map((t) => ({
+              id: t.id,
+              title: t.title,
+              dueAt: t.dueAt.toISOString(),
+              done: t.done,
+              customerId: t.customerId,
+              customerName: t.customer?.name ?? null,
+            }))}
+          />
+        </CardContent>
+      </Card>
+    ),
+    recent: canCustomers ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">最近跟进</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {recent.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">还没有跟进记录</p>
+          ) : (
+            <ul className="divide-y">
+              {recent.map((a) => (
+                <li key={a.id} className="py-2.5">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span> · {a.user?.name} · {followMethodLabel(a.method)} ·{" "}
+                    {a.customer && (
+                      <Link href={`/customers/${a.customer.id}`} className="text-foreground hover:text-primary hover:underline">
+                        {a.customer.name}
+                      </Link>
+                    )}
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-sm">{a.content}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    ) : null,
+    clock: (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">世界时钟</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WorldClock suggested={clockCountries.length ? clockCountries : DEFAULT_CLOCK_COUNTRIES} localTz={tz} />
+        </CardContent>
+      </Card>
+    ),
+    fx: (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">汇率换算</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FxCalculator rates={rates ?? { CNY: 1 }} currencies={CURRENCIES} />
+        </CardContent>
+      </Card>
+    ),
+  };
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">今天要做</CardTitle>
-            <CardAction>
-              <Link href="/schedule" className="text-sm text-muted-foreground hover:text-primary">
-                全部日程
-              </Link>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <TaskList
-              tz={tz}
-              empty="今天没有待办，去客户列表看看谁该跟进了"
-              tasks={tasks.map((t) => ({
-                id: t.id,
-                title: t.title,
-                dueAt: t.dueAt.toISOString(),
-                done: t.done,
-                customerId: t.customerId,
-                customerName: t.customer?.name ?? null,
-              }))}
-            />
-          </CardContent>
-        </Card>
-
-        {canCustomers && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">最近跟进</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {recent.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">还没有跟进记录</p>
-              ) : (
-                <ul className="divide-y">
-                  {recent.map((a) => (
-                    <li key={a.id} className="py-2.5">
-                      <p className="text-xs text-muted-foreground">
-                        <span className="tabular-nums">{formatDateTime(a.createdAt, tz)}</span> · {a.user?.name} ·{" "}
-                        {followMethodLabel(a.method)} ·{" "}
-                        {a.customer && (
-                          <Link href={`/customers/${a.customer.id}`} className="text-foreground hover:text-primary hover:underline">
-                            {a.customer.name}
-                          </Link>
-                        )}
-                      </p>
-                      <p className="mt-0.5 line-clamp-2 text-sm">{a.content}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+  return (
+    <>
+      <PageHeader
+        title={`你好，${user.name}`}
+        description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`}
+        actions={<CustomizeDashboard current={cards} />}
+      />
+      <div className="grid gap-4 lg:grid-cols-2">
+        {cards.map((k) =>
+          blocks[k] ? (
+            <div key={k} className={k === "overview" ? "lg:col-span-2" : undefined}>
+              {blocks[k]}
+            </div>
+          ) : null,
         )}
       </div>
     </>

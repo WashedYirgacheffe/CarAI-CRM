@@ -5,20 +5,24 @@ export type NavLeaf = {
   href: string;
   permission?: Permission;
   /** 计划在哪个阶段上线，未上线的显示为「规划中」 */
-  phase?: "P1" | "P2" | "P3" | "P4";
+  phase?: string;
 };
+
+/** 侧边栏数字提醒（/api/badges 返回） */
+export type BadgeKey = "leads" | "mail" | "whatsapp";
 
 export type NavItem = NavLeaf & {
   icon: string;
+  badge?: BadgeKey;
   children?: NavLeaf[];
 };
 
 export type NavSection = { label: string; items: NavItem[] };
 
-/** 后台菜单。icon 是 lucide 图标名，在 app-sidebar.tsx 里映射。 */
+/** 后台菜单（参照 OKKI 分组）。icon 是 lucide 图标名，在 app-sidebar.tsx 里映射。 */
 export const NAV: NavSection[] = [
   {
-    label: "销售",
+    label: "客户",
     items: [
       { title: "工作台", href: "/dashboard", icon: "LayoutDashboard" },
       {
@@ -32,32 +36,37 @@ export const NAV: NavSection[] = [
           { title: "联系人", href: "/customers/contacts", permission: "customer.view" },
         ],
       },
-      { title: "线索 / 询盘", href: "/leads", icon: "Inbox", permission: "lead.view" },
+      { title: "线索 / 询盘", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
       { title: "商机", href: "/opportunities", icon: "KanbanSquare", permission: "opportunity.view" },
-      { title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view" },
     ],
   },
   {
     label: "沟通",
     items: [
-      { title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use" },
-      { title: "WhatsApp", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use" },
+      { title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
+      { title: "WhatsApp", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
     ],
   },
   {
-    label: "单据",
+    label: "交易",
     items: [
+      { title: "产品", href: "/products", icon: "Package", permission: "product.view" },
       { title: "报价单", href: "/quotations", icon: "FileText", permission: "quotation.view" },
       { title: "订单", href: "/orders", icon: "ClipboardList", permission: "order.view" },
-      { title: "产品", href: "/products", icon: "Package", permission: "product.view" },
+      { title: "回款", href: "/payments", icon: "Wallet", permission: "order.view" },
     ],
   },
   {
-    label: "管理",
-    items: [
-      { title: "统计", href: "/reports", icon: "BarChart3", permission: "report.view" },
-      { title: "设置", href: "/settings", icon: "Settings" },
-    ],
+    label: "协同",
+    items: [{ title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view" }],
+  },
+  {
+    label: "团队数据",
+    items: [{ title: "统计", href: "/reports", icon: "BarChart3", permission: "report.view" }],
+  },
+  {
+    label: "系统",
+    items: [{ title: "设置", href: "/settings", icon: "Settings" }],
   },
 ];
 
