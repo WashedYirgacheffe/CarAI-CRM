@@ -42,29 +42,44 @@ async function syncMail() {
     results.forEach((r, j) => {
       if (r.added || !r.ok) log("[mail]", batch[j].email, r.ok ? `+${r.added}` : r.error);
     });
+    if (results.some((r) => r.added)) void analyzeNewMail();
   }
 }
 
+let analyzing = false;
+/** 新收到的邮件默认都分析：同步完马上跑，4 封并行 */
 async function analyzeNewMail() {
-  if (!aiConfigured()) return;
-  const rows = await prisma.mailMessage.findMany({
-    where: { folder: "INBOX", aiAnalyzedAt: null, date: { gt: new Date(Date.now() - 3 * 86_400_000) } },
-    orderBy: { date: "desc" },
-    take: 8,
-    select: { id: true, fromAddr: true, fromName: true, subject: true, text: true, snippet: true },
-  });
-  for (const m of rows) {
-    try {
-      const r = await analyzeMail({ from: `${m.fromName ?? ""} <${m.fromAddr}>`, subject: m.subject, text: m.text ?? m.snippet });
-      await prisma.mailMessage.update({
-        where: { id: m.id },
-        data: { aiSummary: r.summary, aiIntent: r.intent, aiPriority: r.priority, aiAnalyzedAt: new Date() },
+  if (!aiConfigured() || analyzing) return;
+  analyzing = true;
+  try {
+    for (let round = 0; round < 5; round++) {
+      const rows = await prisma.mailMessage.findMany({
+        where: { folder: "INBOX", aiAnalyzedAt: null, date: { gt: new Date(Date.now() - 3 * 86_400_000) } },
+        orderBy: { date: "desc" },
+        take: 8,
+        select: { id: true, fromAddr: true, fromName: true, subject: true, text: true, snippet: true },
       });
-    } catch (e) {
-      // 失败也打上时间，避免反复重试同一封
-      await prisma.mailMessage.update({ where: { id: m.id }, data: { aiAnalyzedAt: new Date() } });
-      log("[ai]", "analyze failed", (e as Error).message);
+      if (!rows.length) break;
+      for (let i = 0; i < rows.length; i += 4) {
+        await Promise.all(
+          rows.slice(i, i + 4).map(async (m) => {
+            try {
+              const r = await analyzeMail({ from: `${m.fromName ?? ""} <${m.fromAddr}>`, subject: m.subject, text: m.text ?? m.snippet });
+              await prisma.mailMessage.update({
+                where: { id: m.id },
+                data: { aiSummary: r.summary, aiIntent: r.intent, aiPriority: r.priority, aiAnalyzedAt: new Date() },
+              });
+            } catch (e) {
+              // 失败也打上时间，避免反复重试同一封
+              await prisma.mailMessage.update({ where: { id: m.id }, data: { aiAnalyzedAt: new Date() } });
+              log("[ai]", "analyze failed", (e as Error).message);
+            }
+          }),
+        );
+      }
     }
+  } finally {
+    analyzing = false;
   }
 }
 
@@ -79,7 +94,7 @@ async function recycle() {
 log("worker started");
 const timers = [
   every(30_000, "mail", syncMail),
-  every(60_000, "ai", analyzeNewMail),
+  every(30_000, "ai", analyzeNewMail),
   every(3_000, "wa", reconcileWhatsapp),
   every(20_000, "wa-avatar", refreshWaAvatars),
   every(60 * 60_000, "pool", recycle),

@@ -24,7 +24,7 @@ import { AI_ACTION_KINDS, isAiActionKind, type ActionCard } from "@/lib/ai-actio
 import { TIME_PRESETS } from "@/lib/reminders";
 import { FOLLOW_METHODS } from "@/lib/crm";
 import { prepareAction } from "@/server/canvas-actions";
-import { customerContext, listQuotations, listSequences, listTasks, searchProducts } from "@/server/canvas-tools";
+import { customerContext, listQuotations, listSequences, listTasks, pageContext, searchProducts } from "@/server/canvas-tools";
 import { saveWorkspaceAction } from "@/app/(app)/dashboard/actions";
 
 /** 发给前端的事件（一行一个 JSON） */
@@ -252,7 +252,7 @@ const ACTION_DOC = `- send_whatsapp {chatId, text}：发一条 WhatsApp 文字�
 
 const PAGES = `/marketing/new 新建营销序列；/settings/mailboxes 绑定邮箱；/settings/whatsapp 连接 WhatsApp；/settings/members 成员；/settings/roles 角色权限；/settings/company 企业信息；/settings/documents 单据设置；/settings/fields 自定义字段；/settings/pool-rules 公海规则；/settings/stages 商机阶段；/settings/profile 个人资料；/customers 客户列表；/customers/<id> 客户详情；/customers/pool 公海；/leads 询盘线索；/opportunities 商机看板；/quotations 报价单；/quotations/new 新建报价单；/orders 订单；/payments 回款；/products 产品；/mail 邮件；/mail/compose?to=<邮箱> 写邮件；/whatsapp WhatsApp；/marketing 邮件营销；/schedule 日程待办；/reports 团队数据；/settings 设置`;
 
-function systemPrompt(user: CurrentUser, layout: CanvasLayout, spaces: Space[], active: string) {
+function systemPrompt(user: CurrentUser, layout: CanvasLayout, spaces: Space[], active: string, where: { page: string; onCanvas: boolean }) {
   const sizeNote = "尺寸 s=4 列（侧边长条）· m=6 列 · l=8 列 · xl=12 列（全宽）；一行 12 列，按顺序自动排，放不下就换行";
   const catalog = WIDGETS.map((w) => {
     const ps = w.params?.length ? `；参数 ${w.params.map((p) => `${p.key}${p.optional ? "(可选)" : ""}=${p.desc}`).join("，")}` : "";
@@ -264,7 +264,15 @@ function systemPrompt(user: CurrentUser, layout: CanvasLayout, spaces: Space[], 
   const current = layout.length
     ? layout.map((it) => `- [${it.id}] ${it.type} ${it.size}${it.params ? ` ${JSON.stringify(it.params)}` : ""}`).join("\n")
     : "（空）";
-  return `你是「车车外贸 CRM」工作台里的 AI 助手，帮外贸业务员把需要的东西摆到工作台画布上、查数据、做分析。今天是 ${dateInput(user.timezone)}，用户是 ${user.name}（${user.roleName}）。
+  return `你是「车车外贸 CRM」里的 AI 助手（右下角浮窗，每个页面都能叫出来），帮外贸业务员查数据、做分析、把需要的东西摆到工作台画布上、起草消息和单据。今天是 ${dateInput(user.timezone)}，用户是 ${user.name}（${user.roleName}）。
+
+## 用户现在在哪
+${where.page || "（未知页面）"}
+${
+  where.onCanvas
+    ? "用户正在工作台，画布改动会马上看到。"
+    : "用户不在工作台。只有用户想看数据、图表、某个客户或会话时才 update_canvas（界面会给一个「到工作台查看」按钮）；起草、提醒、问答类不要动画布。"
+}
 
 ## 画布
 ${sizeNote}。
@@ -294,8 +302,8 @@ ${ACTION_DOC}
 4. 用户想和某个客户「聊天 / 沟通 / 联系」但没说渠道：先 customer_channels。WhatsApp 和邮箱都有时用 ask_choice 问用哪个；只有一种就直接用，不要再问。WhatsApp → update_canvas(clear=true) 放 whatsapp(l) + followups(s)。只有邮件 → update_canvas(clear=true) 放 customer(m) + followups(m)，并 open_page 给「给 <名字> 写邮件」按钮（/mail/compose?to=邮箱）。都没有就放 customer 组件并说明没有联系方式。同事没有内部聊天功能，如实说明。
 5. 数据分析：先用 query_metric / team_summary 拿到真实数字，再用 update_canvas 放 chart 或 team 组件（chart 的 params 写 metric、by、range、chart，可加 title 作为图表标题），然后用 2～4 句话（不超过 150 字）给出最关键的结论，引用具体数字。明细已经在画布组件里，不要再用文字或表格列一遍。绝不编造数字；没有数据就说没有。
 6. 画布上没有组件的功能（新建报价单、看订单列表、设置等）用 open_page 给跳转按钮。可用页面：${PAGES}。
-7. 起草与执行：用户让你发消息、发邮件、发报价单、做报价单、加提醒、写跟进、建线索、加入群发时，先查清楚需要的东西（search_entities → customer_context / search_products / list_quotations），再用 propose_action 起草，用户会在卡片上确认、修改或取消。同时把相关组件摆出来（如 whatsapp(l)+followups(s)）。信息不够（不知道发什么、发给谁、哪个产品、多少数量）就先问，不要乱填。删除、转移客户、改权限、导出、改设置你做不了，用 open_page 给对应页面。
-8. 全程只用简体中文，简短直接（一般 1～3 句）。调用工具之前不要说「我来查一下」之类的话，直接调用。输出纯文本：不要 Markdown（不要 **加粗**、标题、表格、列表符号），不要用 emoji，不要输出 id，不要复述工具返回的原始数据。
+7. 起草与执行：用户让你发消息、发邮件、发报价单、做报价单、加提醒、写跟进、建线索、加入群发时，先查清楚需要的东西（search_entities → customer_context / search_products / list_quotations），再用 propose_action 起草，用户会在卡片上确认、修改或取消。同时把相关组件摆出来（如 whatsapp(l)+followups(s)）。信息不够（不知道发什么、发给谁、哪个产品、多少数量）就先问，不要乱填。起草对外内容时，交期、报价有效期、付款方式、运费、免费样品、折扣这类承诺，只能用查到的数据（报价单、产品、客户记录）或用户说过的话；没有依据就写成「[交期]」这样的方括号占位让用户补，绝不自己编。删除、转移客户、改权限、导出、改设置你做不了，用 open_page 给对应页面。
+8. 全程只用简体中文，简短直接（一般 1～3 句）。调用工具之前不要说「我来查一下」之类的话，直接调用。输出纯文本：不要 Markdown（不要 **加粗**、标题、表格、列表符号），不要用 emoji，不要输出 id 和站内路径（要跳转就用 open_page），不要复述工具返回的原始数据。
 9. 工作情景：用户说「保存 / 记住这个布局 / 存成 xx 模式」就 save_workspace（没给名字就按画布内容起一个短名字）；说「恢复 / 打开 / 切到 xx」就 open_workspace，名字对不上时用 ask_choice 让用户从已保存的情景里选。`;
 }
 
@@ -308,6 +316,7 @@ type Ctx = {
   spaces: Space[];
   active: string;
   placed?: boolean;
+  where: { page: string; onCanvas: boolean };
 };
 
 const json = (x: unknown) => JSON.stringify(x);
@@ -642,7 +651,7 @@ async function runTool(ctx: Ctx, call: ToolCall): Promise<unknown> {
 /** 一轮对话：模型可以多步调工具（查数据 → 摆组件 → 总结），事件实时推给前端 */
 export async function runCanvasTurn(
   user: CurrentUser,
-  input: { message: string; history: CanvasTurn[]; layout: unknown; active?: string },
+  input: { message: string; history: CanvasTurn[]; layout: unknown; active?: string; page?: string; onCanvas?: boolean },
   emit: (e: CanvasEvent) => void,
   signal?: AbortSignal,
 ) {
@@ -654,7 +663,9 @@ export async function runCanvasTurn(
     })
   ).map((w) => ({ ...w, layout: sanitizeLayout(w.layout) }));
   const active = input.active === OVERVIEW_ID ? "概览" : (spaces.find((w) => w.id === input.active)?.name ?? "概览");
-  const ctx: Ctx = { user, layout: sanitizeLayout(input.layout), emit, stop: false, spaces, active };
+  const page = (input.page ?? "").slice(0, 500);
+  const where = { page: page ? await pageContext(user, page).catch(() => `页面：${page}`) : "", onCanvas: input.onCanvas !== false };
+  const ctx: Ctx = { user, layout: sanitizeLayout(input.layout), emit, stop: false, spaces, active, where };
   const messages: ChatMessage[] = [
     ...input.history.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }) as ChatMessage),
     { role: "user", content: input.message.slice(0, 2000) },
@@ -667,7 +678,7 @@ export async function runCanvasTurn(
       emit({ t: "step" });
       // 系统提示每步重建：画布可能刚被改过
       for await (const ev of aiToolStream({
-        system: systemPrompt(user, ctx.layout, ctx.spaces, ctx.active),
+        system: systemPrompt(user, ctx.layout, ctx.spaces, ctx.active, ctx.where),
         messages,
         tools: TOOLS,
         // 最后一步不许再调工具，必须用文字收尾

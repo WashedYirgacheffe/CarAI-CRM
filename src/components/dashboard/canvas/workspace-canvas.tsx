@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Minimize2, Redo2, Undo2 } from "lucide-react";
@@ -13,7 +13,7 @@ import { CanvasCell, type DropHint } from "./canvas-cell";
 import { useLayoutHistory } from "./use-layout-history";
 import { WorkspaceSwitcher, SaveAsDialog, type Space } from "./workspace-switcher";
 import { LeavePrompt } from "./leave-prompt";
-import { AiBar } from "./ai-bar";
+import { registerCanvas, type WorkspaceEvent } from "@/components/ai/canvas-bridge";
 import { AddMenu } from "./add-menu";
 import { BusinessWidget, type WidgetApi } from "./business-widgets";
 
@@ -26,7 +26,6 @@ type Props = {
   promptOff: boolean;
   tz: string;
   metrics: string[];
-  aiEnabled: boolean;
 };
 
 /** 同一个对象的业务组件：客户看 customerId，会话看 chatId */
@@ -42,7 +41,7 @@ const scrollToCell = (id: string) =>
   requestAnimationFrame(() => document.querySelector(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
 
 /** 工作台画布：情景切换 + 12 列网格自动排列的组件 */
-export function WorkspaceCanvas({ blocks, available, overview, workspaces, home: initialHome, promptOff, tz, metrics, aiEnabled }: Props) {
+export function WorkspaceCanvas({ blocks, available, overview, workspaces, home: initialHome, promptOff, tz, metrics }: Props) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<Space[]>(workspaces);
   const [home, setHome] = useState<string | null>(initialHome);
@@ -165,33 +164,42 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
+  // 全局 AI 浮窗通过这里读写画布
+  const onAiWorkspace = (e: WorkspaceEvent) => {
+    setMaxId(null);
+    if (e.op === "saved") {
+      const s = { id: e.id, name: e.name, layout: e.layout };
+      setSpaces((ss) => (ss.some((x) => x.id === e.id) ? ss.map((x) => (x.id === e.id ? s : x)) : [...ss, s]));
+      if (e.home) setHome(e.id);
+      setActiveId(e.id);
+      h.reset(e.layout);
+      return e.layout;
+    }
+    // 用户亲口要求切换：不再弹「未保存」确认，切换前的样子还能在本次对话里重新摆出来
+    const next = e.id === OVERVIEW_ID ? overview : e.layout;
+    setActiveId(e.id);
+    h.reset(next);
+    return next;
+  };
+  const live = useRef({ layout, activeId, set, onAiWorkspace });
+  useEffect(() => {
+    live.current = { layout, activeId, set, onAiWorkspace };
+  });
+  useEffect(
+    () =>
+      registerCanvas({
+        layout: () => live.current.layout,
+        active: () => live.current.activeId,
+        onLayout: (l) => (setMaxId(null), live.current.set(l)),
+        onWorkspace: (e) => live.current.onAiWorkspace(e),
+      }),
+    [],
+  );
+
   const maxItem = visible.find((it) => it.id === maxId) ?? null;
 
   return (
     <>
-      <AiBar
-        enabled={aiEnabled}
-        layout={layout}
-        active={activeId}
-        onLayout={(l) => (setMaxId(null), set(l))}
-        onWorkspace={(e) => {
-          setMaxId(null);
-          if (e.op === "saved") {
-            const s = { id: e.id, name: e.name, layout: e.layout };
-            setSpaces((ss) => (ss.some((x) => x.id === e.id) ? ss.map((x) => (x.id === e.id ? s : x)) : [...ss, s]));
-            if (e.home) setHome(e.id);
-            setActiveId(e.id);
-            h.reset(e.layout);
-            return e.layout;
-          }
-          // 用户亲口要求切换：不再弹「未保存」确认，切换前的样子还能在本次对话里重新摆出来
-          const next = e.id === OVERVIEW_ID ? overview : e.layout;
-          setActiveId(e.id);
-          h.reset(next);
-          return next;
-        }}
-      />
-
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <WorkspaceSwitcher
           spaces={spaces}

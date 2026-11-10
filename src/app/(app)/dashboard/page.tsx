@@ -35,7 +35,6 @@ import { COUNTRY_TZ, DEFAULT_CLOCK_COUNTRIES, DEFAULT_DASHBOARD } from "@/lib/da
 import { OVERVIEW_ID, overviewLayout, sanitizeLayout } from "@/lib/canvas";
 import { METRICS } from "@/lib/metrics";
 import { canMetric } from "@/server/metrics";
-import { aiConfigured } from "@/server/ai";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -694,7 +693,6 @@ export default async function DashboardPage() {
         blocks={Object.fromEntries(available.map((k) => [k, blocks[k]]))}
         available={[...available, ...business]}
         tz={tz}
-        aiEnabled={can(user, "ai.use") && aiConfigured()}
         metrics={METRICS.filter((m) => canMetric(user, m.key)).map((m) => m.key)}
         overview={overviewLayout(saved?.dashboardCards)}
         workspaces={spaces.map((w) => ({ id: w.id, name: w.name, layout: sanitizeLayout(w.layout) }))}

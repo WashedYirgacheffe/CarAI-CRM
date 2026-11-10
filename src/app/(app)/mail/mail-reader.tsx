@@ -2,7 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Download, Forward, Languages, Reply, ReplyAll, Sparkles, Star, UserPlus, Link2, MailOpen } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  ChevronLeft,
+  ChevronDown,
+  Download,
+  Forward,
+  Languages,
+  LoaderCircle,
+  Reply,
+  ReplyAll,
+  RotateCw,
+  Sparkles,
+  Star,
+  UserPlus,
+  Link2,
+  MailOpen,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +66,51 @@ export type ReaderMessage = {
 
 const fmtAddr = (a: Addr) => (a.name ? `${a.name} <${a.address}>` : a.address);
 
+/** 正文（没有纯文本就从 HTML 里取字） */
+function bodyText(m: { text: string | null; html: string | null }) {
+  if (m.text?.trim()) return m.text;
+  if (!m.html || typeof DOMParser === "undefined") return "";
+  const doc = new DOMParser().parseFromString(m.html, "text/html");
+  doc.querySelectorAll("style,script,head").forEach((n) => n.remove());
+  return (doc.body.textContent ?? "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n\n")
+    .trim();
+}
+
+/** 只翻译对方这次写的：去掉引用的历史邮件 */
+function freshPart(text: string) {
+  const cut = text.search(/^(>|On .{4,200}wrote:|-{2,}\s*Original Message|From: .+\n(Sent|Date): |发件人[:：]|在 .{4,80}写道[:：])/im);
+  return (cut > 40 ? text.slice(0, cut) : text).trim().slice(0, 6000);
+}
+
+/** 外文邮件才自动翻译：中文字符占比很低 */
+function looksForeign(text: string) {
+  const sample = text.slice(0, 1500);
+  const letters = sample.match(/[\p{L}]/gu)?.length ?? 0;
+  const cjk = sample.match(/[\u4e00-\u9fff]/g)?.length ?? 0;
+  return letters > 20 && cjk / letters < 0.15;
+}
+
+const TR_KEY = "crm-mail-tr";
+function cachedTranslation(id: string): string | null {
+  try {
+    return (JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string>)[id] ?? null;
+  } catch {
+    return null;
+  }
+}
+function cacheTranslation(id: string, text: string) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string>;
+    delete all[id];
+    all[id] = text;
+    const keys = Object.keys(all);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 60))) delete all[k];
+    localStorage.setItem(TR_KEY, JSON.stringify(all));
+  } catch {}
+}
+
 function sizeLabel(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
@@ -69,15 +130,53 @@ export function MailReader({
   canAi: boolean;
   canLead: boolean;
 }) {
+  const router = useRouter();
   const [starred, setStarred] = useState(m.starred);
   const [analyzing, setAnalyzing] = useState(false);
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [showTr, setShowTr] = useState(true);
   const [linking, setLinking] = useState(false);
 
   useEffect(() => {
     if (!m.seen) void setSeenAction(m.id, true);
   }, [m.id, m.seen]);
+
+  async function analyze(manual: boolean) {
+    setAnalyzing(true);
+    const r = manual ? await runAction(analyzeMailAction(m.id)) : await analyzeMailAction(m.id);
+    setAnalyzing(false);
+    if (r.ok) router.refresh();
+  }
+
+  async function translate() {
+    const src = freshPart(bodyText(m));
+    if (!src) return;
+    setShowTr(true);
+    setTranslating(true);
+    const r = await streamAiWrite({ mode: "translate", draft: src, language: "简体中文", channel: "email" }, setTranslation);
+    setTranslating(false);
+    if (r.ok) {
+      setTranslation(r.text);
+      cacheTranslation(m.id, r.text);
+    } else {
+      setTranslation(null);
+      toast.error(r.message);
+    }
+  }
+
+  // 打开收到的邮件：还没分析就分析，外文就直接翻译，不用再点按钮
+  useEffect(() => {
+    if (!canAi || m.folder !== "INBOX") return;
+    const t = setTimeout(() => {
+      if (!m.aiSummary) void analyze(false);
+      const cached = cachedTranslation(m.id);
+      if (cached) setTranslation(cached);
+      else if (looksForeign(bodyText(m))) void translate();
+    }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const srcDoc = useMemo(() => {
     if (!m.html) return null;
@@ -87,17 +186,6 @@ export function MailReader({
   const intent = m.aiIntent ? MAIL_INTENT_LABELS[m.aiIntent] : null;
   const priority = m.aiPriority ? MAIL_PRIORITY_LABELS[m.aiPriority] : null;
 
-  async function translate() {
-    setTranslating(true);
-    const r = await streamAiWrite({ mode: "translate", draft: m.text ?? "", language: "简体中文", channel: "email" }, setTranslation);
-    setTranslating(false);
-    if (r.ok) setTranslation(r.text);
-    else {
-      setTranslation(null);
-      toast.error(r.message);
-    }
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-1 border-b px-2 py-2 md:px-3">
@@ -106,7 +194,7 @@ export function MailReader({
             <ChevronLeft />
           </Link>
         </Button>
-        <Button asChild size="sm" variant="outline">
+        <Button asChild size="sm">
           <Link href={`/mail/compose?reply=${m.id}`}>
             <Reply /> 回复
           </Link>
@@ -153,8 +241,7 @@ export function MailReader({
           <h2 className="text-lg font-semibold">{m.subject || "(无主题)"}</h2>
           <div className="space-y-0.5 text-sm break-words">
             <p>
-              <span className="font-medium">{m.fromName || m.fromAddr}</span>{" "}
-              <span className="text-muted-foreground">&lt;{m.fromAddr}&gt;</span>
+              <span className="font-medium">{m.fromName || m.fromAddr}</span> <span className="text-muted-foreground">&lt;{m.fromAddr}&gt;</span>
               <span className="float-right text-xs text-muted-foreground tabular-nums">{formatDateTime(m.date, tz)}</span>
             </p>
             <p className="text-xs text-muted-foreground">收件人：{m.to.map(fmtAddr).join(", ") || "—"}</p>
@@ -166,13 +253,19 @@ export function MailReader({
           {/* 归档 */}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {m.customer ? (
-              <Link href={`/customers/${m.customer.id}`} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs hover:text-primary">
+              <Link
+                href={`/customers/${m.customer.id}`}
+                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs hover:text-primary"
+              >
                 已归档到客户：{m.customer.name}
               </Link>
             ) : (
               <>
                 {m.lead ? (
-                  <Link href={`/leads?q=${encodeURIComponent(m.fromAddr)}&tab=all`} className="rounded-md bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                  <Link
+                    href={`/leads?q=${encodeURIComponent(m.fromAddr)}&tab=all`}
+                    className="rounded-md bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                  >
                     已建为线索，去处理
                   </Link>
                 ) : (
@@ -190,48 +283,63 @@ export function MailReader({
             )}
           </div>
 
-          {/* AI */}
-          {(m.aiSummary || canAi) && (
-            <div className="rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2 text-sm">
+          {/* AI：打开就自动分析、外文自动翻译 */}
+          {canAi && m.folder === "INBOX" && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50/70 px-3.5 py-2.5 text-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <Sparkles className="size-3.5 text-violet-600" />
-                <span className="text-xs font-medium text-violet-700">AI 摘要</span>
-                {intent && <span className={cn("rounded border px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>}
-                {priority && (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <span className={cn("size-1.5 rounded-full", priority.cls)} />
-                    {priority.label}
-                  </span>
-                )}
-                {canAi && (
-                  <span className="ml-auto flex gap-1">
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      disabled={analyzing}
-                      onClick={async () => {
-                        setAnalyzing(true);
-                        await runAction(analyzeMailAction(m.id));
-                        setAnalyzing(false);
-                      }}
-                    >
-                      {analyzing ? "分析中…" : m.aiSummary ? "重新分析" : "分析这封邮件"}
-                    </Button>
-                    {m.text && (
-                      <Button size="xs" variant="ghost" disabled={translating} onClick={translate}>
-                        <Languages /> {translating ? "翻译中…" : "翻译成中文"}
-                      </Button>
+                <Sparkles className="size-4 text-violet-600" />
+                <span className="text-xs font-semibold text-violet-700">AI 摘要</span>
+                {priority && m.aiPriority !== "low" && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      m.aiPriority === "high" ? "bg-rose-500 text-white" : "bg-amber-100 text-amber-800",
                     )}
+                  >
+                    {m.aiPriority === "high" ? "高优先 · 尽快回复" : "中优先"}
                   </span>
                 )}
+                {intent && <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", intent.cls)}>{intent.label}</span>}
+                <span className="ml-auto flex gap-1">
+                  {m.aiSummary && !analyzing && (
+                    <Button size="icon-xs" variant="ghost" onClick={() => void analyze(true)} aria-label="重新分析" title="重新分析">
+                      <RotateCw />
+                    </Button>
+                  )}
+                  {!translation && !translating && bodyText(m) && (
+                    <Button size="xs" variant="ghost" onClick={translate}>
+                      <Languages /> 翻译成中文
+                    </Button>
+                  )}
+                </span>
               </div>
-              {m.aiSummary && <p className="mt-1 text-foreground/90">{m.aiSummary}</p>}
+              {analyzing && !m.aiSummary ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-muted-foreground">
+                  <LoaderCircle className="size-3.5 animate-spin" /> AI 正在读这封邮件…
+                </p>
+              ) : (
+                m.aiSummary && <p className="mt-1 leading-relaxed text-foreground/90">{m.aiSummary}</p>
+              )}
             </div>
           )}
-          {translation && (
-            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm whitespace-pre-wrap">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">中文译文</p>
-              {translation}
+          {!canAi && m.aiSummary && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50/70 px-3.5 py-2.5 text-sm">
+              <span className="text-xs font-semibold text-violet-700">AI 摘要</span>
+              <p className="mt-1 text-foreground/90">{m.aiSummary}</p>
+            </div>
+          )}
+          {(translation || translating) && (
+            <div className="rounded-xl border bg-muted/40 px-3.5 py-2.5 text-sm">
+              <button
+                type="button"
+                onClick={() => setShowTr(!showTr)}
+                className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground"
+              >
+                <Languages className="size-3.5" /> 中文译文
+                {translating && <LoaderCircle className="size-3.5 animate-spin" />}
+                <ChevronDown className={cn("ml-auto size-4 transition-transform", !showTr && "-rotate-90")} />
+              </button>
+              {showTr && <p className="mt-1.5 leading-relaxed whitespace-pre-wrap">{translation || "翻译中…"}</p>}
             </div>
           )}
         </div>
@@ -267,11 +375,38 @@ export function MailReader({
             </div>
           </div>
         )}
+        {/* 读完就能回：不用回到顶部找按钮 */}
+        <div className="flex flex-wrap items-center gap-2 border-t px-4 py-4 md:px-5">
+          <Button asChild>
+            <Link href={`/mail/compose?reply=${m.id}`}>
+              <Reply /> 回复{m.folder === "INBOX" ? ` ${m.fromName || m.fromAddr}` : ""}
+            </Link>
+          </Button>
+          {canAi && m.folder === "INBOX" && (
+            <Button
+              variant="outline"
+              onClick={() => window.dispatchEvent(new CustomEvent("crm:ai-ask", { detail: { message: "帮我起草这封邮件的回复" } }))}
+            >
+              <Sparkles className="text-violet-600" /> 让 AI 起草回复
+            </Button>
+          )}
+          <Button asChild variant="ghost">
+            <Link href={`/mail/compose?forward=${m.id}`}>
+              <Forward /> 转发
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Dialog open={linking} onOpenChange={setLinking}>
         <DialogContent>
-          {linking && <LinkCustomer messageId={m.id} hint={m.folder === "INBOX" ? m.fromAddr.split("@")[1] : m.to[0]?.address.split("@")[1]} onDone={() => setLinking(false)} />}
+          {linking && (
+            <LinkCustomer
+              messageId={m.id}
+              hint={m.folder === "INBOX" ? m.fromAddr.split("@")[1] : m.to[0]?.address.split("@")[1]}
+              onDone={() => setLinking(false)}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -325,9 +460,7 @@ function TrackPanel({ track: t, tz }: { track: NonNullable<ReaderMessage["track"
   return (
     <div className={cn("rounded-lg border px-3 py-2 text-sm", tone)}>
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-medium">
-          {t.bouncedAt ? "退信，对方没有收到" : t.openCount ? `对方已打开 ${t.openCount} 次` : "对方还没打开"}
-        </span>
+        <span className="font-medium">{t.bouncedAt ? "退信，对方没有收到" : t.openCount ? `对方已打开 ${t.openCount} 次` : "对方还没打开"}</span>
         {t.openedAt && <span className="text-xs text-muted-foreground">首次 {formatDateTime(t.openedAt, tz)}</span>}
         {t.lastOpenAt && t.openCount > 1 && <span className="text-xs text-muted-foreground">最近 {formatDateTime(t.lastOpenAt, tz)}</span>}
         {t.clickCount > 0 && <span className="text-xs text-muted-foreground">点击链接 {t.clickCount} 次</span>}
