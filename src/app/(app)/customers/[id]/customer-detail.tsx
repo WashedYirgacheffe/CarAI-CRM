@@ -145,7 +145,12 @@ export type CommsProp = {
   mails: CustomerMailRow[];
   wa: CustomerWaRow[];
   /** null = 没有 AI 权限 */
-  ai: { brief: { content: string; createdAt: string } | null; next: { content: string; createdAt: string } | null } | null;
+  ai: {
+    summary: { content: string; createdAt: string } | null;
+    brief: { content: string; createdAt: string } | null;
+    next: { content: string; createdAt: string } | null;
+    freshAt: string | null;
+  } | null;
 };
 
 type Modal = "edit" | "transfer" | "release" | "delete" | "opportunity" | "task" | null;
@@ -369,7 +374,7 @@ export function CustomerDetail({
 
           {comms.ai && (
             <div className="max-xl:order-2">
-              <CustomerAiPanel customerId={c.id} brief={comms.ai.brief} next={comms.ai.next} tz={tz} />
+              <CustomerAiPanel customerId={c.id} {...comms.ai} tz={tz} />
             </div>
           )}
 

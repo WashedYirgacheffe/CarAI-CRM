@@ -16,6 +16,7 @@ function denied(message = "没有操作权限"): ActionState {
 
 function revalidate(customerId?: string | null) {
   revalidatePath("/schedule");
+  revalidatePath("/todo");
   revalidatePath("/dashboard");
   if (customerId) revalidatePath(`/customers/${customerId}`);
 }

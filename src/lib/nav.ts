@@ -9,7 +9,7 @@ export type NavLeaf = {
 };
 
 /** 图标栏数字提醒（/api/badges 返回） */
-export type BadgeKey = "leads" | "mail" | "whatsapp" | "tasks";
+export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "tasks";
 
 export type NavGroup = { group?: string; items: NavLeaf[] };
 
@@ -29,6 +29,7 @@ export type NavModule = {
 /** 后台模块（结构参照 OKKI：一级图标栏 + 模块二级菜单） */
 export const NAV: NavModule[] = [
   { key: "dashboard", title: "工作台", href: "/dashboard", icon: "LayoutDashboard" },
+  { key: "todo", title: "待办", href: "/todo", icon: "ListTodo", badge: "todo" },
   { key: "mail", title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
   { key: "whatsapp", title: "沟通", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
   { key: "marketing", title: "营销", href: "/marketing", icon: "Send", permission: "mail.use" },

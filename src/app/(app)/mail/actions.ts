@@ -233,6 +233,19 @@ export async function setStarredAction(id: string, starred: boolean): Promise<Ac
   return { ok: true };
 }
 
+/** 待办里「已处理」：不用回复的邮件从待办移走（done=false 撤销） */
+export async function setMailDoneAction(id: string, done: boolean): Promise<ActionState> {
+  const user = await requireMailUser();
+  if (!user) return denied();
+  const m = await ownMessage(user, id);
+  if (!m) return denied("邮件不存在");
+  await prisma.mailMessage.update({ where: { id: m.id }, data: { doneAt: done ? new Date() : null, ...(done ? { seen: true } : {}) } });
+  if (done && !m.seen && m.folderPath && m.uid) void markSeenOnServer(m.accountId, m.folderPath, m.uid, true);
+  revalidatePath("/todo");
+  revalidatePath("/mail", "layout");
+  return { ok: true, message: done ? "已处理，已从待办移走" : "已放回待办" };
+}
+
 export async function analyzeMailAction(id: string): Promise<ActionState> {
   const user = await requireMailUser();
   if (!user) return denied();

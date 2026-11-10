@@ -26,6 +26,8 @@ import {
 import { can, requireUser } from "@/server/auth";
 import { prisma, tenantDb } from "@/server/db";
 import { getBadges } from "@/server/badges";
+import { getOnboarding } from "@/server/onboarding";
+import { OnboardingChecklist } from "@/components/onboarding/onboarding-checklist";
 import { getRates } from "@/server/documents";
 import { ownedWhere } from "@/server/scope";
 import { docScopeWhere } from "@/server/documents";
@@ -686,9 +688,12 @@ export default async function DashboardPage() {
     METRICS.some((m) => canMetric(user, m.key)) && "chart",
   ].filter((x): x is string => !!x);
 
+  const onboarding = await getOnboarding(user);
+
   return (
     <>
       <PageHeader title={`你好，${user.name}`} description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`} />
+      {onboarding && <OnboardingChecklist steps={onboarding} />}
       <WorkspaceCanvas
         blocks={Object.fromEntries(available.map((k) => [k, blocks[k]]))}
         available={[...available, ...business]}

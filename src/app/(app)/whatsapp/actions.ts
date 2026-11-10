@@ -7,7 +7,8 @@ import { can, requireUser, type CurrentUser } from "@/server/auth";
 import { getCustomerForUser, logActivity } from "@/server/customers";
 import { digitsOf } from "@/server/whatsapp/match";
 import type { ActionState } from "@/lib/action";
-import { aiJson, clip } from "@/server/ai";
+import { aiConfigured, aiJson, clip } from "@/server/ai";
+import { looksChinese, looksForeign } from "@/lib/lang";
 import { formatMoney, formatDate } from "@/lib/crm";
 import { REMINDER_KINDS, TIME_PRESETS, presetDate, type TimePreset } from "@/lib/reminders";
 import { formShareUrl, quotationShareUrl } from "@/server/share";
@@ -172,6 +173,7 @@ export async function markChatReadAction(chatId: string): Promise<ActionState> {
   if (!user) return denied();
   const chat = await ownChat(user, chatId);
   if (chat?.unread) await prisma.waChat.update({ where: { id: chat.id }, data: { unread: 0 } });
+  revalidatePath("/todo");
   return { ok: true };
 }
 
@@ -587,4 +589,92 @@ export async function saveChatFollowUpAction(chatId: string, summary: string, to
   revalidatePath("/whatsapp", "layout");
   if (customerId) revalidatePath(`/customers/${customerId}`);
   return { ok: true, message: [text && "跟进记录已保存", todos.length && `${todos.length} 条待办已加到日程`].filter(Boolean).join("，") };
+}
+
+// ── 自动翻译 ──
+
+const TR_BATCH = 20;
+
+/**
+ * 把对方发来的外文消息译成中文，存在 WaMessage.translation（中文 / 太短的存空串，不再重复判断）。
+ * 打开会话时由前端触发，一次最多 20 条
+ */
+export async function translateWaAction(chatId: string, ids: string[]): Promise<ActionState & { count?: number }> {
+  const user = await waUser();
+  if (!user || !can(user, "ai.use") || !aiConfigured()) return denied();
+  const chat = await ownChat(user, chatId);
+  if (!chat) return denied("会话不存在");
+  const msgs = await prisma.waMessage.findMany({
+    where: { id: { in: ids.slice(0, TR_BATCH) }, chatId: chat.id, fromMe: false, translation: null },
+    select: { id: true, body: true },
+  });
+  const text = (b: string) => b.replace(/^\[(图片|视频|语音|表情|文件)\]\s*/, "").trim();
+  const foreign = msgs.filter((m) => looksForeign(text(m.body), 2));
+  const skip = msgs.filter((m) => !foreign.includes(m));
+  if (skip.length) await prisma.waMessage.updateMany({ where: { id: { in: skip.map((m) => m.id) } }, data: { translation: "" } });
+  if (!foreign.length) return { ok: true, count: 0 };
+  try {
+    const r = await aiJson<{ t?: unknown }>({
+      system: "你是外贸业务员的翻译助手，把客户发来的 WhatsApp 消息译成自然的简体中文。只输出一个 JSON 对象。",
+      messages: [
+        {
+          role: "user",
+          content: `把下面 ${foreign.length} 条消息逐条译成简体中文，产品型号、数字、单位、人名保持原样。输出 {"t": ["译文1", "译文2", ...]}，数量和顺序必须与原文一致。
+
+${foreign.map((m, i) => `${i + 1}. ${clip(text(m.body), 1200).replace(/\n/g, " ")}`).join("\n")}`,
+        },
+      ],
+      maxTokens: 3000,
+      timeoutMs: 45_000,
+    });
+    const out = Array.isArray(r.t) ? r.t : [];
+    await prisma.$transaction(
+      foreign.map((m, i) => prisma.waMessage.update({ where: { id: m.id }, data: { translation: String(out[i] ?? "").slice(0, 4000) || "" } })),
+    );
+    return { ok: true, count: foreign.length };
+  } catch (e) {
+    return denied((e as Error).message);
+  }
+}
+
+/** 中文写的回复按客户用的语言译好（只翻译，不发送；业务员看过再发） */
+export async function translateWaOutAction(chatId: string, draft: string): Promise<ActionState & { text?: string; lang?: string }> {
+  const user = await waUser();
+  if (!user || !can(user, "ai.use") || !aiConfigured()) return denied();
+  const chat = await ownChat(user, chatId);
+  if (!chat) return denied("会话不存在");
+  if (!draft.trim()) return denied("先写点内容");
+  const recent = await prisma.waMessage.findMany({
+    where: { chatId: chat.id, fromMe: false, hiddenAt: null, type: "text" },
+    orderBy: { timestamp: "desc" },
+    take: 8,
+    select: { body: true },
+  });
+  const samples = recent.map((m) => m.body).filter((b) => b && !looksChinese(b));
+  try {
+    const r = await aiJson<{ lang?: string; text?: string }>({
+      system: "你是外贸业务员的翻译助手。只输出一个 JSON 对象。",
+      messages: [
+        {
+          role: "user",
+          content: `${
+            samples.length
+              ? `客户最近发来的消息：\n${samples.map((b) => `- ${clip(b, 300).replace(/\n/g, " ")}`).join("\n")}\n\n判断客户用的是什么语言，`
+              : "客户还没发过外文消息，用英语，"
+          }把我写的中文译成这种语言的 WhatsApp 消息：口语、简洁、礼貌；数字、型号、价格、单位原样保留；不要添加原文没有的内容，不要加称呼和签名。
+输出 {"lang": "语言名（用该语言自己的写法，如 English、Español）", "text": "译文"}
+
+我写的：
+${clip(draft, 3000)}`,
+        },
+      ],
+      maxTokens: 2000,
+      timeoutMs: 45_000,
+    });
+    const text = String(r.text ?? "").trim();
+    if (!text) return denied("没译出来，请重试");
+    return { ok: true, text, lang: String(r.lang ?? "").slice(0, 30) || "外文" };
+  } catch (e) {
+    return denied((e as Error).message);
+  }
 }

@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   Mail,
   LayoutGrid,
+  ListTodo,
   MessageCircle,
   Package,
   Send,
@@ -46,6 +47,7 @@ const ICONS: Record<string, LucideIcon> = {
   Inbox,
   KanbanSquare,
   LayoutDashboard,
+  ListTodo,
   Mail,
   MessageCircle,
   Package,
@@ -59,7 +61,7 @@ type UserInfo = { name: string; email: string; roleName: string; isOwner: boolea
 const MENU_COOKIE = "navmenu";
 
 /** 手机底部标签栏固定的 4 个模块（按顺序，没权限的跳过），第 5 个是「更多」 */
-const TAB_KEYS = ["dashboard", "customers", "whatsapp", "schedule"] as const;
+const TAB_KEYS = ["dashboard", "todo", "customers", "whatsapp"] as const;
 
 /** 后台外壳：顶栏（品牌 + 搜索 + 提醒 + 账号）、左侧 72px 模块图标栏、模块二级菜单 */
 export function AppShell({
@@ -396,6 +398,7 @@ function CountPill({ count }: { count: number }) {
 }
 
 const REMINDER_LABEL: Record<BadgeKey, string> = {
+  todo: "待办收件箱",
   leads: "待处理线索",
   mail: "未读邮件",
   whatsapp: "未读 WhatsApp 消息",
@@ -405,8 +408,10 @@ const REMINDER_LABEL: Record<BadgeKey, string> = {
 /** 顶栏提醒：到点的跟进提醒（可直接完成 / 推迟），再汇总线索、邮件、WhatsApp 的未处理数 */
 function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: Badges; reload: () => void }) {
   const [open, setOpen] = useState(false);
-  const items = modules.filter((m) => m.badge).map((m) => ({ href: m.href, key: m.badge!, count: badges[m.badge!] ?? 0 }));
+  // 「待办」是其它几项的汇总，不重复计数，只在底部给个入口
+  const items = modules.filter((m) => m.badge && m.badge !== "todo").map((m) => ({ href: m.href, key: m.badge!, count: badges[m.badge!] ?? 0 }));
   const total = items.reduce((s, i) => s + i.count, 0);
+  const todo = modules.find((m) => m.badge === "todo");
   const due = badges.due ?? [];
   if (!items.length) return null;
   const act = async (p: Promise<unknown>) => {
@@ -483,6 +488,16 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
             </li>
           ))}
         </ul>
+        {todo && (
+          <Link
+            href={todo.href}
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-between border-t px-3.5 py-2.5 text-sm font-medium text-primary hover:bg-muted/40"
+          >
+            打开待办收件箱，一次处理完
+            <ChevronRight className="size-4" />
+          </Link>
+        )}
       </PopoverContent>
     </Popover>
   );
