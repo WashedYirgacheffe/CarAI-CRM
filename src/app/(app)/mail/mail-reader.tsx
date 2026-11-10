@@ -12,7 +12,7 @@ import { formatDateTime } from "@/lib/crm";
 import { MAIL_INTENT_LABELS, MAIL_PRIORITY_LABELS } from "@/lib/mail";
 import { QuickReminder } from "@/components/crm/tasks";
 import { cn } from "@/lib/utils";
-import { aiWriteAction } from "@/app/(app)/ai/actions";
+import { streamAiWrite } from "@/components/ai/stream-write";
 import { analyzeMailAction, linkMailAction, mailToLeadAction, searchCustomersAction, setSeenAction, setStarredAction } from "./actions";
 
 type Addr = { name?: string | null; address: string };
@@ -89,10 +89,13 @@ export function MailReader({
 
   async function translate() {
     setTranslating(true);
-    const r = await aiWriteAction({ mode: "translate", draft: m.text ?? "", language: "简体中文", channel: "email" });
+    const r = await streamAiWrite({ mode: "translate", draft: m.text ?? "", language: "简体中文", channel: "email" }, setTranslation);
     setTranslating(false);
     if (r.ok) setTranslation(r.text);
-    else toast.error(r.message);
+    else {
+      setTranslation(null);
+      toast.error(r.message);
+    }
   }
 
   return (
