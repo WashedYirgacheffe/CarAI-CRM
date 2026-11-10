@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   if (!user) return fail("请先登录", 401);
   if (!can(user, "ai.use")) return fail("没有使用 AI 的权限", 403);
   if (!aiConfigured()) return fail("AI 还没有配置", 503);
-  const body = (await request.json().catch(() => null)) as { message?: unknown; history?: unknown; layout?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { message?: unknown; history?: unknown; layout?: unknown; active?: unknown } | null;
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   if (!message) return fail("请输入内容");
   const history: CanvasTurn[] = (Array.isArray(body?.history) ? body.history : [])
@@ -29,7 +29,12 @@ export async function POST(request: Request) {
           abort.abort();
         }
       };
-      await runCanvasTurn(user, { message, history, layout: body?.layout }, emit, abort.signal);
+      await runCanvasTurn(
+        user,
+        { message, history, layout: body?.layout, active: typeof body?.active === "string" ? body.active : undefined },
+        emit,
+        abort.signal,
+      );
       if (!abort.signal.aborted) c.close();
     },
     cancel() {

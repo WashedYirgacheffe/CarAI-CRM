@@ -123,12 +123,21 @@ export function ComposeForm({ accounts, initial, canAi }: { accounts: { id: stri
       </div>
       <div className="space-y-3">
         {canAi ? (
-          <AiWriter channel="email" original={initial.original} getDraft={() => text} onApply={(t) => setText((cur) => {
-            const tail = cur.match(/\n\n\n(.{0,80}(写道：|wrote:)|---------- 转发的邮件)[\s\S]*$/)?.[0] ?? "";
-            return t + tail;
-          })} />
+          <AiWriter
+            channel="email"
+            original={initial.original}
+            getDraft={() => text}
+            onApply={(t) =>
+              setText((cur) => {
+                const tail = cur.match(/\n\n\n(.{0,80}(写道：|wrote:)|---------- 转发的邮件)[\s\S]*$/)?.[0] ?? "";
+                return t + tail;
+              })
+            }
+          />
         ) : (
-          <p className="rounded-lg border bg-card p-3 text-xs text-muted-foreground">AI 写作助手未开通（需要管理员配置 AI 并授予「使用 AI」权限）。</p>
+          <p className="rounded-lg border bg-card p-3 text-xs text-muted-foreground">
+            AI 写作助手未开通（需要管理员配置 AI 并授予「使用 AI」权限）。
+          </p>
         )}
         <div className="rounded-lg border bg-card p-3 text-xs leading-relaxed text-muted-foreground">
           <p className="mb-1 font-medium text-foreground">小提示</p>

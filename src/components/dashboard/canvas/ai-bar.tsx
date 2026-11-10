@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowRight, ArrowUp, LoaderCircle, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
+import type { ActionCard } from "@/lib/ai-actions";
+import { ActionCardView, cardSummary, type CardState } from "./action-card";
 import { cn } from "@/lib/utils";
 
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
@@ -18,6 +20,7 @@ type Turn =
       links: { label: string; href: string }[];
       error: string | null;
       done: boolean;
+      cards: CardState[];
       /** 本步开始时的文字长度，丢弃过渡话时截回这里 */
       mark: number;
     };
@@ -29,11 +32,17 @@ type Event =
   | ({ t: "choice" } & Choice)
   | { t: "link"; label: string; href: string }
   | { t: "error"; message: string }
+  | { t: "action"; card: ActionCard }
+  | WorkspaceEvent
   | { t: "step" }
   | { t: "drop" }
   | { t: "done" };
 
-const SUGGESTIONS = ["团队本月业绩怎么样", "最近 30 天成交额走势", "今年询盘都来自哪些国家", "这个季度谁的跟进最多"];
+export type WorkspaceEvent =
+  | { t: "workspace"; op: "open"; id: string; layout: CanvasLayout }
+  | { t: "workspace"; op: "saved"; id: string; name: string; layout: CanvasLayout; home: boolean };
+
+const SUGGESTIONS = ["团队本月业绩怎么样", "今天有哪些提醒", "最近 30 天成交额走势", "把当前布局存成默认情景"];
 
 /** 把一轮回复压成给模型看的历史（选项里的 reply 带着 id，下一轮要用） */
 function historyOf(turns: Turn[]) {
@@ -41,13 +50,27 @@ function historyOf(turns: Turn[]) {
     if (t.role === "user") return { role: "user" as const, content: t.text };
     const parts = [t.text.trim()];
     if (t.choice) parts.push(`（我问了：${t.choice.question}；选项：${t.choice.options.map((o) => `${o.label} → ${o.reply}`).join("；")}）`);
+    for (const c of t.cards) parts.push(cardSummary(c));
     if (t.links.length) parts.push(`（给了跳转按钮：${t.links.map((l) => `${l.label} ${l.href}`).join("，")}）`);
     return { role: "assistant" as const, content: parts.filter(Boolean).join("\n") || "（已调整画布）" };
   });
 }
 
 /** 工作台顶部的 AI 栏：说一句话，AI 查数据、摆组件、给结论 */
-export function AiBar({ enabled, layout, onLayout }: { enabled: boolean; layout: CanvasLayout; onLayout: (l: CanvasLayout) => void }) {
+export function AiBar({
+  enabled,
+  layout,
+  active,
+  onLayout,
+  onWorkspace,
+}: {
+  enabled: boolean;
+  layout: CanvasLayout;
+  active: string;
+  onLayout: (l: CanvasLayout) => void;
+  /** 返回切换后的画布 */
+  onWorkspace: (e: WorkspaceEvent) => CanvasLayout;
+}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,7 +102,7 @@ export function AiBar({ enabled, layout, onLayout }: { enabled: boolean; layout:
     setTurns((ts) => [
       ...ts.slice(-19),
       { role: "user", text: message },
-      { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0 },
+      { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [] },
     ]);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -87,7 +110,7 @@ export function AiBar({ enabled, layout, onLayout }: { enabled: boolean; layout:
       const res = await fetch("/api/ai/canvas", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, history, layout: layoutRef.current }),
+        body: JSON.stringify({ message, history, layout: layoutRef.current, active }),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) throw new Error((await res.text().catch(() => "")) || "AI 暂时不可用，请稍后重试");
@@ -112,6 +135,9 @@ export function AiBar({ enabled, layout, onLayout }: { enabled: boolean; layout:
             layoutRef.current = e.layout;
             onLayout(e.layout);
           } else if (e.t === "choice") patchLast(() => ({ choice: { question: e.question, options: e.options }, status: null }));
+          else if (e.t === "action")
+            patchLast((t) => ({ cards: [...t.cards, { card: e.card, params: e.card.params, state: "pending" }], status: null }));
+          else if (e.t === "workspace") layoutRef.current = onWorkspace(e);
           else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
           else if (e.t === "error") patchLast(() => ({ error: e.message, status: null }));
         }
@@ -124,6 +150,11 @@ export function AiBar({ enabled, layout, onLayout }: { enabled: boolean; layout:
       abortRef.current = null;
     }
   };
+
+  const patchCard = (ti: number, ci: number, patch: Partial<CardState>) =>
+    setTurns((ts) =>
+      ts.map((t, i) => (i === ti && t.role === "assistant" ? { ...t, cards: t.cards.map((c, j) => (j === ci ? { ...c, ...patch } : c)) } : t)),
+    );
 
   const stop = () => {
     abortRef.current?.abort();
@@ -190,14 +221,21 @@ export function AiBar({ enabled, layout, onLayout }: { enabled: boolean; layout:
           >
             <X className="size-3" /> 清空对话
           </button>
-          <div ref={logRef} className="max-h-80 space-y-3 overflow-y-auto px-4 py-3 pr-24" aria-live="polite">
+          <div ref={logRef} className="max-h-[28rem] space-y-3 overflow-y-auto px-4 py-3 pr-24" aria-live="polite">
             {turns.map((t, i) =>
               t.role === "user" ? (
                 <p key={i} className="text-sm font-medium">
                   {t.text}
                 </p>
               ) : (
-                <AssistantTurn key={i} turn={t} last={i === turns.length - 1} busy={busy} onReply={send} />
+                <AssistantTurn
+                  key={i}
+                  turn={t}
+                  last={i === turns.length - 1}
+                  busy={busy}
+                  onReply={send}
+                  onCard={(ci, patch) => patchCard(i, ci, patch)}
+                />
               ),
             )}
           </div>
@@ -230,11 +268,13 @@ function AssistantTurn({
   last,
   busy,
   onReply,
+  onCard,
 }: {
   turn: Extract<Turn, { role: "assistant" }>;
   last: boolean;
   busy: boolean;
   onReply: (s: string) => void;
+  onCard: (index: number, patch: Partial<CardState>) => void;
 }) {
   return (
     <div className="space-y-2 border-l-2 border-violet-500/30 pl-3 text-sm">
@@ -265,6 +305,9 @@ function AssistantTurn({
           </div>
         </div>
       )}
+      {turn.cards.map((c, ci) => (
+        <ActionCardView key={ci} value={c} onChange={(patch) => onCard(ci, patch)} />
+      ))}
       {turn.links.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {turn.links.map((l) => (

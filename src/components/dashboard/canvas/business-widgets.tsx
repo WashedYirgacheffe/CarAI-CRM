@@ -63,6 +63,11 @@ function useWidgetData(item: CanvasItem) {
     };
   }, [key, tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
+  // AI 卡片执行成功（写了跟进、建了提醒等）后刷新画布上的数据
+  useEffect(() => {
+    window.addEventListener("crm:widgets-refresh", reload);
+    return () => window.removeEventListener("crm:widgets-refresh", reload);
+  }, [reload]);
   // 参数变了、还没拿到新数据时显示加载中
   return { data: state.key === key ? state.data : null, reload, loading: state.key !== key };
 }

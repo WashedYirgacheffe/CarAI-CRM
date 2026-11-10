@@ -26,14 +26,13 @@ export default async function ComposePage({ searchParams }: PageProps<"/mail/com
   const accounts = await db.mailAccount.findMany({ where: { userId: user.id }, orderBy: { createdAt: "asc" }, select: { id: true, email: true } });
 
   const sourceId = s("reply") || s("forward");
-  const source = sourceId
-    ? await db.mailMessage.findFirst({ where: { id: sourceId, account: { userId: user.id } } })
-    : null;
+  const source = sourceId ? await db.mailMessage.findFirst({ where: { id: sourceId, account: { userId: user.id } } }) : null;
 
   let to = s("to");
   let cc = "";
   let subject = s("subject");
-  let text = "";
+  // AI 起草的正文可以通过 ?body= 带进来
+  let text = s("body").slice(0, 20000);
   let accountId = accounts[0]?.id ?? "";
   let original: string | undefined;
   let forwardFiles: string[] = [];
@@ -69,7 +68,11 @@ export default async function ComposePage({ searchParams }: PageProps<"/mail/com
       </Link>
       {accounts.length === 0 ? (
         <p className="surface p-10 text-center text-sm text-muted-foreground">
-          请先到 <Link href="/settings/mailboxes" className="text-primary underline">邮箱绑定</Link> 绑定发件邮箱。
+          请先到{" "}
+          <Link href="/settings/mailboxes" className="text-primary underline">
+            邮箱绑定
+          </Link>{" "}
+          绑定发件邮箱。
         </p>
       ) : (
         <ComposeForm
