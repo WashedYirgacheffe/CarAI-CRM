@@ -10,6 +10,7 @@ import { getQuotationForUser } from "@/server/documents";
 import { formatDate, formatDateTime } from "@/lib/crm";
 import { isPast, orderStatus, quotationStatus, approvalStatus } from "@/lib/docs";
 import { QuotationActions } from "./quotation-actions";
+import { QuickReminder } from "@/components/crm/tasks";
 
 export async function generateMetadata({ params }: PageProps<"/quotations/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -46,6 +47,8 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
             {q.title && ` · ${q.title}`}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <QuickReminder tz={tz} context="quotation" customerId={q.customer.id} link={`/quotations/${q.id}`} subject={`报价单 ${q.no}`} />
         <QuotationActions
           id={q.id}
           no={q.no}
@@ -57,6 +60,7 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
             createOrder: can(user, "order.create"),
           }}
         />
+        </div>
       </div>
 
       <div className="grid gap-4">

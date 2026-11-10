@@ -5,6 +5,7 @@ import { prisma } from "@/server/db";
 import { archiveMail } from "@/server/mail/archive";
 import { configOf, friendlyError, imapClient, smtpAutoSavesSent, smtpTransport } from "@/server/mail/client";
 import { makeSnippet, saveAttachment, textToHtml, type MailAddress, type MailAttachmentMeta } from "@/server/mail/store";
+import { decorateHtml, newTrackId } from "@/server/mail/track";
 
 export type OutgoingMail = {
   accountId: string;
@@ -16,6 +17,10 @@ export type OutgoingMail = {
   files: { filename: string; contentType: string; content: Buffer }[];
   inReplyTo?: string | null;
   references?: string[];
+  /** 追踪打开和点击（默认开） */
+  track?: boolean;
+  /** 群发 / 序列发出的：带退订链接，并记到这个收件人名下 */
+  enrollmentId?: string;
 };
 
 export async function sendMail(m: OutgoingMail): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
@@ -25,6 +30,10 @@ export async function sendMail(m: OutgoingMail): Promise<{ ok: true; id: string 
   const messageId = `<${Date.now().toString(36)}.${randomBytes(8).toString("hex")}@${domain}>`;
   const body = account.signature ? `${m.text}\n\n--\n${account.signature}` : m.text;
   const fromName = account.displayName || account.user.name;
+  // 只发给一个收件人时才追踪：多人时分不清是谁打开的
+  const trackId = m.track !== false && m.to.length + m.cc.length + m.bcc.length === 1 ? newTrackId() : null;
+  const plainHtml = textToHtml(body);
+  const html = trackId ? decorateHtml(plainHtml, trackId, { unsubscribe: !!m.enrollmentId }) : plainHtml;
 
   const composer = new MailComposer({
     from: { name: fromName, address: account.email },
@@ -33,7 +42,7 @@ export async function sendMail(m: OutgoingMail): Promise<{ ok: true; id: string 
     bcc: m.bcc.map((a) => ({ name: a.name ?? "", address: a.address })),
     subject: m.subject,
     text: body,
-    html: textToHtml(body),
+    html,
     messageId,
     inReplyTo: m.inReplyTo ?? undefined,
     references: m.references?.length ? m.references : undefined,
@@ -97,7 +106,10 @@ export async function sendMail(m: OutgoingMail): Promise<{ ok: true; id: string 
       ccList: m.cc,
       subject: m.subject,
       text: body,
+      html,
       snippet,
+      trackId,
+      enrollmentId: m.enrollmentId ?? null,
       date,
       seen: true,
       attachments,

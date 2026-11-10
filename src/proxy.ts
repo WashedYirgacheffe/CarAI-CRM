@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // 乐观检查：没有会话 cookie 就跳登录页。
 // 真正的会话校验和权限判断在服务端 getCurrentUser / requirePermission 中完成。
-const PUBLIC_PATHS = ["/login", "/register"];
+// /api/t：邮件打开像素、链接跳转、退订（收件人没有登录）
+const PUBLIC_PATHS = ["/login", "/register", "/api/t"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

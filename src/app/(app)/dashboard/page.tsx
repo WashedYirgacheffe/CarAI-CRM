@@ -477,6 +477,10 @@ export default async function DashboardPage() {
               done: t.done,
               customerId: t.customerId,
               customerName: t.customer?.name ?? null,
+              kind: t.kind,
+              note: t.note,
+              link: t.link,
+              snoozeCount: t.snoozeCount,
             }))}
           />
         </CardContent>

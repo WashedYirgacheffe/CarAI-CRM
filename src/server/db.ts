@@ -45,6 +45,10 @@ const TENANT_MODELS = new Set<string>([
   "AiInsight",
   "CustomerSegment",
   "SuggestionIgnore",
+  "MailEvent",
+  "MailSequence",
+  "MailEnrollment",
+  "MailSuppression",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([

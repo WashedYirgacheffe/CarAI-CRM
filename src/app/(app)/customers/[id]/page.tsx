@@ -227,6 +227,10 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         done: t.done,
         customerId: t.customerId,
         customerName: customer.name,
+        kind: t.kind,
+        note: t.note,
+        link: t.link,
+        snoozeCount: t.snoozeCount,
       }))}
     />
   );

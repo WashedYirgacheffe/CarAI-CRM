@@ -438,17 +438,17 @@ export function CustomerDetail({
               </CollapseBar>
             )}
             <CollapseBar
-              title="计划日程"
+              title="跟进提醒"
               count={openTasks.length}
               action={
                 canEdit && (
                   <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("task")}>
-                    <Plus /> 添加
+                    <Plus /> 设提醒
                   </Button>
                 )
               }
             >
-              <TaskList tasks={openTasks} tz={tz} showCustomer={false} empty="没有计划中的日程" />
+              <TaskList tasks={openTasks} tz={tz} showCustomer={false} empty="没有待办提醒。在等工厂报价、等船期？点「设提醒」" />
             </CollapseBar>
           </div>
 
@@ -544,7 +544,7 @@ export function CustomerDetail({
                     action={
                       canEdit && (
                         <Button size="sm" variant="outline" onClick={() => setModal("task")}>
-                          <Plus /> 新建日程
+                          <Plus /> 设提醒
                         </Button>
                       )
                     }
@@ -633,7 +633,7 @@ export function CustomerDetail({
         </DialogContent>
       </Dialog>
       <Dialog open={modal === "task"} onOpenChange={(o) => !o && close()}>
-        <DialogContent>{modal === "task" && <TaskForm customerId={c.id} tz={tz} onDone={close} />}</DialogContent>
+        <DialogContent className="sm:max-w-lg">{modal === "task" && <TaskForm customerId={c.id} tz={tz} onDone={close} />}</DialogContent>
       </Dialog>
       <AlertDialog open={modal === "delete"} onOpenChange={(o) => !o && close()}>
         <AlertDialogContent>

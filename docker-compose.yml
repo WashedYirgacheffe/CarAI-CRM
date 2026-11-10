@@ -35,6 +35,8 @@ services:
       REDIS_URL: redis://redis:6379
       UPLOAD_DIR: /data/uploads
       APP_SECRET: ${APP_SECRET:?请在 .env 中设置 APP_SECRET（openssl rand -hex 32，设定后不要再改）}
+      # 邮件追踪像素、链接跳转、退订链接用的对外地址
+      APP_URL: https://${APP_DOMAIN}
       AI_BASE_URL: ${AI_BASE_URL:-https://moonup.dev}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-deepseek-v4.1-flash-1017}
@@ -81,6 +83,7 @@ services:
       UPLOAD_DIR: /data/uploads
       WA_AUTH_DIR: /data/whatsapp
       APP_SECRET: ${APP_SECRET:?请在 .env 中设置 APP_SECRET}
+      APP_URL: https://${APP_DOMAIN}
       AI_BASE_URL: ${AI_BASE_URL:-https://moonup.dev}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-deepseek-v4.1-flash-1017}
