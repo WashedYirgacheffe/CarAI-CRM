@@ -43,6 +43,8 @@ const contactNames = new Map<string, Map<string, string>>();
 /** 历史同步：最近一次收到历史分片的时间、是否已收到「完成」信号 */
 const lastHistoryAt = new Map<string, number>();
 const historyComplete = new Set<string>();
+/** 桌面版身份被 WhatsApp 拒绝过的账号，改用浏览器身份关联 */
+const desktopRejected = new Set<string>();
 const tenantOf = new Map<string, { tenantId: string; userId: string }>();
 let version: [number, number, number] | undefined;
 let versionAt = 0;
@@ -72,8 +74,9 @@ async function start(accountId: string) {
     version,
     logger,
     // 扫码登录伪装成桌面版：WhatsApp 只给桌面版推送完整聊天记录。
+    // 必须用 Linux 桌面版：macOS / Windows 桌面版加上完整历史会带系统子平台标记，现在会被直接断开（428）。
     // 手机号配对码只能用浏览器（Chrome）：桌面版的配对码会被拒绝，手机上提示「无法关联设备」
-    browser: client === "desktop" ? B.Browsers.macOS("Desktop") : B.Browsers.macOS("Chrome"),
+    browser: client === "desktop" ? B.Browsers.ubuntu("Desktop") : B.Browsers.macOS("Chrome"),
     markOnlineOnConnect: false,
     // 关联时向手机申请完整历史，并且收下 FULL 类型的历史分片（库默认会丢掉）
     syncFullHistory: true,
@@ -161,6 +164,11 @@ async function start(accountId: string) {
           return;
         }
         if (code === B.DisconnectReason.restartRequired) return; // 扫码成功后的正常重启，立即重连
+        // 还没关联就被 WhatsApp 断开：桌面版身份被拒了，改回浏览器身份，保证还能拿到二维码
+        if (code === B.DisconnectReason.connectionClosed && client === "desktop" && !sock.authState.creds.registered && !session.qrCount) {
+          desktopRejected.add(accountId);
+          log(accountId, "desktop identity rejected, falling back to browser");
+        }
         const n = (failures.get(accountId) ?? 0) + 1;
         failures.set(accountId, n);
         retryAt.set(accountId, Date.now() + Math.min(5 * 60_000, 2000 * 2 ** n));
@@ -243,6 +251,8 @@ async function clientKind(accountId: string, registered: boolean): Promise<"desk
   const saved = (await readFile(file, "utf8").catch(() => "")).trim();
   if (saved === "desktop" || saved === "browser") return saved;
   if (registered) return "browser";
+  // 未关联的凭据目录每次重连都会清掉，所以「桌面版被拒」记在内存里
+  if (desktopRejected.has(accountId)) return "browser";
   const account = await prisma.waAccount.findUnique({ where: { id: accountId }, select: { pairPhone: true } });
   const kind = account?.pairPhone ? "browser" : "desktop";
   await writeFile(file, kind).catch(() => {});
