@@ -14,7 +14,7 @@ async function loadBaileys() {
 }
 import pino from "pino";
 import { prisma } from "@/server/db";
-import { putObject } from "@/server/storage";
+import { getObject, putObject } from "@/server/storage";
 import { matchContactByPhone } from "@/server/whatsapp/match";
 import { touchCustomer } from "@/server/pool";
 
@@ -356,6 +356,15 @@ async function saveMedia(sock: WASocket, msg: WAMessage, row: { id: string; tena
   });
 }
 
+/** 消息里引用（回复）的那条消息的 WhatsApp id */
+function quotedStanzaId(msg: WAMessage): string | null {
+  const content = B.normalizeMessageContent(msg.message);
+  const kind = content && B.getContentType(content);
+  if (!content || !kind) return null;
+  const inner = content[kind] as { contextInfo?: { stanzaId?: string | null } | null } | null | undefined;
+  return (inner && typeof inner === "object" && inner.contextInfo?.stanzaId) || null;
+}
+
 /** 存一条消息，返回是否新入库 */
 async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, live: boolean): Promise<boolean> {
   const jid = msg.key.remoteJid;
@@ -400,6 +409,12 @@ async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, 
     if (match) chat = await prisma.waChat.update({ where: { id: chat.id }, data: { customerId: match.customerId, contactId: match.id } });
   }
 
+  // 对方 / 自己在手机上「回复」某条消息：记下被引用的那条
+  const quotedWaId = quotedStanzaId(msg);
+  const quoted = quotedWaId
+    ? await prisma.waMessage.findUnique({ where: { accountId_waId: { accountId, waId: quotedWaId } }, select: { id: true } })
+    : null;
+
   let row;
   try {
     row = await prisma.waMessage.create({
@@ -412,6 +427,7 @@ async function storeIncoming(sock: WASocket, accountId: string, msg: WAMessage, 
         type: c.type,
         body: c.body.slice(0, 20_000),
         status: fromMe ? "SENT" : "RECEIVED",
+        quotedId: quoted?.id ?? null,
         timestamp: ts,
       },
     });
@@ -450,6 +466,17 @@ export async function logOutgoing(tenantId: string, customerId: string, userId: 
   await touchCustomer(tenantId, customerId, at, ["lastWaAt"]);
 }
 
+/** 待发消息转成 WhatsApp 消息内容：文字，或带说明的图片 / 视频 / 文件 */
+async function outgoingContent(m: { type: string; body: string; mediaKey: string | null; mediaMime: string | null; mediaName: string | null }) {
+  if (!m.mediaKey) return { text: m.body };
+  const buf = await getObject(m.mediaKey);
+  const caption = m.body || undefined;
+  if (m.type === "image") return { image: buf, caption, mimetype: m.mediaMime ?? undefined };
+  if (m.type === "video") return { video: buf, caption, mimetype: m.mediaMime ?? undefined };
+  if (m.type === "audio") return { audio: buf, mimetype: m.mediaMime ?? "audio/ogg" };
+  return { document: buf, caption, mimetype: m.mediaMime ?? "application/octet-stream", fileName: m.mediaName ?? "file" };
+}
+
 async function sendQueued() {
   const queued = await prisma.waMessage.findMany({
     where: { status: "QUEUED", accountId: { in: [...sessions.keys()] } },
@@ -463,9 +490,15 @@ async function sendQueued() {
     const waId = B.generateMessageIDV2(s.sock.user?.id);
     await prisma.waMessage.update({ where: { id: m.id }, data: { waId } });
     try {
-      await s.sock.sendMessage(m.chat.jid, { text: m.body }, { messageId: waId });
+      const q = m.quotedId ? await prisma.waMessage.findUnique({ where: { id: m.quotedId } }) : null;
+      // 回复：带上被引用消息的 key，对方手机上会显示引用条
+      const quoted = q?.waId
+        ? ({ key: { remoteJid: m.chat.jid, id: q.waId, fromMe: q.fromMe }, message: { conversation: q.body.slice(0, 500) } } as WAMessage)
+        : undefined;
+      await s.sock.sendMessage(m.chat.jid, await outgoingContent(m), { messageId: waId, quoted });
       await prisma.waMessage.update({ where: { id: m.id }, data: { status: "SENT", timestamp: new Date() } });
-      if (m.chat.customerId) await logOutgoing(m.tenantId, m.chat.customerId, m.sentById ?? m.account.userId, m.body, new Date());
+      const label = m.mediaKey ? `${{ image: "[图片]", video: "[视频]", audio: "[语音]" }[m.type] ?? `[文件] ${m.mediaName ?? ""}`} ${m.body}`.trim() : m.body;
+      if (m.chat.customerId) await logOutgoing(m.tenantId, m.chat.customerId, m.sentById ?? m.account.userId, label, new Date());
     } catch (e) {
       await prisma.waMessage.update({ where: { id: m.id }, data: { status: "FAILED", error: (e as Error).message.slice(0, 300) } });
     }

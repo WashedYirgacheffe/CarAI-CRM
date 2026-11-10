@@ -942,6 +942,10 @@ model WaChat {
   /// 头像（存储 key）；avatarAt 为上次拉取时间，没头像时 key 为空但 avatarAt 有值
   avatarKey     String?
   avatarAt      DateTime?
+  /// 置顶时间（为空表示没置顶），置顶的按置顶时间倒序排在最前
+  pinnedAt      DateTime?
+  /// 归档后不出现在主列表，在「已归档」里查看
+  archived      Boolean   @default(false)
   createdAt     DateTime  @default(now())
 
   tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -981,6 +985,12 @@ model WaMessage {
   status    WaMsgStatus
   error     String?
   sentById  String?
+  /// 回复的是哪条消息（本表 id）
+  quotedId  String?
+  /// 星标消息
+  starred   Boolean     @default(false)
+  /// 「为我删除」：只在本系统里隐藏，不影响手机和对方
+  hiddenAt  DateTime?
   timestamp DateTime
   createdAt DateTime    @default(now())
 
