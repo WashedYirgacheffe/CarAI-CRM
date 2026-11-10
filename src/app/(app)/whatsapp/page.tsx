@@ -1,7 +1,7 @@
 import { waMediaOf } from "@/components/crm/wa-media";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Building2, Check, Clock, ExternalLink, Image as ImageIcon, LoaderCircle, MessageCircle, Phone, Search, Smartphone } from "lucide-react";
+import { Archive, ChevronLeft, LoaderCircle, MessageCircle, Search, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WaAvatar } from "@/components/crm/wa-avatar";
 import { can, requirePermission } from "@/server/auth";
@@ -11,6 +11,7 @@ import { waListTime } from "@/lib/wa-time";
 import { countryName } from "@/lib/crm";
 import { cn } from "@/lib/utils";
 import { ChatView, LiveRefresh, NewChatButton, StartFromParams } from "./chat-view";
+import { ChatListItem } from "./chat-list-item";
 
 export const metadata: Metadata = { title: "WhatsApp" };
 
@@ -51,40 +52,73 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
   const chatId = s("chat");
   const contains = { contains: q, mode: "insensitive" as const };
   const base = { accountId: account.id, lastMessageAt: { not: null } };
-  const [chats, chat, unreadChats] = await Promise.all([
+  const [chats, chat, unreadChats, archivedCount] = await Promise.all([
     db.waChat.findMany({
       where: {
         ...base,
+        archived: f === "archived",
         ...(f === "unread" ? { unread: { gt: 0 } } : f === "customer" ? { customerId: { not: null } } : f === "unlinked" ? { customerId: null } : {}),
         ...(q ? { OR: [{ name: contains }, { phone: { contains: q.replace(/\D/g, "") || q } }, { customer: { name: contains } }] } : {}),
       },
-      orderBy: { lastMessageAt: "desc" },
+      orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { lastMessageAt: "desc" }],
       take: 300,
-      include: { customer: { select: { name: true } } },
+      include: { customer: { select: { id: true, name: true } } },
     }),
     chatId
       ? db.waChat.findFirst({
           where: { id: chatId, accountId: account.id },
           include: {
-            customer: { select: { id: true, name: true, country: true, status: { select: { name: true } } } },
+            customer: { select: { id: true, name: true, country: true, status: { select: { name: true } }, owner: { select: { name: true } } } },
             contact: { select: { name: true, title: true, email: true } },
           },
         })
       : null,
-    db.waChat.count({ where: { ...base, unread: { gt: 0 } } }),
+    db.waChat.count({ where: { ...base, archived: false, unread: { gt: 0 } } }),
+    db.waChat.count({ where: { ...base, archived: true } }),
   ]);
-  const [messages, media, msgCount] = chat
+  const visible = { hiddenAt: null };
+  const customerId = chat?.customerId ?? null;
+  const [messages, media, msgCount, starred, firstMsg, tasks, activities, quotations] = chat
     ? await Promise.all([
-        db.waMessage.findMany({ where: { chatId: chat.id }, orderBy: { timestamp: "desc" }, take: 300 }).then((r) => r.reverse()),
+        db.waMessage.findMany({ where: { chatId: chat.id, ...visible }, orderBy: { timestamp: "desc" }, take: 300 }).then((r) => r.reverse()),
         db.waMessage.findMany({
-          where: { chatId: chat.id, mediaKey: { not: null }, type: { in: ["image", "video"] } },
+          where: { chatId: chat.id, ...visible, mediaKey: { not: null }, type: { in: ["image", "video"] } },
           orderBy: { timestamp: "desc" },
-          take: 9,
+          take: 12,
           select: { id: true, type: true },
         }),
-        db.waMessage.count({ where: { chatId: chat.id } }),
+        db.waMessage.count({ where: { chatId: chat.id, ...visible } }),
+        db.waMessage.findMany({
+          where: { chatId: chat.id, ...visible, starred: true },
+          orderBy: { timestamp: "desc" },
+          take: 30,
+          select: { id: true, body: true, fromMe: true, timestamp: true, type: true },
+        }),
+        db.waMessage.findFirst({ where: { chatId: chat.id }, orderBy: { timestamp: "asc" }, select: { timestamp: true } }),
+        db.task.findMany({
+          where: { ownerId: user.id, OR: [{ link: `/whatsapp?chat=${chat.id}` }, ...(customerId ? [{ customerId }] : [])] },
+          orderBy: [{ done: "asc" }, { dueAt: "asc" }],
+          take: 30,
+          include: { customer: { select: { name: true } } },
+        }),
+        customerId
+          ? db.activity.findMany({ where: { customerId }, orderBy: { createdAt: "desc" }, take: 15, include: { user: { select: { name: true } } } })
+          : Promise.resolve([]),
+        customerId
+          ? db.quotation.findMany({
+              where: { customerId },
+              orderBy: { createdAt: "desc" },
+              take: 8,
+              select: { id: true, no: true, total: true, currency: true, status: true, approval: true, quoteDate: true },
+            })
+          : Promise.resolve([]),
       ])
-    : [[], [], 0];
+    : [[], [], 0, [], null, [], [], []];
+  const quotedIds = [...new Set(messages.map((m) => m.quotedId).filter((x): x is string => !!x))];
+  const quotedRows = quotedIds.length
+    ? await db.waMessage.findMany({ where: { id: { in: quotedIds } }, select: { id: true, fromMe: true, body: true, type: true } })
+    : [];
+  const quotedMap = new Map(quotedRows.map((r) => [r.id, r]));
 
   const href = (p: { chat?: string | null; f?: string }) => {
     const u = new URLSearchParams();
@@ -96,6 +130,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
   };
   const connected = account.status === "CONNECTED";
   const syncing = connected && account.syncStatus === "syncing";
+  const canAi = can(user, "ai.use") && aiConfigured();
 
   return (
     <div className="flex h-[calc(100svh-8.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)] md:min-h-[34rem]">
@@ -107,7 +142,12 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
       <section className={cn("flex w-full min-w-0 flex-col border-r border-border/70 md:w-[22rem] md:shrink-0", chat && "hidden md:flex")}>
         <header className="flex items-center gap-3 px-4 pt-4 pb-3">
           <span className="relative">
-            <WaAvatar src={account.avatarKey ? `/api/whatsapp/avatar/me?v=${account.avatarAt?.getTime() ?? 0}` : null} name={account.name} phone={account.phone} className="size-10 text-sm" />
+            <WaAvatar
+              src={account.avatarKey ? `/api/whatsapp/avatar/me?v=${account.avatarAt?.getTime() ?? 0}` : null}
+              name={account.name}
+              phone={account.phone}
+              className="size-10 text-sm"
+            />
             <span
               className={cn(
                 "absolute -right-0.5 -bottom-0.5 size-3 rounded-full ring-2 ring-card",
@@ -179,78 +219,150 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
         </div>
 
         <ul className="flex-1 overflow-y-auto px-2 pb-2">
+          {f === "archived" ? (
+            <li className="mb-1 px-2">
+              <Link
+                href={href({ f: "" })}
+                className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              >
+                <ChevronLeft className="size-4" /> 已归档的聊天
+              </Link>
+            </li>
+          ) : (
+            archivedCount > 0 &&
+            !q && (
+              <li className="mb-1">
+                <Link href={href({ f: "archived" })} className="flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm hover:bg-muted/60">
+                  <span className="flex size-12 shrink-0 items-center justify-center text-emerald-600">
+                    <Archive className="size-5" />
+                  </span>
+                  <span className="flex-1 font-medium">已归档</span>
+                  <span className="text-xs text-emerald-600 tabular-nums">{archivedCount}</span>
+                </Link>
+              </li>
+            )
+          )}
           {chats.length === 0 && (
             <li className="px-6 py-16 text-center text-sm text-muted-foreground">
               {syncing ? "聊天记录同步中，马上就到…" : q || f ? "没有符合条件的聊天" : "还没有聊天，点右上角 + 发起新聊天"}
             </li>
           )}
-          {chats.map((c) => {
-            const active = chat?.id === c.id;
-            return (
-              <li key={c.id}>
-                <Link
-                  href={href({ chat: c.id })}
-                  className={cn("flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition-colors", active ? "bg-accent" : "hover:bg-muted/60")}
-                >
-                  <WaAvatar src={avatarSrc(c.id, c.avatarKey, c.avatarAt)} name={c.name} phone={c.phone} className="size-12" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className={cn("min-w-0 flex-1 truncate text-[15px]", c.unread > 0 ? "font-semibold" : "font-medium")}>{display(c)}</span>
-                      <span className={cn("shrink-0 text-xs tabular-nums", c.unread > 0 ? "font-medium text-emerald-600" : "text-muted-foreground")}>
-                        {c.lastMessageAt && waListTime(c.lastMessageAt, user.timezone)}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      {c.lastFromMe && <Check className="size-3.5 shrink-0 text-muted-foreground" aria-label="我发出的" />}
-                      <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">{c.lastText || " "}</p>
-                      {c.unread > 0 && (
-                        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white tabular-nums">
-                          {c.unread > 99 ? "99+" : c.unread}
-                        </span>
-                      )}
-                    </div>
-                    {c.customer && (
-                      <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-primary/8 px-2 py-0.5 text-[11px] text-primary">
-                        <Building2 className="size-3 shrink-0" />
-                        <span className="truncate">{c.customer.name}</span>
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
+          {chats.map((c) => (
+            <ChatListItem
+              key={c.id}
+              backHref={href({ chat: null })}
+              c={{
+                id: c.id,
+                href: href({ chat: c.id }),
+                active: chat?.id === c.id,
+                name: display(c),
+                rawName: c.name,
+                phone: c.phone,
+                avatar: avatarSrc(c.id, c.avatarKey, c.avatarAt),
+                time: c.lastMessageAt ? waListTime(c.lastMessageAt, user.timezone) : "",
+                lastText: c.lastText,
+                lastFromMe: c.lastFromMe,
+                unread: c.unread,
+                pinned: !!c.pinnedAt,
+                archived: c.archived,
+                customer: c.customer,
+              }}
+            />
+          ))}
         </ul>
       </section>
 
-      {/* ── 聊天 ── */}
-      <section className={cn("min-w-0 flex-1 flex-col", chat ? "flex" : "hidden md:flex")}>
-        {chat ? (
-          <ChatView
-            key={chat.id}
-            tz={user.timezone}
-            backHref={href({ chat: null })}
-            connected={connected}
-            canAi={can(user, "ai.use") && aiConfigured()}
-            chat={{
-              id: chat.id,
-              name: chat.name,
-              phone: chat.phone,
-              unread: chat.unread,
-              avatar: avatarSrc(chat.id, chat.avatarKey, chat.avatarAt),
-              customer: chat.customer ? { id: chat.customer.id, name: chat.customer.name } : null,
-            }}
-            messages={messages.map((m) => ({
+      {/* ── 聊天 + 右侧客户面板 ── */}
+      {chat ? (
+        <ChatView
+          key={chat.id}
+          tz={user.timezone}
+          backHref={href({ chat: null })}
+          connected={connected}
+          canAi={canAi}
+          chat={{
+            id: chat.id,
+            name: chat.name,
+            phone: chat.phone,
+            unread: chat.unread,
+            avatar: avatarSrc(chat.id, chat.avatarKey, chat.avatarAt),
+            pinned: !!chat.pinnedAt,
+            archived: chat.archived,
+            customer: chat.customer ? { id: chat.customer.id, name: chat.customer.name } : null,
+          }}
+          messages={messages.map((m) => {
+            const qm = m.quotedId ? quotedMap.get(m.quotedId) : undefined;
+            return {
               id: m.id,
               fromMe: m.fromMe,
               body: m.body,
+              type: m.type,
               media: waMediaOf(m),
               status: m.status,
               error: m.error,
               timestamp: m.timestamp.toISOString(),
-            }))}
-          />
-        ) : (
+              starred: m.starred,
+              quoted: qm ? { id: qm.id, fromMe: qm.fromMe, body: qm.body, type: qm.type } : null,
+            };
+          })}
+          panel={{
+            chat: {
+              id: chat.id,
+              name: chat.name,
+              phone: chat.phone,
+              avatar: avatarSrc(chat.id, chat.avatarKey, chat.avatarAt),
+              customer: chat.customer
+                ? {
+                    id: chat.customer.id,
+                    name: chat.customer.name,
+                    status: chat.customer.status?.name ?? null,
+                    country: chat.customer.country ? countryName(chat.customer.country) : null,
+                    owner: chat.customer.owner?.name ?? null,
+                  }
+                : null,
+              contact: chat.contact,
+            },
+            msgCount,
+            firstAt: firstMsg?.timestamp.toISOString() ?? null,
+            media,
+            starred: starred.map((m) => ({
+              id: m.id,
+              body: m.body || (m.type !== "text" ? `[${m.type}]` : ""),
+              fromMe: m.fromMe,
+              timestamp: m.timestamp.toISOString(),
+            })),
+            tasks: tasks.map((t) => ({
+              id: t.id,
+              title: t.title,
+              dueAt: t.dueAt.toISOString(),
+              done: t.done,
+              customerId: t.customerId,
+              customerName: t.customer?.name ?? null,
+              kind: t.kind,
+              note: t.note,
+              link: t.link,
+              snoozeCount: t.snoozeCount,
+            })),
+            activities: activities.map((a) => ({
+              id: a.id,
+              content: a.content,
+              createdAt: a.createdAt.toISOString(),
+              user: a.user?.name ?? null,
+              follow: a.type === "FOLLOW_UP",
+            })),
+            quotations: quotations.map((x) => ({
+              id: x.id,
+              no: x.no,
+              total: x.total.toString(),
+              currency: x.currency,
+              status: x.status,
+              approval: x.approval,
+              date: x.quoteDate.toISOString(),
+            })),
+          }}
+        />
+      ) : (
+        <section className="hidden min-w-0 flex-1 flex-col md:flex">
           <div className="m-auto max-w-xs px-6 text-center">
             <span className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
               {syncing ? <LoaderCircle className="size-7 animate-spin" /> : <Smartphone className="size-7" />}
@@ -259,97 +371,11 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
             <p className="mt-1.5 text-sm text-muted-foreground">
               {syncing
                 ? "首次关联会把手机上最近的聊天导入进来，通常 1～3 分钟，期间请保持手机联网。"
-                : "消息和手机上的 WhatsApp 实时同步；发给客户的消息会自动记成跟进。"}
+                : "消息和手机上的 WhatsApp 实时同步；右键消息或会话可以回复、转发、置顶、设提醒。"}
             </p>
           </div>
-        )}
-      </section>
-
-      {/* ── 联系人信息 ── */}
-      {chat && (
-        <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-border/70 xl:flex">
-          <div className="flex flex-col items-center px-5 pt-8 pb-5 text-center">
-            <WaAvatar src={avatarSrc(chat.id, chat.avatarKey, chat.avatarAt)} name={chat.name} phone={chat.phone} className="size-24 text-3xl" />
-            <p className="mt-3 text-lg font-semibold">{display(chat)}</p>
-            {chat.phone && <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">+{chat.phone}</p>}
-            {chat.phone && (
-              <Button asChild size="sm" variant="outline" className="mt-3">
-                <a href={`https://wa.me/${chat.phone}`} target="_blank" rel="noreferrer">
-                  <ExternalLink /> 在 WhatsApp 打开
-                </a>
-              </Button>
-            )}
-          </div>
-
-          <div className="space-y-4 px-4 pb-6">
-            <InfoBlock title="关联客户">
-              {chat.customer ? (
-                <Link href={`/customers/${chat.customer.id}`} className="group block rounded-xl bg-muted/50 p-3 transition-colors hover:bg-accent">
-                  <p className="flex items-center gap-1.5 font-medium group-hover:text-primary">
-                    <Building2 className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{chat.customer.name}</span>
-                  </p>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {[chat.customer.status?.name, chat.customer.country && countryName(chat.customer.country), chat.contact && `联系人：${chat.contact.name}${chat.contact.title ? `（${chat.contact.title}）` : ""}`]
-                      .filter(Boolean)
-                      .join(" · ") || "查看客户详情"}
-                  </p>
-                </Link>
-              ) : (
-                <p className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">还没关联客户。在聊天顶部点「关联客户」，以后的消息会自动记到客户跟进里。</p>
-              )}
-            </InfoBlock>
-
-            <InfoBlock title="联系信息">
-              <dl className="space-y-2 text-sm">
-                <Row icon={Phone} label="号码" value={chat.phone ? `+${chat.phone}` : "未知"} />
-                <Row icon={MessageCircle} label="消息" value={`${msgCount} 条`} />
-                <Row icon={Clock} label="首次沟通" value={messages[0] ? waListTime(messages[0].timestamp, user.timezone) : "—"} />
-              </dl>
-            </InfoBlock>
-
-            <InfoBlock title={`图片和视频${media.length ? `（${media.length}）` : ""}`}>
-              {media.length ? (
-                <div className="grid grid-cols-3 gap-1.5">
-                  {media.map((m) => (
-                    <a key={m.id} href={`/api/whatsapp/media/${m.id}`} target="_blank" rel="noreferrer" className="relative aspect-square overflow-hidden rounded-lg bg-muted">
-                      {m.type === "image" ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口
-                        <img src={`/api/whatsapp/media/${m.id}`} alt="" loading="lazy" className="size-full object-cover transition-transform hover:scale-105" />
-                      ) : (
-                        <span className="flex size-full items-center justify-center text-xs text-muted-foreground">视频</span>
-                      )}
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <ImageIcon className="size-3.5" /> 暂无
-                </p>
-              )}
-            </InfoBlock>
-          </div>
-        </aside>
+        </section>
       )}
-    </div>
-  );
-}
-
-function InfoBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h3 className="mb-2 px-1 text-xs font-medium text-muted-foreground">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function Row({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2 px-1">
-      <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <dt className="w-16 shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 flex-1 truncate text-right tabular-nums">{value}</dd>
     </div>
   );
 }

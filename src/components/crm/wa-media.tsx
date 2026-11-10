@@ -5,14 +5,23 @@ export type WaMediaInfo = { type: string; mime: string; name: string | null; siz
 const sizeText = (n: number | null) => (n == null ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
 /** WhatsApp 消息里的图片 / 视频 / 语音 / 文件（走 /api/whatsapp/media 鉴权后跳转到 OSS） */
-export function WaMedia({ id, media }: { id: string; media: WaMediaInfo }) {
+export function WaMedia({ id, media, onOpen }: { id: string; media: WaMediaInfo; onOpen?: () => void }) {
   if (!media) return null;
   const src = `/api/whatsapp/media/${id}`;
-  if (media.type === "image" || media.type === "sticker") {
-    return (
+  if (media.type === "sticker") {
+    // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口，不能用 next/image
+    return <img src={src} alt="" loading="lazy" className="mb-1 size-28 object-contain" />;
+  }
+  if (media.type === "image") {
+    // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口，不能用 next/image
+    const img = <img src={src} alt="" loading="lazy" className="max-h-72 max-w-full rounded-md object-contain" />;
+    return onOpen ? (
+      <button type="button" onClick={onOpen} className="mb-1 block cursor-zoom-in" aria-label="查看大图">
+        {img}
+      </button>
+    ) : (
       <a href={src} target="_blank" rel="noreferrer" className="mb-1 block">
-        {/* eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口，不能用 next/image */}
-        <img src={src} alt="" loading="lazy" className={media.type === "sticker" ? "size-28 object-contain" : "max-h-72 max-w-full rounded-md object-contain"} />
+        {img}
       </a>
     );
   }
