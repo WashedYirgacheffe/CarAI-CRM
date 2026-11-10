@@ -6,7 +6,7 @@ import { formatMoney } from "@/lib/crm";
 
 /** 分类色，固定顺序取用（与 globals.css 的 --chart-1..5 一致），超过 5 类归入「其他」 */
 const SERIES = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
-const OTHER = "oklch(0.82 0.015 262)";
+const OTHER = "oklch(0.86 0 0)";
 
 export type Slice = { label: string; value: number };
 
@@ -61,7 +61,7 @@ export function Donut({ data, unit = "", empty = "暂无数据" }: { data: Slice
           );
         })}
         <g className="rotate-90" style={{ transformOrigin: "70px 70px" }}>
-          <text x="70" y="68" textAnchor="middle" className="fill-foreground text-[22px] font-bold tabular-nums">
+          <text x="70" y="68" textAnchor="middle" className="fill-foreground text-[26px] font-light tabular-nums">
             {focus ? focus.value : total}
           </text>
           <text x="70" y="86" textAnchor="middle" className="fill-muted-foreground text-[11px]">
@@ -120,15 +120,18 @@ export function BarTrend({
             <div className="relative flex w-full flex-1 items-end justify-center">
               <div
                 className={cn(
-                  "w-full max-w-10 rounded-t-[4px] transition-colors",
-                  i === last ? "bg-[var(--chart-1)]" : "bg-[color-mix(in_oklch,var(--chart-1)_45%,white)]",
+                  "w-full max-w-10 rounded-t-[6px] transition-colors",
+                  i === last ? "bg-[var(--chart-1)]" : "bar-stripes",
                   hover === i && "bg-[var(--chart-1)]",
                 )}
                 style={{ height: `${h}%` }}
               />
               {labelled && (
                 <span
-                  className="absolute -translate-y-full pb-1 text-xs font-medium whitespace-nowrap text-foreground tabular-nums"
+                  className={cn(
+                    "absolute mb-1.5 -translate-y-full rounded-full px-2 py-0.5 text-xs whitespace-nowrap tabular-nums",
+                    i === last || hover === i ? "bg-primary text-primary-foreground" : "text-foreground",
+                  )}
                   style={{ bottom: `${h}%` }}
                 >
                   {formatMoney(d.value, currency)}
@@ -178,7 +181,7 @@ export function Distribution({ dims }: { dims: { key: string; label: string; dat
   if (!cur) return null;
   return (
     <div className="space-y-4">
-      <div className="inline-flex rounded-full bg-muted p-1 ring-1 ring-border/60">
+      <div className="inline-flex rounded-full bg-muted p-1">
         {dims.map((d) => (
           <button
             key={d.key}
@@ -186,7 +189,7 @@ export function Distribution({ dims }: { dims: { key: string; label: string; dat
             onClick={() => setActive(d.key)}
             className={cn(
               "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-              d.key === cur.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
+              d.key === cur.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {d.label}

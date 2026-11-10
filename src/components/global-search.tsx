@@ -74,15 +74,18 @@ export function GlobalSearch() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-9 w-9 items-center justify-center gap-2 rounded-full bg-muted text-sm text-muted-foreground ring-1 ring-border/60 transition-colors hover:bg-accent hover:text-accent-foreground sm:w-[min(100%,28rem)] sm:justify-start sm:px-4"
+        className="flex h-9 w-9 items-center justify-center gap-2 rounded-full border border-border bg-card text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-10 sm:w-[min(100%,28rem)] sm:justify-start sm:px-4"
         aria-label="全局搜索"
       >
         <Search className="size-4" />
         <span className="hidden flex-1 text-left sm:inline">搜索客户、线索、单据…</span>
-        <kbd className="hidden rounded-md bg-card px-1.5 py-0.5 font-sans text-[10px] ring-1 ring-border sm:inline">⌘K</kbd>
+        <kbd className="hidden rounded-full bg-muted px-2 py-0.5 font-sans text-[10px] sm:inline">⌘K</kbd>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] bottom-auto w-auto gap-0 overflow-hidden rounded-2xl p-0 data-open:slide-in-from-top-4 data-closed:slide-out-to-top-4 sm:inset-x-auto sm:top-[15%] sm:w-full sm:max-w-xl sm:translate-y-0 [&>[data-slot=dialog-handle]]:hidden" showCloseButton={false}>
+        <DialogContent
+          className="inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] bottom-auto w-auto gap-0 overflow-hidden rounded-2xl p-0 data-open:slide-in-from-top-4 data-closed:slide-out-to-top-4 sm:inset-x-auto sm:top-[15%] sm:w-full sm:max-w-xl sm:translate-y-0 sm:rounded-3xl [&>[data-slot=dialog-handle]]:hidden"
+          showCloseButton={false}
+        >
           <DialogTitle className="sr-only">全局搜索</DialogTitle>
           <div className="flex items-center gap-2 border-b px-3">
             {loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : <Search className="size-4 text-muted-foreground" />}
@@ -127,7 +130,7 @@ export function GlobalSearch() {
                       data-index={i}
                       onMouseMove={() => setActive(i)}
                       onClick={() => go(h)}
-                      className={cn("flex w-full flex-col rounded-md px-2 py-1.5 text-left", i === active && "bg-accent text-accent-foreground")}
+                      className={cn("flex w-full flex-col rounded-xl px-2.5 py-1.5 text-left", i === active && "bg-accent text-accent-foreground")}
                     >
                       <span className="truncate text-sm">{h.title}</span>
                       {h.sub && <span className="truncate text-xs text-muted-foreground">{h.sub}</span>}

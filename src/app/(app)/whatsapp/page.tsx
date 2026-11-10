@@ -36,7 +36,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
         <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
           <MessageCircle className="size-7" />
         </span>
-        <p className="text-lg font-semibold">还没有绑定 WhatsApp</p>
+        <p className="text-lg font-medium">还没有绑定 WhatsApp</p>
         <p className="mt-1.5 text-sm text-muted-foreground">用手机号配对码或扫码关联后，聊天记录会同步过来，直接在这里和客户沟通。</p>
         <Button asChild className="mt-5">
           <Link href="/settings/whatsapp">去绑定</Link>
@@ -106,7 +106,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
             />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold">{account.name || "WhatsApp"}</p>
+            <p className="truncate font-medium">{account.name || "WhatsApp"}</p>
             <p className="truncate text-xs text-muted-foreground">
               {connected ? `+${account.phone} · 已连接` : account.enabled ? "连接中…" : "未连接"}
             </p>
@@ -230,7 +230,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
             <span className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
               {syncing ? <LoaderCircle className="size-7 animate-spin" /> : <Smartphone className="size-7" />}
             </span>
-            <p className="font-semibold">{syncing ? "正在同步聊天记录" : "选择一个聊天"}</p>
+            <p className="font-medium">{syncing ? "正在同步聊天记录" : "选择一个聊天"}</p>
             <p className="mt-1.5 text-sm text-muted-foreground">
               {syncing
                 ? "首次关联会把手机上最近的聊天导入进来，通常 1～3 分钟，期间请保持手机联网。"

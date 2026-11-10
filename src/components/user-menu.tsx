@@ -14,23 +14,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { logoutAction } from "@/app/(auth)/actions";
 
-export function UserMenu({
-  name,
-  email,
-  roleName,
-  isOwner,
-}: {
-  name: string;
-  email: string;
-  roleName: string;
-  isOwner: boolean;
-}) {
+export function UserMenu({ name, email, roleName, isOwner }: { name: string; email: string; roleName: string; isOwner: boolean }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 gap-2 px-2" aria-label="账号菜单">
-          <Avatar className="size-7">
-            <AvatarFallback className="bg-primary/10 text-xs text-primary">{name.slice(0, 1)}</AvatarFallback>
+        <Button variant="ghost" className="h-9 gap-2 px-1 md:h-10 md:pr-3 md:pl-1" aria-label="账号菜单">
+          <Avatar className="size-8">
+            <AvatarFallback className="bg-brand-soft text-xs text-brand-ink">{name.slice(0, 1)}</AvatarFallback>
           </Avatar>
           <span className="hidden text-sm sm:inline">{name}</span>
         </Button>

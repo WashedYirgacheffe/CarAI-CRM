@@ -234,7 +234,7 @@ export function CustomerDetail({
             {access.inPool ? "公海客户" : "客户列表"}
           </Link>
           <span className="h-4 w-px bg-border" aria-hidden />
-          <h1 className="text-lg font-semibold tracking-tight">客户详情</h1>
+          <h1 className="text-lg font-medium tracking-tight">客户详情</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* 手机端这些操作在底部操作栏 */}
@@ -294,7 +294,7 @@ export function CustomerDetail({
             <div className="space-y-4 p-4 md:p-5">
               <div className="flex items-start gap-4">
                 <div className="relative shrink-0">
-                  <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-bold text-primary">
+                  <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-normal text-primary">
                     {initialOf(c.name)}
                   </div>
                   <span
@@ -307,7 +307,7 @@ export function CustomerDetail({
                   </span>
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  <h2 className="text-xl leading-snug font-bold break-words">{c.name}</h2>
+                  <h2 className="text-xl leading-snug font-normal break-words">{c.name}</h2>
                   <div className="flex flex-wrap items-center gap-2">
                     <StarRating value={c.star} size="md" onChange={canEdit ? (v) => setStarAction(c.id, v) : undefined} />
                     {c.statusName && <StatusBadge name={c.statusName} color={c.statusColor} />}
@@ -788,7 +788,7 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
       <input type="hidden" name="customerId" value={customerId} />
       <input type="hidden" name="method" value={method} />
       <div className="mb-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="跟进方式">
-        <span className="mr-1 text-sm font-semibold">写跟进</span>
+        <span className="mr-1 text-sm font-medium">写跟进</span>
         {FOLLOW_METHODS.map((m) => (
           <button
             key={m.value}
@@ -1025,7 +1025,7 @@ function ContactsCard({
         <ul className="divide-y divide-border/70">
           {contacts.map((ct) => (
             <li key={ct.id} className="group flex gap-3 py-3 text-sm">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
                 {initialOf(ct.name)}
               </span>
               <div className="min-w-0 flex-1">

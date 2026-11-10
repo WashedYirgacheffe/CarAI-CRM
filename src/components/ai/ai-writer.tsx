@@ -64,9 +64,9 @@ export function AiWriter({
   );
 
   return (
-    <div className={cn("space-y-2 rounded-lg border border-violet-200 bg-violet-50/50 p-2", compact && "p-1.5")}>
+    <div className={cn("space-y-2 rounded-2xl bg-brand-soft/40 p-2.5", compact && "p-1.5")}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-violet-700">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-ink">
           <Sparkles className="size-3.5" /> AI
         </span>
         {original && btn("reply", "生成回复")}
@@ -94,7 +94,7 @@ export function AiWriter({
         <div className="rounded-md border bg-background p-2">
           <p className="max-h-64 overflow-y-auto text-sm whitespace-pre-wrap">
             {result}
-            {busy && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-violet-400 align-middle" aria-hidden />}
+            {busy && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-brand align-middle" aria-hidden />}
           </p>
           <div className={cn("mt-2 flex gap-1.5", busy && "pointer-events-none opacity-50")}>
             <Button

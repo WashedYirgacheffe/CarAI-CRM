@@ -151,7 +151,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
             >
               <b.icon className="size-4" /> {b.label}
               {b.key === "inbox" && unread > 0 && (
-                <span className="ml-auto rounded-full bg-primary px-1.5 text-[11px] leading-5 font-semibold text-primary-foreground tabular-nums">
+                <span className="ml-auto rounded-full bg-primary px-1.5 text-[11px] leading-5 font-medium text-primary-foreground tabular-nums">
                   {unread}
                 </span>
               )}
@@ -243,8 +243,8 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 )}
               >
                 {t.label}
-                {t.key === "unread" && unread > 0 && <span className="ml-1 font-semibold tabular-nums">{unread}</span>}
-                {t.key === "high" && urgent > 0 && <span className="ml-1 font-semibold tabular-nums">{urgent}</span>}
+                {t.key === "unread" && unread > 0 && <span className="ml-1 font-medium tabular-nums">{unread}</span>}
+                {t.key === "high" && urgent > 0 && <span className="ml-1 font-medium tabular-nums">{urgent}</span>}
               </Link>
             ))}
           </div>
@@ -277,13 +277,13 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                       {!m.seen && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
                       {m.aiPriority === "high" && m.folder === "INBOX" && (
                         <span
-                          className="shrink-0 rounded-full bg-rose-500 px-1.5 text-[10px] leading-4 font-semibold text-white"
+                          className="shrink-0 rounded-full bg-rose-500 px-1.5 text-[10px] leading-4 font-medium text-white"
                           title="AI 判断：高优先，尽快回复"
                         >
                           高优先
                         </span>
                       )}
-                      <span className={cn("min-w-0 flex-1 truncate text-[15px] lg:text-sm", !m.seen && "font-semibold")}>
+                      <span className={cn("min-w-0 flex-1 truncate text-[15px] lg:text-sm", !m.seen && "font-medium")}>
                         {m.folder === "SENT" && <span className="text-muted-foreground">发给 </span>}
                         {peer || "—"}
                       </span>
@@ -297,7 +297,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                     <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
                     {m.aiSummary && m.folder === "INBOX" ? (
                       <p className="line-clamp-2 text-xs text-foreground/75" title={m.snippet ?? undefined}>
-                        <Sparkles className="mr-0.5 inline size-3 -translate-y-px text-violet-500" />
+                        <Sparkles className="mr-0.5 inline size-3 -translate-y-px text-brand" />
                         {m.aiSummary}
                       </p>
                     ) : (

@@ -333,7 +333,7 @@ function MaximizedView({ title, children, onClose }: { title: string; children: 
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b px-5 py-3">
-          <h2 className="font-semibold">{title}</h2>
+          <h2 className="font-medium">{title}</h2>
           <Button variant="ghost" size="sm" onClick={onClose}>
             <Minimize2 /> 还原
           </Button>

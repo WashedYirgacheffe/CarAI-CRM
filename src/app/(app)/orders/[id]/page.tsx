@@ -37,7 +37,7 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight tabular-nums">{o.no}</h1>
+            <h1 className="text-xl font-normal tracking-tight tabular-nums">{o.no}</h1>
             <StatusBadge name={st.label} color={st.color} />
             {o.approval !== "NONE" && <StatusBadge name={approvalStatus(o.approval).label} color={approvalStatus(o.approval).color} />}
           </div>
@@ -65,7 +65,7 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
         <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">订单信息</CardTitle>
+              <CardTitle>订单信息</CardTitle>
             </CardHeader>
             <CardContent>
               <InfoGrid
@@ -105,13 +105,13 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">条款</CardTitle>
+              <CardTitle>条款</CardTitle>
             </CardHeader>
             <CardContent className="text-sm whitespace-pre-line">{o.terms || <span className="text-muted-foreground">无</span>}</CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">内部备注</CardTitle>
+              <CardTitle>内部备注</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <p className="whitespace-pre-line">{o.remark || <span className="text-muted-foreground">无备注</span>}</p>

@@ -45,7 +45,7 @@ export function PaymentsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">收款</CardTitle>
+        <CardTitle>收款</CardTitle>
         {canEdit && !adding && (
           <CardAction>
             <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
@@ -58,7 +58,7 @@ export function PaymentsCard({
         <div>
           <div className="flex items-baseline justify-between text-sm">
             <span className="text-muted-foreground">已收 {pct}%</span>
-            <span className="font-semibold tabular-nums">
+            <span className="font-medium tabular-nums">
               {formatAmount(paid)} / {formatAmount(total, currency)}
             </span>
           </div>
@@ -66,7 +66,11 @@ export function PaymentsCard({
             <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
           </div>
           <p className={cn("mt-1.5 text-xs tabular-nums", outstanding > 0 ? "text-amber-700" : "text-emerald-700")}>
-            {outstanding > 0 ? `待收 ${formatAmount(outstanding, currency)}` : outstanding < 0 ? `多收 ${formatAmount(-outstanding, currency)}` : "已全部收齐"}
+            {outstanding > 0
+              ? `待收 ${formatAmount(outstanding, currency)}`
+              : outstanding < 0
+                ? `多收 ${formatAmount(-outstanding, currency)}`
+                : "已全部收齐"}
           </p>
         </div>
 
@@ -77,7 +81,16 @@ export function PaymentsCard({
             <div className="grid grid-cols-2 gap-3">
               <Field>
                 <FieldLabel htmlFor="pay-amount">金额（{currency}）</FieldLabel>
-                <Input id="pay-amount" name="amount" type="number" min={0} step="0.01" defaultValue={outstanding > 0 ? outstanding : ""} required autoFocus />
+                <Input
+                  id="pay-amount"
+                  name="amount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  defaultValue={outstanding > 0 ? outstanding : ""}
+                  required
+                  autoFocus
+                />
                 <FieldErrors state={state} name="amount" />
               </Field>
               <Field>
@@ -122,7 +135,13 @@ export function PaymentsCard({
                   </p>
                 </div>
                 {canEdit && (
-                  <Button size="icon" variant="ghost" className="size-7 hover:text-destructive" aria-label="删除收款记录" onClick={() => setDeleting(p)}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 hover:text-destructive"
+                    aria-label="删除收款记录"
+                    onClick={() => setDeleting(p)}
+                  >
                     <Trash2 className="size-3.5" />
                   </Button>
                 )}

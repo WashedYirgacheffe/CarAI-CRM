@@ -238,7 +238,7 @@ export function DocEditor({
       <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">基本信息</CardTitle>
+            <CardTitle>基本信息</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Field>
@@ -337,7 +337,7 @@ export function DocEditor({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">买方信息</CardTitle>
+            <CardTitle>买方信息</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
             <Field>
@@ -396,7 +396,7 @@ export function DocEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">产品明细</CardTitle>
+          <CardTitle>产品明细</CardTitle>
           <CardAction className="flex gap-2">
             <ProductPicker products={products} currency={currency} rates={rates} onPick={addProduct} />
             <Button type="button" size="sm" variant="outline" onClick={() => setRows((rs) => [...rs, toRow({})])}>
@@ -492,12 +492,18 @@ export function DocEditor({
                         className="h-8 text-right tabular-nums"
                       />
                     </td>
-                    <td className="py-2.5 text-right font-medium tabular-nums">
-                      {formatAmount(lineAmount(num(r.quantity), num(r.unitPrice)))}
-                    </td>
+                    <td className="py-2.5 text-right font-medium tabular-nums">{formatAmount(lineAmount(num(r.quantity), num(r.unitPrice)))}</td>
                     <td className="py-2 pl-2">
                       <div className="flex justify-end">
-                        <Button type="button" variant="ghost" size="icon" className="size-7" aria-label="上移" disabled={i === 0} onClick={() => move(i, -1)}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label="上移"
+                          disabled={i === 0}
+                          onClick={() => move(i, -1)}
+                        >
                           <ArrowUp className="size-3.5" />
                         </Button>
                         <Button
@@ -559,7 +565,7 @@ export function DocEditor({
                 />
               </label>
             ))}
-            <div className="flex justify-between border-t pt-2 text-base font-semibold">
+            <div className="flex justify-between border-t pt-2 text-base font-medium">
               <span>合计</span>
               <span className="tabular-nums">{formatAmount(totals.total, currency)}</span>
             </div>
@@ -574,7 +580,7 @@ export function DocEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">条款与备注</CardTitle>
+          <CardTitle>条款与备注</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <Field>
@@ -620,9 +626,7 @@ function ProductPicker({
   const [added, setAdded] = useState<Set<string>>(new Set());
   const list = useMemo(() => {
     const k = q.trim().toLowerCase();
-    const hit = k
-      ? products.filter((p) => [p.sku, p.name, p.nameEn].some((s) => s?.toLowerCase().includes(k)))
-      : products;
+    const hit = k ? products.filter((p) => [p.sku, p.name, p.nameEn].some((s) => s?.toLowerCase().includes(k))) : products;
     return hit.slice(0, 50);
   }, [q, products]);
 

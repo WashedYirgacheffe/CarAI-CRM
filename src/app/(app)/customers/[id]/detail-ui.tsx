@@ -20,7 +20,7 @@ export function Panel({
     <section className={cn("surface", className)}>
       {title && (
         <header className="flex min-h-12 items-center gap-2 px-4 pt-3 pb-2 md:px-5">
-          <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
             {icon}
             {title}
           </h2>

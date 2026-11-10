@@ -132,7 +132,7 @@ function CustomerHeader({ data, onLink }: { data: PanelData; onLink: () => void 
       <div className="flex items-center gap-3 px-1">
         <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className="size-11 text-sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{chat.name || (chat.phone ? `+${chat.phone}` : "未知号码")}</p>
+          <p className="truncate font-medium">{chat.name || (chat.phone ? `+${chat.phone}` : "未知号码")}</p>
           {chat.phone && <p className="truncate text-xs text-muted-foreground tabular-nums">+{chat.phone}</p>}
         </div>
       </div>
@@ -232,7 +232,7 @@ function FollowTab({ data, tz, canAi }: { data: PanelData; tz: string; canAi: bo
           )}
         </div>
         {ai?.intent && (
-          <p className="mb-2 rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs text-violet-800 ring-1 ring-violet-100">
+          <p className="mb-2 rounded-lg bg-brand-soft/40 px-2.5 py-1.5 text-xs text-foreground">
             <span className="font-medium">客户意向：</span>
             {ai.intent}
           </p>

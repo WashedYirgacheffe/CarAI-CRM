@@ -43,7 +43,7 @@ export function WorkspaceSwitcher({ spaces, activeId, home, onSwitch, onSaveAs, 
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="max-w-64">
             <span className="text-muted-foreground">情景</span>
-            <span className="truncate font-semibold">{active.name}</span>
+            <span className="truncate font-medium">{active.name}</span>
             {home === active.id && <Star className="fill-amber-400 text-amber-400" aria-label="默认情景" />}
             <ChevronDown className="text-muted-foreground" />
           </Button>

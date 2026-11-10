@@ -10,7 +10,7 @@ import { OTHER, RAMP, SERIES, compact, yuan } from "@/lib/viz";
  * 颜色：分类色 --chart-1..5（固定顺序）；数量用单色顺序色 RAMP（已校验：单色相、亮度单调、浅端对白底 ≥ 2:1）。
  * 文字一律用正文色，颜色只给图形。
  */
-const NONE = "oklch(0.94 0.008 262)";
+const NONE = "oklch(0.945 0 0)";
 
 /** 0..max 的整齐刻度（3 档） */
 function niceMax(v: number) {
@@ -141,14 +141,14 @@ export function PaceChart({ cur, prev, today }: { cur: number[]; prev: number[];
           {h < curShown.length && (
             <p className="flex items-center gap-1.5">
               <span className="h-0.5 w-3 rounded-full bg-[var(--chart-1)]" />
-              <span className="font-semibold tabular-nums">{yuan(cur[h])}</span>
+              <span className="font-medium tabular-nums">{yuan(cur[h])}</span>
               <span className="text-muted-foreground">本月</span>
             </p>
           )}
           {h < prev.length && (
             <p className="flex items-center gap-1.5">
               <span className="h-0.5 w-3 rounded-full bg-muted-foreground/40" />
-              <span className="font-semibold tabular-nums">{yuan(prev[h])}</span>
+              <span className="font-medium tabular-nums">{yuan(prev[h])}</span>
               <span className="text-muted-foreground">上月</span>
             </p>
           )}
@@ -198,7 +198,7 @@ export function Funnel({ steps }: { steps: { label: string; value: number; href?
                 }}
               />
             </span>
-            <span className="w-10 shrink-0 text-right text-sm font-semibold tabular-nums">{s.value}</span>
+            <span className="w-10 shrink-0 text-right text-sm font-medium tabular-nums">{s.value}</span>
           </>
         );
         return (
@@ -252,7 +252,7 @@ export function SegmentBar({
               onFocus={() => setHover(i)}
               onBlur={() => setHover(null)}
               className={cn(
-                "flex min-w-1 items-center rounded-[4px] px-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring text-[11px] font-semibold tabular-nums transition-opacity",
+                "flex min-w-1 items-center rounded-[4px] px-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring text-[11px] font-medium tabular-nums transition-opacity",
                 p.dark ? "text-white" : "text-foreground",
                 hover !== null && hover !== i && "opacity-45",
               )}
@@ -341,7 +341,7 @@ export function Heatmap({ days, today }: { days: HeatDay[]; today: string }) {
           ).map(([k, v, u]) => (
             <div key={k} className="rounded-xl bg-muted/50 px-3 py-2">
               <dt className="text-xs text-muted-foreground">{k}</dt>
-              <dd className="mt-0.5 text-lg leading-tight font-semibold">
+              <dd className="mt-0.5 text-lg leading-tight font-medium">
                 {v} <span className="text-xs font-normal text-muted-foreground">{u}</span>
               </dd>
             </div>
@@ -495,7 +495,7 @@ export function StackedDaily({
                   {series.map((s) => (
                     <p key={s.label} className="flex items-center gap-1.5 whitespace-nowrap">
                       <span className="h-0.5 w-3 rounded-full" style={{ background: s.color }} />
-                      <span className="font-semibold tabular-nums">{s.values[i]}</span>
+                      <span className="font-medium tabular-nums">{s.values[i]}</span>
                       <span className="text-muted-foreground">{s.label}</span>
                     </p>
                   ))}
@@ -624,10 +624,7 @@ export function MiniColumns({
               onBlur={() => setHover(null)}
             >
               <span
-                className={cn(
-                  "w-full max-w-6 rounded-t-[4px] transition-colors",
-                  i === last || hover === i ? "bg-[var(--chart-1)]" : "bg-[color-mix(in_oklch,var(--chart-1)_40%,white)]",
-                )}
+                className={cn("w-full max-w-6 rounded-t-[4px] transition-colors", i === last || hover === i ? "bg-[var(--chart-1)]" : "bar-stripes")}
                 style={{ height: `${h}%` }}
               />
               {i === shown && (
@@ -698,7 +695,7 @@ export function RankSwitch({ metrics }: { metrics: RankMetric[] }) {
               aria-pressed={x.key === m.key}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-                x.key === m.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
+                x.key === m.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {x.label}
@@ -715,10 +712,7 @@ export function RankSwitch({ metrics }: { metrics: RankMetric[] }) {
               <span className={cn("truncate", i === 0 ? "font-medium" : "text-muted-foreground")}>{r.label}</span>
               <span className="flex items-center gap-2">
                 <span
-                  className={cn(
-                    "h-2 rounded-r-[4px] transition-[width] duration-500",
-                    i === 0 ? "bg-[var(--chart-1)]" : "bg-[color-mix(in_oklch,var(--chart-1)_45%,white)]",
-                  )}
+                  className={cn("h-2 rounded-r-[4px] transition-[width] duration-500", i === 0 ? "bg-[var(--chart-1)]" : "bar-stripes")}
                   style={{ width: `${(r.value / max) * 82}%`, minWidth: r.value ? 3 : 0 }}
                 />
                 <span className={cn("text-xs whitespace-nowrap tabular-nums", r.value ? "font-medium" : "text-muted-foreground/60")}>

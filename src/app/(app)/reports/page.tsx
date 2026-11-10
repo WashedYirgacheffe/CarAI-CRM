@@ -233,7 +233,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   aria-current={range.key === p.key ? "page" : undefined}
                   className={cn(
                     "shrink-0 rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors sm:px-3",
-                    range.key === p.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    range.key === p.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {p.label}
@@ -266,7 +266,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
               </span>
               <span className="min-w-0">
                 <span className="block text-sm text-muted-foreground">{k.label}</span>
-                <span className="mt-0.5 block truncate text-xl leading-tight md:text-[26px] font-bold tabular-nums">{k.value}</span>
+                <span className="mt-0.5 block truncate text-xl leading-tight md:text-[26px] font-normal tabular-nums">{k.value}</span>
                 {k.hint && <span className="mt-0.5 block truncate text-xs text-muted-foreground tabular-nums">{k.hint}</span>}
               </span>
             </div>
@@ -276,7 +276,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <div className="grid gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">成交趋势</CardTitle>
+              <CardTitle>成交趋势</CardTitle>
               <CardDescription>订单金额（人民币），{unitLabel}</CardDescription>
             </CardHeader>
             <CardContent>
@@ -285,7 +285,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">跟进方式</CardTitle>
+              <CardTitle>跟进方式</CardTitle>
               <CardDescription>共 {follows.length} 次跟进</CardDescription>
             </CardHeader>
             <CardContent>
@@ -297,7 +297,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <div className="grid gap-3 md:gap-4 lg:grid-cols-3">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">询盘来源与转化</CardTitle>
+              <CardTitle>询盘来源与转化</CardTitle>
               <CardDescription>浅色为询盘数，深色为已转客户</CardDescription>
             </CardHeader>
             <CardContent>
@@ -314,10 +314,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                         </span>
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-[color-mix(in_oklch,var(--chart-1)_30%,white)]"
-                          style={{ width: `${(s.total / sourceRows[0][1].total) * 100}%` }}
-                        >
+                        <div className="h-full rounded-full bar-stripes" style={{ width: `${(s.total / sourceRows[0][1].total) * 100}%` }}>
                           <div
                             className="h-full rounded-full bg-[var(--chart-1)]"
                             style={{ width: `${s.total ? (s.converted / s.total) * 100 : 0}%` }}
@@ -333,7 +330,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">沟通量</CardTitle>
+              <CardTitle>沟通量</CardTitle>
               <CardDescription>邮件与 WhatsApp 消息条数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -344,7 +341,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">报价单状态</CardTitle>
+              <CardTitle>报价单状态</CardTitle>
               <CardDescription>
                 共 {quotes.length} 张 · {money(quoteAmount)}
               </CardDescription>
@@ -358,7 +355,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">成员对比</CardTitle>
+              <CardTitle>成员对比</CardTitle>
               <CardDescription>切换指标看谁领先</CardDescription>
             </CardHeader>
             <CardContent>
@@ -367,7 +364,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">销售漏斗</CardTitle>
+              <CardTitle>销售漏斗</CardTitle>
               <CardDescription>区间内各环节数量与环比转化</CardDescription>
             </CardHeader>
             <CardContent>
@@ -385,7 +382,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">成员每日活跃</CardTitle>
+            <CardTitle>成员每日活跃</CardTitle>
             <CardDescription>跟进 + 发邮件 + 发 WhatsApp 的次数{days > heatDays ? `，只显示最后 ${heatDays} 天` : ""}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -395,7 +392,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
         <section className="overflow-hidden surface">
           <div className="flex items-baseline justify-between gap-3 px-4 pt-4 pb-1 md:px-5 md:pt-5 md:pb-3">
-            <h2 className="text-base font-semibold">团队业绩</h2>
+            <h2 className="text-base font-medium">团队业绩</h2>
             <span className="text-xs text-muted-foreground">按成交额排序</span>
           </div>
           <MobileList empty="暂无成员数据">
@@ -405,7 +402,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                 leading={<Rank i={i} on={r.orderAmount > 0} />}
                 title={r.name}
                 aside={
-                  <span className={cn("text-sm font-semibold tabular-nums", !r.orderAmount && "font-normal text-muted-foreground/60")}>
+                  <span className={cn("text-sm font-medium tabular-nums", !r.orderAmount && "font-normal text-muted-foreground/60")}>
                     {money(r.orderAmount)}
                   </span>
                 }

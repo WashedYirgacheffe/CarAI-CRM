@@ -43,7 +43,7 @@ export function InsightCard({
           </Link>
         )}
       </header>
-      {value !== undefined && <p className="mt-1 truncate text-2xl leading-tight font-bold">{value}</p>}
+      {value !== undefined && <p className="mt-1 truncate text-2xl leading-tight font-normal">{value}</p>}
       {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
       {children && <div className="mt-3 flex-1">{children}</div>}
     </section>

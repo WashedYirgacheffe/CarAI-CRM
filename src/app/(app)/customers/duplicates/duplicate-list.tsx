@@ -26,15 +26,13 @@ export function DuplicateList({ groups, tz, canMerge }: { groups: DuplicateGroup
   return (
     <div className="overflow-hidden surface">
       <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
-        <h2 className="flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+        <h2 className="flex min-h-8 items-baseline gap-1.5 text-[15px] font-medium">
           疑似重复
           <span className="text-[13px] font-normal text-muted-foreground">
             · <span className="tabular-nums">{groups.length}</span> 组
           </span>
         </h2>
-        {canMerge && groups.length > 0 && (
-          <span className="ml-auto text-[13px] text-muted-foreground">每组选一个保留，勾选的客户会合并进去</span>
-        )}
+        {canMerge && groups.length > 0 && <span className="ml-auto text-[13px] text-muted-foreground">每组选一个保留，勾选的客户会合并进去</span>}
       </div>
       {groups.length === 0 ? (
         <p className="py-16 text-center text-sm text-muted-foreground">没有发现疑似重复的客户</p>
@@ -167,8 +165,8 @@ function GroupCard({ group, tz, canMerge }: { group: DuplicateGroup; tz: string;
           <AlertDialogHeader>
             <AlertDialogTitle>合并到「{kept.name}」？</AlertDialogTitle>
             <AlertDialogDescription>
-              {targets.map((c) => `「${c.name}」`).join("、")} 的联系人、跟进动态、商机、日程、报价单、订单、邮件和 WhatsApp
-              会话都会转到「{kept.name}」，空着的资料会用它们补齐，然后删除这些客户。合并后无法撤销。
+              {targets.map((c) => `「${c.name}」`).join("、")} 的联系人、跟进动态、商机、日程、报价单、订单、邮件和 WhatsApp 会话都会转到「{kept.name}
+              」，空着的资料会用它们补齐，然后删除这些客户。合并后无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

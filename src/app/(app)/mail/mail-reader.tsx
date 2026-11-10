@@ -258,7 +258,7 @@ export function MailReader({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-3 border-b px-4 py-4 md:px-5">
-          <h2 className="text-lg font-semibold">{m.subject || "(无主题)"}</h2>
+          <h2 className="text-lg font-medium">{m.subject || "(无主题)"}</h2>
           <div className="space-y-0.5 text-sm break-words">
             <p>
               <span className="font-medium">{m.fromName || m.fromAddr}</span> <span className="text-muted-foreground">&lt;{m.fromAddr}&gt;</span>
@@ -305,14 +305,14 @@ export function MailReader({
 
           {/* AI：打开就自动分析、外文自动翻译 */}
           {canAi && m.folder === "INBOX" && (
-            <div className="rounded-xl border border-violet-200 bg-violet-50/70 px-3.5 py-2.5 text-sm">
+            <div className="rounded-xl border border-transparent bg-brand-soft/40 px-3.5 py-2.5 text-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <Sparkles className="size-4 text-violet-600" />
-                <span className="text-xs font-semibold text-violet-700">AI 摘要</span>
+                <Sparkles className="size-4 text-brand-ink" />
+                <span className="text-xs font-medium text-brand-ink">AI 摘要</span>
                 {priority && m.aiPriority !== "low" && (
                   <span
                     className={cn(
-                      "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      "rounded-full px-2 py-0.5 text-[11px] font-medium",
                       m.aiPriority === "high" ? "bg-rose-500 text-white" : "bg-amber-100 text-amber-800",
                     )}
                   >
@@ -343,8 +343,8 @@ export function MailReader({
             </div>
           )}
           {!canAi && m.aiSummary && (
-            <div className="rounded-xl border border-violet-200 bg-violet-50/70 px-3.5 py-2.5 text-sm">
-              <span className="text-xs font-semibold text-violet-700">AI 摘要</span>
+            <div className="rounded-xl border border-transparent bg-brand-soft/40 px-3.5 py-2.5 text-sm">
+              <span className="text-xs font-medium text-brand-ink">AI 摘要</span>
               <p className="mt-1 text-foreground/90">{m.aiSummary}</p>
             </div>
           )}
@@ -407,7 +407,7 @@ export function MailReader({
               variant="outline"
               onClick={() => window.dispatchEvent(new CustomEvent("crm:ai-ask", { detail: { message: "帮我起草这封邮件的回复" } }))}
             >
-              <Sparkles className="text-violet-600" /> 让 AI 起草回复
+              <Sparkles className="text-brand-ink" /> 让 AI 起草回复
             </Button>
           )}
           <Button asChild variant="ghost">

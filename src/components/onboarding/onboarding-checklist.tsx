@@ -20,7 +20,7 @@ export function OnboardingChecklist({ steps }: { steps: OnboardingStep[] }) {
     <section aria-labelledby="onboarding-title" className="surface mb-4 overflow-hidden">
       <header className="flex items-center gap-3 px-4 pt-4 pb-3 md:px-5">
         <div className="min-w-0 flex-1">
-          <h2 id="onboarding-title" className="font-semibold">
+          <h2 id="onboarding-title" className="font-medium">
             上手清单 <span className="ml-1 text-sm font-normal text-muted-foreground tabular-nums">{`${done}/${steps.length}`}</span>
           </h2>
           <p className="mt-0.5 text-[13px] text-muted-foreground">做完这几步，邮件、WhatsApp、客户和产品就都连起来了</p>
@@ -59,7 +59,7 @@ export function OnboardingChecklist({ steps }: { steps: OnboardingStep[] }) {
             >
               <span
                 className={cn(
-                  "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums",
+                  "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium tabular-nums",
                   s.done ? "bg-emerald-500 text-white" : "border-2 border-border text-muted-foreground",
                 )}
                 aria-label={s.done ? "已完成" : "未完成"}

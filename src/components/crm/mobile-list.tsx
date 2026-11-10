@@ -73,7 +73,7 @@ export function MobileCard({
         {leading && <div className="shrink-0">{leading}</div>}
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1 text-[15px] leading-snug font-semibold">
+            <div className="min-w-0 flex-1 text-[15px] leading-snug font-medium">
               {href ? (
                 <Link href={href} className="line-clamp-2 after:absolute after:inset-0 after:rounded-2xl after:content-['']">
                   {title}

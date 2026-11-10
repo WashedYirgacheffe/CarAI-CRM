@@ -15,7 +15,10 @@ function initialsOf(name: string | null, phone: string | null) {
   const n = name?.trim();
   if (n) {
     if (/^[一-龥]/.test(n)) return n.slice(-1);
-    const words = n.replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(Boolean);
+    const words = n
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
+      .split(/\s+/)
+      .filter(Boolean);
     if (words.length) return (words[0][0] + (words[1]?.[0] ?? "")).toUpperCase();
   }
   return phone ? phone.slice(-2) : "?";
@@ -25,23 +28,16 @@ function initialsOf(name: string | null, phone: string | null) {
  * WhatsApp 头像：有图显示图（走鉴权接口），没有或加载失败时显示彩色首字。
  * src 变化（换头像）时重新尝试加载。
  */
-export function WaAvatar({
-  src,
-  name,
-  phone,
-  className,
-}: {
-  src?: string | null;
-  name: string | null;
-  phone: string | null;
-  className?: string;
-}) {
+export function WaAvatar({ src, name, phone, className }: { src?: string | null; name: string | null; phone: string | null; className?: string }) {
   const [failed, setFailed] = useState<string | null>(null);
   const hue = hueOf(name || phone || "?");
   const showImg = src && failed !== src;
   return (
     <span
-      className={cn("relative inline-flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold select-none", className)}
+      className={cn(
+        "relative inline-flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full font-medium select-none",
+        className,
+      )}
       style={{ background: `oklch(0.93 0.045 ${hue})`, color: `oklch(0.42 0.12 ${hue})` }}
       aria-hidden
     >

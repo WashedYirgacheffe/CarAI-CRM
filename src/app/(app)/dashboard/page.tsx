@@ -10,6 +10,7 @@ import { BarTrend, Distribution, HBars } from "@/components/dashboard/charts";
 import { Funnel, Heatmap, PaceChart, SegmentBar, Sparkline, StackedDaily } from "@/components/dashboard/viz";
 import { RAMP, yuan } from "@/lib/viz";
 import {
+  ArrowUpRight,
   Building2,
   CalendarClock,
   CalendarX2,
@@ -388,26 +389,24 @@ export default async function DashboardPage() {
       },
   ].filter(Boolean) as { icon: LucideIcon; label: string; value: number; hint: string; href: string; alert?: boolean }[];
 
+  const hotStat = stats.findIndex((s) => s.alert);
+
   const blocks: Record<(typeof cards)[number], React.ReactNode> = {
     hero: hero ? (
       <section className="surface relative overflow-hidden p-4 md:p-6">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-32 -right-24 size-96 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklch,var(--chart-1)_14%,transparent),transparent)]"
-        />
         <div className="relative grid gap-5 @3xl:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] @3xl:gap-8">
           <div className="flex flex-col">
             <p className="text-sm text-muted-foreground">本月成交 · 折合人民币</p>
-            <p className="mt-1.5 text-[40px] leading-none font-bold tracking-tight @xl:text-5xl">{formatMoney(monthTotal, "CNY")}</p>
+            <p className="mt-1.5 text-[44px] leading-none font-light tracking-[-0.03em] @xl:text-[56px]">{formatMoney(monthTotal, "CNY")}</p>
             <Delta cur={monthTotal} base={prevSame} label="较上月同期" className="mt-3" />
             <dl className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 text-sm @3xl:mt-auto">
               <div>
                 <dt className="text-xs text-muted-foreground">本月订单</dt>
-                <dd className="mt-0.5 font-semibold">{monthOrderCount} 单</dd>
+                <dd className="mt-0.5 font-medium">{monthOrderCount} 单</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">上月全月</dt>
-                <dd className="mt-0.5 font-semibold">{formatMoney(prevTotal, "CNY")}</dd>
+                <dd className="mt-0.5 font-medium">{formatMoney(prevTotal, "CNY")}</dd>
               </div>
             </dl>
           </div>
@@ -423,7 +422,7 @@ export default async function DashboardPage() {
               >
                 <span className="min-w-0">
                   <span className="block text-xs text-muted-foreground">{m.label}</span>
-                  <span className="mt-0.5 block truncate text-xl leading-tight font-bold">{m.fmt(total(m.series.cur))}</span>
+                  <span className="mt-0.5 block truncate text-xl leading-tight font-normal">{m.fmt(total(m.series.cur))}</span>
                   <Delta cur={total(m.series.cur)} base={total(m.series.prev)} label="较前 30 天" className="mt-1" small />
                 </span>
                 <Sparkline values={m.series.cur} label={`${m.label}逐日走势`} className="mb-1" />
@@ -436,7 +435,7 @@ export default async function DashboardPage() {
     funnel: funnel ? (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">本月转化漏斗</CardTitle>
+          <CardTitle>本月转化漏斗</CardTitle>
           <CardDescription>本月新增的数量，箭头处是相邻两步的比例</CardDescription>
         </CardHeader>
         <CardContent>
@@ -459,7 +458,7 @@ export default async function DashboardPage() {
     heatmap: (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">我的活跃度</CardTitle>
+          <CardTitle>我的活跃度</CardTitle>
           <CardDescription>每天写跟进、发邮件、发 WhatsApp 的次数</CardDescription>
         </CardHeader>
         <CardContent>
@@ -471,7 +470,7 @@ export default async function DashboardPage() {
       commsSeries.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">沟通量</CardTitle>
+            <CardTitle>沟通量</CardTitle>
             <CardDescription>近 14 天，我的邮箱和 WhatsApp</CardDescription>
           </CardHeader>
           <CardContent>
@@ -482,7 +481,7 @@ export default async function DashboardPage() {
     health: health ? (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">客户健康度</CardTitle>
+          <CardTitle>客户健康度</CardTitle>
           <CardDescription>我的 {myCustomers} 家客户，按最近一次联系</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -493,7 +492,7 @@ export default async function DashboardPage() {
               { label: "30 天内", value: health[1], color: RAMP[2], dark: true },
               { label: "90 天内", value: health[2], color: RAMP[1] },
               { label: "超过 90 天", value: health[3], color: RAMP[0] },
-              { label: "从未联系", value: health[4], color: "oklch(0.9 0.01 262)" },
+              { label: "从未联系", value: health[4], color: "oklch(0.9 0 0)" },
             ]}
           />
           <div className="space-y-3 border-t pt-4">
@@ -507,7 +506,7 @@ export default async function DashboardPage() {
                 <span className="flex items-baseline justify-between text-sm">
                   <span className="text-muted-foreground">{label}</span>
                   <span>
-                    <span className="font-semibold">{v}</span>
+                    <span className="font-medium">{v}</span>
                     <span className="text-xs text-muted-foreground"> / {myCustomers}</span>
                   </span>
                 </span>
@@ -522,38 +521,58 @@ export default async function DashboardPage() {
     ) : null,
     overview: (
       <section className="grid grid-cols-2 content-start gap-3 md:gap-4 @4xl:grid-cols-4">
-        {stats.map((s) => (
-          <Link
-            key={s.label}
-            href={s.href}
-            className="surface group flex flex-col items-start gap-2.5 p-3.5 md:flex-row md:gap-3.5 md:p-5 transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-12px_oklch(0.4_0.12_265/0.25)]"
-          >
-            <span
+        {stats.map((s, i) => {
+          // 第一张需要处理的卡片用强调橙，其余保持白底
+          const hot = i === hotStat;
+          return (
+            <Link
+              key={s.label}
+              href={s.href}
               className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-xl md:size-10",
-                s.alert ? "bg-destructive/10 text-destructive" : "bg-accent text-primary",
+                "group relative flex flex-col gap-3 rounded-2xl p-4 shadow-card transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_14px_28px_-16px_oklch(0_0_0/0.22)] md:p-5",
+                hot ? "bg-brand text-brand-foreground" : "bg-card",
               )}
             >
-              <s.icon className="size-5" />
-            </span>
-            <span className="w-full min-w-0">
-              <span className="block truncate text-[13px] text-muted-foreground md:text-sm">{s.label}</span>
-              <span className={cn("mt-0.5 block text-2xl md:text-[28px] leading-tight font-bold tabular-nums", s.alert && "text-destructive")}>
-                {s.value}
+              <span className="flex items-center justify-between gap-2">
+                <span
+                  className={cn("flex min-w-0 items-center gap-2 text-[13px] md:text-sm", hot ? "text-brand-foreground/90" : "text-muted-foreground")}
+                >
+                  <s.icon className="size-4 shrink-0" />
+                  <span className="truncate">{s.label}</span>
+                </span>
+                <span
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
+                    hot
+                      ? "bg-brand-foreground/20 group-hover:bg-brand-foreground group-hover:text-brand"
+                      : "border border-border group-hover:bg-primary group-hover:text-primary-foreground",
+                  )}
+                >
+                  <ArrowUpRight className="size-4" />
+                </span>
               </span>
-              <span className="mt-0.5 block truncate text-xs text-muted-foreground tabular-nums">{s.hint}</span>
-            </span>
-          </Link>
-        ))}
+              <span className="flex items-baseline gap-2">
+                <span className="text-[32px] leading-none font-light tracking-[-0.02em] tabular-nums md:text-[40px]">{s.value}</span>
+                {s.alert && !hot && <span className="size-2 rounded-full bg-destructive" aria-label="需要处理" />}
+              </span>
+              <span className={cn("block truncate text-xs tabular-nums", hot ? "text-brand-foreground/85" : "text-muted-foreground")}>{s.hint}</span>
+            </Link>
+          );
+        })}
       </section>
     ),
     today: (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">今天要做</CardTitle>
+          <CardTitle>今天要做</CardTitle>
           <CardAction>
-            <Link href="/schedule" className="text-sm text-muted-foreground hover:text-primary">
-              全部日程
+            <Link
+              href="/schedule"
+              aria-label="全部日程"
+              title="全部日程"
+              className="flex size-9 items-center justify-center rounded-full border border-border text-foreground/75 transition-colors hover:bg-primary hover:text-primary-foreground"
+            >
+              <ArrowUpRight className="size-4" />
             </Link>
           </CardAction>
         </CardHeader>
@@ -580,10 +599,10 @@ export default async function DashboardPage() {
     trend: canOrders ? (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">成交趋势</CardTitle>
+          <CardTitle>成交趋势</CardTitle>
           <CardAction>
             <span className="text-sm text-muted-foreground">
-              近 6 个月合计 <span className="font-semibold text-foreground tabular-nums">{formatMoney(trendTotal, "CNY")}</span>
+              近 6 个月合计 <span className="font-medium text-foreground tabular-nums">{formatMoney(trendTotal, "CNY")}</span>
             </span>
           </CardAction>
         </CardHeader>
@@ -595,7 +614,7 @@ export default async function DashboardPage() {
     pipeline: canOpps ? (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">商机阶段</CardTitle>
+          <CardTitle>商机阶段</CardTitle>
           <CardAction>
             <Link href="/opportunities" className="text-sm text-muted-foreground hover:text-primary">
               查看看板
@@ -611,7 +630,7 @@ export default async function DashboardPage() {
     distribution: canCustomers ? (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">客户分布</CardTitle>
+          <CardTitle>客户分布</CardTitle>
         </CardHeader>
         <CardContent>
           <Distribution
@@ -631,7 +650,7 @@ export default async function DashboardPage() {
     recent: canCustomers ? (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">最近跟进</CardTitle>
+          <CardTitle>最近跟进</CardTitle>
         </CardHeader>
         <CardContent>
           {recent.length === 0 ? (
@@ -659,7 +678,7 @@ export default async function DashboardPage() {
     clock: (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">世界时钟</CardTitle>
+          <CardTitle>世界时钟</CardTitle>
         </CardHeader>
         <CardContent>
           <WorldClock suggested={clockCountries.length ? clockCountries : DEFAULT_CLOCK_COUNTRIES} localTz={tz} />
@@ -669,7 +688,7 @@ export default async function DashboardPage() {
     fx: (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">汇率换算</CardTitle>
+          <CardTitle>汇率换算</CardTitle>
         </CardHeader>
         <CardContent>
           <FxCalculator rates={rates ?? { CNY: 1 }} currencies={CURRENCIES} />
@@ -717,16 +736,11 @@ function Delta({ cur, base, label, className, small }: { cur: number; base: numb
     <p className={cn("flex items-center gap-1.5", small ? "text-xs" : "text-sm", className)}>
       <span
         className={cn(
-          "inline-flex items-center gap-0.5 rounded-full font-semibold",
-          small ? "" : "px-2 py-0.5",
-          pct === 0
-            ? "text-muted-foreground"
-            : pct > 0
-              ? cn("text-emerald-600", !small && "bg-emerald-500/10")
-              : cn("text-destructive", !small && "bg-destructive/10"),
+          "inline-flex items-center gap-0.5 rounded-md px-1.5 py-px font-medium tabular-nums",
+          pct === 0 ? "bg-muted text-muted-foreground" : pct > 0 ? "bg-emerald-500/12 text-emerald-700" : "bg-destructive/10 text-destructive",
         )}
       >
-        <Icon className={small ? "size-3.5" : "size-4"} />
+        <Icon className={small ? "size-3" : "size-3.5"} />
         {pct === Infinity ? "新增" : pct === 0 ? "持平" : `${pct > 0 ? "+" : ""}${pct}%`}
       </span>
       <span className="text-muted-foreground">{label}</span>

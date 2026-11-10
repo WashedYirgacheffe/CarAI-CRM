@@ -16,7 +16,7 @@ import { deleteSegmentAction, saveSegmentAction } from "@/app/(app)/customers/se
 import type { SegmentItem } from "@/server/segments";
 
 const itemCls = "flex min-w-0 shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors lg:shrink";
-const activeCls = "bg-accent font-semibold text-accent-foreground";
+const activeCls = "bg-accent font-medium text-accent-foreground";
 const idleCls = "text-foreground/80 hover:bg-muted";
 
 function Count({ n }: { n: number | null | undefined }) {
@@ -88,11 +88,7 @@ export function SegmentBar({
 
         {quick.length > 0 && <SectionLabel>快捷筛选</SectionLabel>}
         {quick.map((o) => (
-          <Link
-            key={o.value}
-            href={`${path}?follow=${o.value}`}
-            className={cn(itemCls, !sel && follow === o.value ? activeCls : idleCls)}
-          >
+          <Link key={o.value} href={`${path}?follow=${o.value}`} className={cn(itemCls, !sel && follow === o.value ? activeCls : idleCls)}>
             <span className="truncate">{o.label}</span>
           </Link>
         ))}
@@ -134,11 +130,7 @@ export function SegmentBar({
         ))}
 
         {allowSave && hasFilters && !sel && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className={cn(itemCls, "text-primary hover:bg-accent lg:mt-1")}
-          >
+          <button type="button" onClick={() => setOpen(true)} className={cn(itemCls, "text-primary hover:bg-accent lg:mt-1")}>
             <BookmarkPlus className="size-3.5 shrink-0" />
             <span className="truncate">把当前筛选存为客群</span>
           </button>
@@ -154,7 +146,14 @@ export function SegmentBar({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="seg-name">客群名称</FieldLabel>
-              <Input id="seg-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={30} placeholder="如：美国 4 星以上客户" autoFocus />
+              <Input
+                id="seg-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={30}
+                placeholder="如：美国 4 星以上客户"
+                autoFocus
+              />
             </Field>
             {canShare && (
               <label className="flex items-center gap-2 text-sm">
