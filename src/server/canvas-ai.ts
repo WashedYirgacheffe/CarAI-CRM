@@ -300,7 +300,15 @@ ${ACTION_DOC}
 }
 
 type Space = { id: string; name: string; layout: CanvasLayout };
-type Ctx = { user: CurrentUser; layout: CanvasLayout; emit: (e: CanvasEvent) => void; stop: boolean; spaces: Space[]; active: string };
+type Ctx = {
+  user: CurrentUser;
+  layout: CanvasLayout;
+  emit: (e: CanvasEvent) => void;
+  stop: boolean;
+  spaces: Space[];
+  active: string;
+  placed?: boolean;
+};
 
 const json = (x: unknown) => JSON.stringify(x);
 
@@ -436,7 +444,8 @@ async function prepareItem(user: CurrentUser, raw: { type?: unknown; size?: unkn
 }
 
 async function updateCanvas(ctx: Ctx, args: Record<string, unknown>) {
-  let layout = args.clear === true ? [] : [...ctx.layout];
+  // 一轮里只有第一次摆放能清空：后面的调用都是在刚摆好的基础上追加，免得把自己刚放的组件冲掉
+  let layout = args.clear === true && !ctx.placed ? [] : [...ctx.layout];
   const notes: string[] = [];
   for (const id of Array.isArray(args.remove) ? args.remove : []) layout = layout.filter((it) => it.id !== id);
   for (const r of Array.isArray(args.resize) ? (args.resize as { id?: string; size?: string }[]) : []) {
@@ -466,6 +475,7 @@ async function updateCanvas(ctx: Ctx, args: Record<string, unknown>) {
   }
   layout = sanitizeLayout([...front, ...layout]).slice(0, MAX_ITEMS);
   ctx.layout = layout;
+  ctx.placed = true;
   ctx.emit({ t: "layout", layout });
   return { ok: notes.length === 0, notes, canvas: layout.map((it) => ({ id: it.id, type: it.type, size: it.size, title: it.params?.title })) };
 }
@@ -520,6 +530,7 @@ async function openSpace(ctx: Ctx, args: Record<string, unknown>) {
   const hit = ctx.spaces.find((w) => norm(w.name) === want) ?? ctx.spaces.find((w) => norm(w.name).includes(want) || want.includes(norm(w.name)));
   if (!hit) return { error: `没有叫「${args.name}」的情景`, saved: ctx.spaces.map((w) => w.name) };
   ctx.layout = hit.layout;
+  ctx.placed = true;
   ctx.active = hit.name;
   ctx.emit({ t: "workspace", op: "open", id: hit.id, layout: hit.layout });
   return { ok: true, note: `已恢复情景「${hit.name}」`, canvas: hit.layout.map((it) => ({ id: it.id, type: it.type, title: it.params?.title })) };
