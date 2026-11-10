@@ -122,7 +122,7 @@ export function CustomerWhatsapp({ rows, tz, chatHref }: { rows: CustomerWaRow[]
               <div className={cn("max-w-[80%] rounded-lg px-2.5 py-1 text-sm shadow-xs", m.fromMe ? "bg-[#d9fdd3]" : "bg-white")}>
                 <WaMedia id={m.id} media={m.media} />
                 {waCaption(m.body, m.media) && <p className="whitespace-pre-wrap break-words">{waCaption(m.body, m.media)}</p>}
-                <p className="text-right text-[10px] text-muted-foreground tabular-nums">{formatDateTime(m.timestamp, tz)}</p>
+                <p className="text-right text-[11px] text-muted-foreground tabular-nums">{formatDateTime(m.timestamp, tz)}</p>
               </div>
             </div>
           ))}

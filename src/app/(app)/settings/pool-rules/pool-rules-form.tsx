@@ -37,7 +37,7 @@ export function PoolRulesForm({
         <Field>
           <FieldLabel>按客群单独设置</FieldLabel>
           {segments.length ? (
-            <div className="divide-y rounded-lg border">
+            <div className="divide-y divide-background rounded-2xl bg-muted/60">
               {segments.map((s) => (
                 <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                   <span className="truncate">{s.name}</span>
@@ -57,7 +57,7 @@ export function PoolRulesForm({
               ))}
             </div>
           ) : (
-            <p className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+            <p className="rounded-2xl border border-dashed border-foreground/20 px-3 py-4 text-center text-sm text-muted-foreground">
               还没有共享客群。在「我的客户」里筛选后「存为客群」并勾选全公司共享，就能在这里单独设置。
             </p>
           )}

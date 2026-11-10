@@ -139,7 +139,7 @@ function CustomerInsightRow({
         <RecencyBar
           unit=" 家"
           parts={[
-            { label: "7 天内", value: i.d7, color: RAMP[3], dark: true },
+            { label: "7 天内", value: i.d7, color: "var(--brand)" },
             { label: "30 天内", value: i.d30, color: RAMP[2], dark: true },
             { label: "90 天内", value: i.d90, color: RAMP[1] },
             { label: "超过 90 天", value: i.old, color: RAMP[0] },

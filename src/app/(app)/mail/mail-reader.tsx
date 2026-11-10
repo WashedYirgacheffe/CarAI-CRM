@@ -258,7 +258,7 @@ export function MailReader({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-3 border-b px-4 py-4 md:px-5">
-          <h2 className="text-lg font-medium">{m.subject || "(无主题)"}</h2>
+          <h2 className="text-xl leading-snug font-normal tracking-[-0.01em]">{m.subject || "(无主题)"}</h2>
           <div className="space-y-0.5 text-sm break-words">
             <p>
               <span className="font-medium">{m.fromName || m.fromAddr}</span> <span className="text-muted-foreground">&lt;{m.fromAddr}&gt;</span>
@@ -284,7 +284,7 @@ export function MailReader({
                 {m.lead ? (
                   <Link
                     href={`/leads?q=${encodeURIComponent(m.fromAddr)}&tab=all`}
-                    className="rounded-md bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                    className="rounded-full bg-brand-soft px-2.5 py-0.5 text-xs text-brand-ink"
                   >
                     已建为线索，去处理
                   </Link>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { EmptyState } from "@/components/crm/empty-state";
 import Form from "next/form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -52,10 +53,10 @@ const PROGRESS = LEAD_STATUSES.filter(
 );
 
 const STATUS_STYLE: Record<LeadRow["status"], string> = {
-  NEW: "bg-blue-50 text-blue-700 border-blue-200",
-  QUALIFYING: "bg-violet-50 text-violet-700 border-violet-200",
-  CONTACTED: "bg-amber-50 text-amber-800 border-amber-200",
-  CONVERTED: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  NEW: "bg-brand-soft text-brand-ink",
+  QUALIFYING: "bg-foreground/[0.07] text-foreground",
+  CONTACTED: "bg-amber-50 text-amber-800",
+  CONVERTED: "bg-emerald-50 text-emerald-700",
   INVALID: "bg-muted text-muted-foreground",
 };
 
@@ -206,7 +207,7 @@ export function LeadTable({
               title={l.companyName ?? l.contactName ?? l.email}
               sub={[l.companyName && l.contactName, l.email, l.country && countryName(l.country)].filter(Boolean).join(" · ")}
               aside={
-                <span className={cn("inline-flex rounded-md border px-1.5 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
+                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
                   {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
                 </span>
               }
@@ -263,8 +264,8 @@ export function LeadTable({
           <TableBody>
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
-                  没有线索
+                <TableCell colSpan={8}>
+                  <EmptyState>没有线索</EmptyState>
                 </TableCell>
               </TableRow>
             )}
@@ -300,7 +301,7 @@ export function LeadTable({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{l.source ?? "—"}</TableCell>
                   <TableCell>
-                    <span className={cn("inline-flex rounded-md border px-1.5 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
+                    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
                       {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
                     </span>
                     {l.status === "CONVERTED" && l.customerId && (

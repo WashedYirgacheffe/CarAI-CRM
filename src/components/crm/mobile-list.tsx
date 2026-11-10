@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/crm/empty-state";
 
 /**
  * 手机端卡片列表。桌面端表格包一层 <DesktopOnly>，手机端用 <MobileList> + <MobileCard> 显示同样的数据。
@@ -16,11 +17,7 @@ export function MobileList({ children, empty, className }: { children?: React.Re
   const has = Array.isArray(children) ? children.some(Boolean) : !!children;
   return (
     <div className={cn("md:hidden", className)}>
-      {has ? (
-        <ul className="space-y-2 p-3">{children}</ul>
-      ) : (
-        <p className="px-6 py-14 text-center text-sm text-muted-foreground">{empty ?? "暂无数据"}</p>
-      )}
+      {has ? <ul className="space-y-2 p-3">{children}</ul> : <EmptyState className="px-6 py-14">{empty}</EmptyState>}
     </div>
   );
 }

@@ -1002,7 +1002,7 @@ function SendFilesDialog({
                   <>
                     <FileText className="size-7 text-muted-foreground" />
                     <span className="line-clamp-2 text-[11px] break-all">{f.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="text-[11px] text-muted-foreground">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
                   </>
                 )}
               </li>

@@ -392,7 +392,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
         <section className="overflow-hidden surface">
           <div className="flex items-baseline justify-between gap-3 px-4 pt-4 pb-1 md:px-5 md:pt-5 md:pb-3">
-            <h2 className="text-base font-medium">团队业绩</h2>
+            <h2 className="text-lg font-normal tracking-[-0.01em]">团队业绩</h2>
             <span className="text-xs text-muted-foreground">按成交额排序</span>
           </div>
           <MobileList empty="暂无成员数据">
@@ -402,7 +402,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                 leading={<Rank i={i} on={r.orderAmount > 0} />}
                 title={r.name}
                 aside={
-                  <span className={cn("text-sm font-medium tabular-nums", !r.orderAmount && "font-normal text-muted-foreground/60")}>
+                  <span className={cn("text-sm font-medium tabular-nums", !r.orderAmount && "font-normal text-muted-foreground")}>
                     {money(r.orderAmount)}
                   </span>
                 }
@@ -424,7 +424,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   ).map(([k, v]) => (
                     <div key={k}>
                       <dt className="text-xs text-muted-foreground">{k}</dt>
-                      <dd className={cn("tabular-nums", !v && "text-muted-foreground/60")}>{v}</dd>
+                      <dd className={cn("tabular-nums", !v && "text-muted-foreground")}>{v}</dd>
                     </div>
                   ))}
                 </dl>
@@ -468,12 +468,12 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                           <div className="h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${(r.orderAmount / teamMaxAmount) * 100}%` }} />
                         </div>
-                        <span className={cn("w-28 text-right text-sm tabular-nums", r.orderAmount > 0 ? "font-medium" : "text-muted-foreground/60")}>
+                        <span className={cn("w-28 text-right text-sm tabular-nums", r.orderAmount > 0 ? "font-medium" : "text-muted-foreground")}>
                           {money(r.orderAmount)}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className={cn("text-right tabular-nums", !r.paid && "text-muted-foreground/60")}>{money(r.paid)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums", !r.paid && "text-muted-foreground")}>{money(r.paid)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -526,7 +526,7 @@ function Pair({ label, out, inn }: { label: string; out: number; inn: number }) 
 }
 
 function Num({ v }: { v: number }) {
-  return <TableCell className={cn("text-right tabular-nums", v === 0 && "text-muted-foreground/60")}>{v}</TableCell>;
+  return <TableCell className={cn("text-right tabular-nums", v === 0 && "text-muted-foreground")}>{v}</TableCell>;
 }
 
 function Empty() {

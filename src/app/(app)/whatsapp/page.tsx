@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { EmptyState } from "@/components/crm/empty-state";
 import { Archive, ChevronLeft, LoaderCircle, MessageCircle, Search, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WaAvatar } from "@/components/crm/wa-avatar";
@@ -192,8 +193,10 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
             )
           )}
           {chats.length === 0 && (
-            <li className="px-6 py-16 text-center text-sm text-muted-foreground">
-              {syncing ? "聊天记录同步中，马上就到…" : q || f ? "没有符合条件的聊天" : "还没有聊天，点右上角 + 发起新聊天"}
+            <li>
+              <EmptyState icon={MessageCircle} className="px-6 py-16">
+                {syncing ? "聊天记录同步中，马上就到…" : q || f ? "没有符合条件的聊天" : "还没有聊天，点右上角 + 发起新聊天"}
+              </EmptyState>
             </li>
           )}
           {chats.map((c) => (

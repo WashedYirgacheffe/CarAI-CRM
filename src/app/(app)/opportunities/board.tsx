@@ -24,6 +24,7 @@ import { Breakdown, Meter, MiniColumns } from "@/components/dashboard/viz";
 import { RAMP, yuan } from "@/lib/viz";
 import { OpportunityForm, type EditableOpportunity, type StageOption } from "@/components/crm/opportunity-form";
 import { deleteOpportunityAction, moveOpportunityAction } from "./actions";
+import { EmptyState } from "@/components/crm/empty-state";
 
 type Opp = {
   id: string;
@@ -229,7 +230,7 @@ export function OpportunityBoard({
         description={description}
         actions={
           perms.create && (
-            <Button size="sm" onClick={() => setEditing({ name: "" })}>
+            <Button onClick={() => setEditing({ name: "" })}>
               <Plus /> 新建商机
             </Button>
           )
@@ -322,11 +323,7 @@ export function OpportunityBoard({
           </nav>
           <p className="px-4 pt-2.5 text-xs text-muted-foreground tabular-nums">合计 {mobileItems.length ? yuan(sum(mobileItems)) : "—"}</p>
           <div className="flex flex-col gap-2 p-3">
-            {mobileItems.length === 0 ? (
-              <p className="py-12 text-center text-sm text-muted-foreground">这个阶段暂无商机</p>
-            ) : (
-              mobileItems.map((o) => card(o, false))
-            )}
+            {mobileItems.length === 0 ? <EmptyState className="py-12">这个阶段暂无商机</EmptyState> : mobileItems.map((o) => card(o, false))}
           </div>
         </div>
 

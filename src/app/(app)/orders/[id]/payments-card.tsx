@@ -75,7 +75,7 @@ export function PaymentsCard({
         </div>
 
         {adding && (
-          <form onSubmit={submit} className="space-y-3 rounded-lg border p-3">
+          <form onSubmit={submit} className="space-y-3 rounded-2xl bg-muted/60 p-3.5">
             <input type="hidden" name="orderId" value={orderId} />
             <FormMessage state={state} />
             <div className="grid grid-cols-2 gap-3">
