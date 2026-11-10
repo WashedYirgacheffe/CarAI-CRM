@@ -9,7 +9,7 @@ export type NavLeaf = {
 };
 
 /** 图标栏数字提醒（/api/badges 返回） */
-export type BadgeKey = "leads" | "mail" | "whatsapp";
+export type BadgeKey = "leads" | "mail" | "whatsapp" | "tasks";
 
 export type NavGroup = { group?: string; items: NavLeaf[] };
 
@@ -31,6 +31,7 @@ export const NAV: NavModule[] = [
   { key: "dashboard", title: "工作台", href: "/dashboard", icon: "LayoutDashboard" },
   { key: "mail", title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
   { key: "whatsapp", title: "沟通", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
+  { key: "marketing", title: "营销", href: "/marketing", icon: "Send", permission: "mail.use" },
   { key: "leads", title: "线索", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
   {
     key: "customers",
@@ -67,7 +68,7 @@ export const NAV: NavModule[] = [
       },
     ],
   },
-  { key: "schedule", title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view" },
+  { key: "schedule", title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view", badge: "tasks" },
   { key: "reports", title: "团队数据", href: "/reports", icon: "BarChart3", permission: "report.view" },
   { key: "settings", title: "设置", href: "/settings", icon: "Settings", menu: [] },
 ];

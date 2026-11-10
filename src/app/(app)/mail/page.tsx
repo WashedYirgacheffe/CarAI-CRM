@@ -104,6 +104,10 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
         aiPriority: true,
         customer: { select: { name: true } },
         leadId: true,
+        trackId: true,
+        openCount: true,
+        clickCount: true,
+        bouncedAt: true,
       },
     }),
     db.mailMessage.count({ where: { accountId: { in: accounts.map((a) => a.id) }, folder: "INBOX", seen: false } }),
@@ -114,6 +118,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
             customer: { select: { id: true, name: true } },
             lead: { select: { id: true, status: true } },
             account: { select: { email: true } },
+            events: { orderBy: { createdAt: "desc" }, take: 12, select: { type: true, url: true, createdAt: true } },
           },
         })
       : null,
@@ -249,6 +254,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                   </div>
                   <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
                   <p className="truncate text-xs text-muted-foreground">{m.snippet}</p>
+                  {m.folder === "SENT" && m.trackId && <TrackChip opens={m.openCount} clicks={m.clickCount} bounced={!!m.bouncedAt} />}
                   {(m.customer || m.leadId || intent) && (
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       {m.customer && (
@@ -322,6 +328,16 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               aiSummary: selected.aiSummary,
               aiIntent: selected.aiIntent,
               aiPriority: selected.aiPriority,
+              track: selected.trackId
+                ? {
+                    openCount: selected.openCount,
+                    openedAt: selected.openedAt?.toISOString() ?? null,
+                    lastOpenAt: selected.lastOpenAt?.toISOString() ?? null,
+                    clickCount: selected.clickCount,
+                    bouncedAt: selected.bouncedAt?.toISOString() ?? null,
+                    events: selected.events.map((e) => ({ type: e.type, url: e.url, at: e.createdAt.toISOString() })),
+                  }
+                : null,
             }}
           />
         ) : (
@@ -332,5 +348,16 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
         )}
       </section>
     </div>
+  );
+}
+
+/** 已发送邮件的追踪状态 */
+function TrackChip({ opens, clicks, bounced }: { opens: number; clicks: number; bounced: boolean }) {
+  if (bounced) return <span className="mt-1 inline-flex rounded bg-rose-50 px-1.5 text-[11px] text-rose-700">退信</span>;
+  return (
+    <span className={cn("mt-1 inline-flex items-center gap-1 rounded px-1.5 text-[11px]", opens ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground")}>
+      {opens ? `已打开 ${opens} 次` : "未打开"}
+      {clicks > 0 && <span>· 点击 {clicks}</span>}
+    </span>
   );
 }

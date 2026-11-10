@@ -67,6 +67,10 @@ model Tenant {
   aiInsights        AiInsight[]
   segments          CustomerSegment[]
   suggestionIgnores SuggestionIgnore[]
+  mailSequences     MailSequence[]
+  mailEnrollments   MailEnrollment[]
+  mailEvents        MailEvent[]
+  mailSuppressions  MailSuppression[]
 }
 
 enum UserStatus {
@@ -466,6 +470,14 @@ model Task {
   opportunityId String?
   ownerId       String
   createdById   String?
+  /// 提醒场景（见 src/lib/reminders.ts）：factory_quote / logistics / payment ...，普通日程为空
+  kind          String?
+  /// 补充说明：在等谁、等什么、回来后要做什么
+  note          String?
+  /// 来源页面（报价单 / 订单 / 邮件等），提醒里一键跳回去
+  link          String?
+  /// 推迟过几次
+  snoozeCount   Int       @default(0)
   createdAt     DateTime  @default(now())
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -781,9 +793,11 @@ model MailAccount {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages MailMessage[]
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    MailMessage[]
+  sequences   MailSequence[]
+  enrollments MailEnrollment[]
 
   @@unique([tenantId, email])
   @@index([userId])
@@ -831,13 +845,26 @@ model MailMessage {
   /// high / medium / low
   aiPriority   String?
   aiAnalyzedAt DateTime?
+  // ── 追踪（只有从系统发出的邮件有） ──
+  /// 打开像素 / 链接跳转用的随机 ID
+  trackId      String?    @unique
+  openCount    Int        @default(0)
+  openedAt     DateTime?
+  lastOpenAt   DateTime?
+  clickCount   Int        @default(0)
+  /// 收到退信的时间
+  bouncedAt    DateTime?
+  /// 群发 / 跟进序列发出的
+  enrollmentId String?
   createdAt    DateTime   @default(now())
 
   tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   account  MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   customer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   contact  Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  lead     Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  enrollment MailEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  events     MailEvent[]
 
   @@unique([accountId, folderPath, uid])
   @@index([accountId, folder, date])
@@ -981,4 +1008,125 @@ model AiInsight {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, kind, targetId])
+}
+
+// ───────────────────────── 邮件营销：追踪、群发、跟进序列 ─────────────────────────
+
+/// 邮件打开 / 点击记录
+model MailEvent {
+  id        String   @id @default(cuid())
+  tenantId  String
+  messageId String
+  /// open / click
+  type      String
+  url       String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  tenant  Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  message MailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+enum SequenceStatus {
+  ACTIVE
+  PAUSED
+}
+
+/// 群发 / 跟进序列：一封或多封邮件，按间隔天数依次发，客户回复或退信就停
+model MailSequence {
+  id          String         @id @default(cuid())
+  tenantId    String
+  name        String
+  /// 用哪个邮箱发
+  accountId   String
+  ownerId     String
+  status      SequenceStatus @default(ACTIVE)
+  /// 每天最多发多少封（防止被邮箱服务商判为垃圾邮件）
+  dailyLimit  Int            @default(100)
+  /// 只在工作时间（企业时区 9–18 点）发
+  workHours   Boolean        @default(true)
+  stopOnReply Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account     MailAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  steps       MailSequenceStep[]
+  enrollments MailEnrollment[]
+
+  @@index([tenantId, ownerId])
+}
+
+model MailSequenceStep {
+  id         String @id @default(cuid())
+  sequenceId String
+  sort       Int
+  /// 距上一封（第一封为加入后）多少天
+  delayDays  Int    @default(0)
+  subject    String
+  body       String
+
+  sequence MailSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@index([sequenceId, sort])
+}
+
+enum EnrollmentStatus {
+  ACTIVE // 进行中
+  COMPLETED // 全部发完
+  REPLIED // 客户已回复
+  BOUNCED // 退信
+  UNSUBSCRIBED // 退订
+  STOPPED // 手动停止
+  FAILED // 发送失败
+}
+
+/// 序列里的一个收件人
+model MailEnrollment {
+  id          String           @id @default(cuid())
+  tenantId    String
+  sequenceId  String
+  accountId   String
+  email       String
+  name        String?
+  company     String?
+  country     String?
+  customerId  String?
+  contactId   String?
+  leadId      String?
+  status      EnrollmentStatus @default(ACTIVE)
+  /// 下一封是第几步（0 起）
+  step        Int              @default(0)
+  nextAt      DateTime?
+  lastSentAt  DateTime?
+  repliedAt   DateTime?
+  error       String?
+  createdAt   DateTime         @default(now())
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sequence MailSequence  @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  account  MailAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages MailMessage[]
+
+  @@unique([sequenceId, email])
+  @@index([status, nextAt])
+  @@index([tenantId, email])
+}
+
+/// 退订 / 硬退信名单：群发时自动跳过
+model MailSuppression {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  /// unsubscribe / bounce / manual
+  reason    String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
 }

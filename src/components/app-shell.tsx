@@ -4,8 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  AlarmClock,
   BarChart3,
   Bell,
+  Check,
+  Clock,
   Building2,
   CalendarClock,
   ChevronRight,
@@ -18,6 +21,7 @@ import {
   LayoutGrid,
   MessageCircle,
   Package,
+  Send,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -25,14 +29,12 @@ import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "sonner";
+import { KindTag } from "@/components/crm/tasks";
+import { runAction } from "@/hooks/use-action-form";
+import { snoozeTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
+import type { DueReminder } from "@/server/badges";
 import { activeNav, type BadgeKey, type NavModule } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
@@ -46,10 +48,11 @@ const ICONS: Record<string, LucideIcon> = {
   Mail,
   MessageCircle,
   Package,
+  Send,
   Settings,
 };
 
-type Badges = Partial<Record<BadgeKey, number>>;
+type Badges = Partial<Record<BadgeKey, number>> & { due?: DueReminder[] };
 type UserInfo = { name: string; email: string; roleName: string; isOwner: boolean };
 
 const MENU_COOKIE = "navmenu";
@@ -72,7 +75,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const badges = useBadges(pathname);
+  const [badges, reloadBadges] = useBadges(pathname);
   const active = activeNav(modules, pathname);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -101,7 +104,7 @@ export function AppShell({
           <GlobalSearch />
         </div>
         <div className="flex items-center md:gap-1">
-          <Reminders modules={modules} badges={badges} />
+          <Reminders modules={modules} badges={badges} reload={reloadBadges} />
           <UserMenu {...user} />
         </div>
       </header>
@@ -382,54 +385,107 @@ const REMINDER_LABEL: Record<BadgeKey, string> = {
   leads: "待处理线索",
   mail: "未读邮件",
   whatsapp: "未读 WhatsApp 消息",
+  tasks: "到期的跟进提醒",
 };
 
-/** 顶栏提醒：汇总线索、邮件、WhatsApp 的未处理数 */
-function Reminders({ modules, badges }: { modules: NavModule[]; badges: Badges }) {
+/** 顶栏提醒：到点的跟进提醒（可直接完成 / 推迟），再汇总线索、邮件、WhatsApp 的未处理数 */
+function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: Badges; reload: () => void }) {
+  const [open, setOpen] = useState(false);
   const items = modules.filter((m) => m.badge).map((m) => ({ href: m.href, key: m.badge!, count: badges[m.badge!] ?? 0 }));
   const total = items.reduce((s, i) => s + i.count, 0);
+  const due = badges.due ?? [];
   if (!items.length) return null;
+  const act = async (p: Promise<unknown>) => {
+    await p;
+    reload();
+  };
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
           type="button"
           className="relative flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label={total ? `提醒，${total} 条未处理` : "提醒"}
         >
-          <Bell className="size-[18px]" />
+          <Bell className={cn("size-[18px]", (badges.tasks ?? 0) > 0 && "text-foreground")} />
           {total > 0 && (
             <span className="absolute top-0.5 right-0.5">
               <CountPill count={total} />
             </span>
           )}
         </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>提醒</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {items.map((i) => (
-          <DropdownMenuItem key={i.key} asChild>
-            <Link href={i.href} className="flex justify-between">
-              {REMINDER_LABEL[i.key]}
-              <span className={cn("tabular-nums", i.count ? "font-semibold text-destructive" : "text-muted-foreground")}>{i.count}</span>
-            </Link>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-0">
+        <p className="px-3.5 pt-3 pb-2 text-sm font-semibold">提醒</p>
+        {due.length > 0 && (
+          <ul className="max-h-80 overflow-y-auto border-y border-border/70">
+            {due.map((t) => (
+              <li key={t.id} className="flex items-start gap-2 px-3.5 py-2.5 hover:bg-muted/40">
+                <AlarmClock className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <Link href={t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/schedule")} onClick={() => setOpen(false)} className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <KindTag kind={t.kind} />
+                    <span className="truncate text-sm">{t.title}</span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {[t.customerName, t.note].filter(Boolean).join(" · ") || "点击查看"}
+                  </span>
+                </Link>
+                <span className="flex shrink-0 gap-0.5">
+                  <button
+                    type="button"
+                    title="推迟到明天上午"
+                    aria-label="推迟到明天上午"
+                    onClick={() => act(runAction(snoozeTaskAction(t.id, "tomorrow")))}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Clock className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    title="标记完成"
+                    aria-label="标记完成"
+                    onClick={() => act(runAction(toggleTaskAction(t.id, true)))}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700"
+                  >
+                    <Check className="size-4" />
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <ul className="p-1.5">
+          {items.map((i) => (
+            <li key={i.key}>
+              <Link href={i.href} onClick={() => setOpen(false)} className="flex justify-between rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                {REMINDER_LABEL[i.key]}
+                <span className={cn("tabular-nums", i.count ? "font-semibold text-destructive" : "text-muted-foreground")}>{i.count}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-/** 未读数：切换页面、窗口重新获得焦点时，以及每分钟刷新一次 */
+const SEEN_KEY = "crm:due-seen";
+
+/** 未读数：切换页面、窗口重新获得焦点时，以及每分钟刷新一次；有新到点的提醒时弹一条通知 */
 function useBadges(pathname: string) {
   const [badges, setBadges] = useState<Badges>({});
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
     const load = () =>
       fetch("/api/badges", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((b) => alive && b && setBadges(b))
+        .then((b: Badges | null) => {
+          if (!alive || !b) return;
+          setBadges(b);
+          notifyDue(b.due ?? []);
+        })
         .catch(() => {});
     void load();
     const t = setInterval(load, 60_000);
@@ -439,6 +495,25 @@ function useBadges(pathname: string) {
       clearInterval(t);
       window.removeEventListener("focus", load);
     };
-  }, [pathname]);
-  return badges;
+  }, [pathname, tick]);
+  return [badges, () => setTick((n) => n + 1)] as const;
+}
+
+function notifyDue(due: DueReminder[]) {
+  let seen: string[] = [];
+  try {
+    seen = JSON.parse(localStorage.getItem(SEEN_KEY) ?? "[]");
+  } catch {}
+  // 推迟后再到点算新的一次：用 id + 时间 做键
+  const fresh = due.filter((t) => !seen.includes(`${t.id}@${t.dueAt}`));
+  if (!fresh.length) return;
+  for (const t of fresh.slice(0, 3)) {
+    toast(t.title, {
+      icon: <AlarmClock className="size-4 text-destructive" />,
+      description: [t.customerName, t.note].filter(Boolean).join(" · ") || undefined,
+      duration: 12_000,
+      action: { label: "去处理", onClick: () => window.location.assign(t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/schedule")) },
+    });
+  }
+  localStorage.setItem(SEEN_KEY, JSON.stringify([...fresh.map((t) => `${t.id}@${t.dueAt}`), ...seen].slice(0, 200)));
 }

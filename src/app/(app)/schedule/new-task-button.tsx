@@ -11,10 +11,10 @@ export function NewTaskButton({ tz, customers }: { tz: string; customers: { id: 
   return (
     <>
       <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus /> 新建日程
+        <Plus /> 新建提醒
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>{open && <TaskForm tz={tz} customers={customers} onDone={() => setOpen(false)} />}</DialogContent>
+        <DialogContent className="sm:max-w-lg">{open && <TaskForm tz={tz} customers={customers} onDone={() => setOpen(false)} />}</DialogContent>
       </Dialog>
     </>
   );

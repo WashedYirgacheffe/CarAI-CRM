@@ -10,6 +10,7 @@ import { getOrderForUser } from "@/server/documents";
 import { formatDate, formatDateTime, toLocalInput } from "@/lib/crm";
 import { dateInput, orderStatus, approvalStatus } from "@/lib/docs";
 import { OrderActions } from "./order-actions";
+import { QuickReminder } from "@/components/crm/tasks";
 import { PaymentsCard } from "./payments-card";
 
 export async function generateMetadata({ params }: PageProps<"/orders/[id]">): Promise<Metadata> {
@@ -54,7 +55,10 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
             )}
           </p>
         </div>
-        <OrderActions id={o.id} no={o.no} status={o.status} perms={{ edit: canEdit, delete: can(user, "order.delete") }} />
+        <div className="flex flex-wrap items-center gap-2">
+          <QuickReminder tz={tz} context="order" customerId={o.customerId} link={`/orders/${o.id}`} subject={`订单 ${o.no}`} />
+          <OrderActions id={o.id} no={o.no} status={o.status} perms={{ edit: canEdit, delete: can(user, "order.delete") }} />
+        </div>
       </div>
 
       <div className="grid gap-4">

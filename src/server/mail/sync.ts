@@ -2,6 +2,7 @@ import "server-only";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import { prisma } from "@/server/db";
 import { archiveMail } from "@/server/mail/archive";
+import { onInboundMail } from "@/server/mail/track";
 import { configOf, friendlyError, imapClient } from "@/server/mail/client";
 import {
   MAX_ATTACHMENT_BYTES,
@@ -235,6 +236,19 @@ async function storeMessage(
       ...linked,
     },
   });
+  if (folder === "INBOX") {
+    await onInboundMail({
+      tenantId: account.tenantId,
+      accountId: account.id,
+      fromAddr: fromAddr.address,
+      fromName: fromAddr.name ?? null,
+      subject,
+      text,
+      inReplyTo: parsed?.inReplyTo ?? null,
+      references: Array.isArray(refs) ? refs : refs ? [refs] : [],
+      date,
+    }).catch(() => {});
+  }
   return true;
 }
 

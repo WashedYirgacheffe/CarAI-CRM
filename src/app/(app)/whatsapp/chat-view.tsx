@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Building2, Check, ChevronLeft, Clock, Link2, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
+import { QuickReminder } from "@/components/crm/tasks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -106,6 +107,15 @@ export function ChatView({
             )}
           </p>
         </div>
+        <QuickReminder
+          tz={tz}
+          context="whatsapp"
+          customerId={chat.customer?.id}
+          link={`/whatsapp?chat=${chat.id}`}
+          subject={chat.customer ? undefined : `WhatsApp ${chat.name ?? chat.phone ?? ""}`.trim()}
+          size="icon-sm"
+          variant="ghost"
+        />
         {chat.customer ? (
           <Button asChild size="sm" variant="outline" className="hidden sm:inline-flex xl:hidden">
             <Link href={`/customers/${chat.customer.id}`}>

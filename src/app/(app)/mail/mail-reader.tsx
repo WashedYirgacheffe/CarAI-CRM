@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { runAction } from "@/hooks/use-action-form";
 import { formatDateTime } from "@/lib/crm";
 import { MAIL_INTENT_LABELS, MAIL_PRIORITY_LABELS } from "@/lib/mail";
+import { QuickReminder } from "@/components/crm/tasks";
 import { cn } from "@/lib/utils";
 import { aiWriteAction } from "@/app/(app)/ai/actions";
 import { analyzeMailAction, linkMailAction, mailToLeadAction, searchCustomersAction, setSeenAction, setStarredAction } from "./actions";
@@ -36,6 +37,15 @@ export type ReaderMessage = {
   aiSummary: string | null;
   aiIntent: string | null;
   aiPriority: string | null;
+  /** 从系统发出、带追踪的邮件才有 */
+  track?: {
+    openCount: number;
+    openedAt: string | null;
+    lastOpenAt: string | null;
+    clickCount: number;
+    bouncedAt: string | null;
+    events: { type: string; url: string | null; at: string }[];
+  } | null;
 };
 
 const fmtAddr = (a: Addr) => (a.name ? `${a.name} <${a.address}>` : a.address);
@@ -71,7 +81,7 @@ export function MailReader({
 
   const srcDoc = useMemo(() => {
     if (!m.html) return null;
-    return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2328;margin:0;padding:4px 2px;word-break:break-word}img{max-width:100%;height:auto}blockquote{border-left:3px solid #d0d7de;margin:0 0 0 4px;padding-left:10px;color:#57606a}</style></head><body>${m.html}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2328;margin:0;padding:4px 2px;word-break:break-word}img{max-width:100%;height:auto}blockquote{border-left:3px solid #d0d7de;margin:0 0 0 4px;padding-left:10px;color:#57606a}</style></head><body>${m.html.replace(/<img[^>]+\/api\/t\/o\/[^>]*>/g, "")}</body></html>`;
   }, [m.html]);
 
   const intent = m.aiIntent ? MAIL_INTENT_LABELS[m.aiIntent] : null;
@@ -109,6 +119,15 @@ export function MailReader({
           </Link>
         </Button>
         <span className="ml-auto flex items-center gap-1">
+          <QuickReminder
+            tz={tz}
+            context="mail"
+            customerId={m.customer?.id}
+            link={`/mail?box=${m.folder === "SENT" ? "sent" : "inbox"}&id=${m.id}`}
+            subject={m.subject ? `「${m.subject.slice(0, 40)}」` : undefined}
+            variant="ghost"
+            className="max-sm:px-2"
+          />
           <Button
             size="icon-sm"
             variant="ghost"
@@ -138,6 +157,8 @@ export function MailReader({
             <p className="text-xs text-muted-foreground">收件人：{m.to.map(fmtAddr).join(", ") || "—"}</p>
             {m.cc.length > 0 && <p className="text-xs text-muted-foreground">抄送：{m.cc.map(fmtAddr).join(", ")}</p>}
           </div>
+
+          {m.track && <TrackPanel track={m.track} tz={tz} />}
 
           {/* 归档 */}
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -293,5 +314,31 @@ function LinkCustomer({ messageId, hint, onDone }: { messageId: string; hint?: s
         ))}
       </ul>
     </>
+  );
+}
+
+function TrackPanel({ track: t, tz }: { track: NonNullable<ReaderMessage["track"]>; tz: string }) {
+  const tone = t.bouncedAt ? "border-rose-200 bg-rose-50/60" : t.openCount ? "border-emerald-200 bg-emerald-50/60" : "border-border bg-muted/40";
+  return (
+    <div className={cn("rounded-lg border px-3 py-2 text-sm", tone)}>
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-medium">
+          {t.bouncedAt ? "退信，对方没有收到" : t.openCount ? `对方已打开 ${t.openCount} 次` : "对方还没打开"}
+        </span>
+        {t.openedAt && <span className="text-xs text-muted-foreground">首次 {formatDateTime(t.openedAt, tz)}</span>}
+        {t.lastOpenAt && t.openCount > 1 && <span className="text-xs text-muted-foreground">最近 {formatDateTime(t.lastOpenAt, tz)}</span>}
+        {t.clickCount > 0 && <span className="text-xs text-muted-foreground">点击链接 {t.clickCount} 次</span>}
+      </p>
+      {t.events.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+          {t.events.slice(0, 6).map((e, i) => (
+            <li key={i} className="truncate tabular-nums">
+              {formatDateTime(e.at, tz)} · {e.type === "click" ? `点击 ${e.url}` : "打开"}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!t.bouncedAt && !t.openCount && <p className="mt-1 text-xs text-muted-foreground">部分邮箱默认不加载图片，没打开不代表没看。</p>}
+    </div>
   );
 }
