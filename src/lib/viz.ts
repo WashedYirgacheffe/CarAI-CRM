@@ -1,7 +1,7 @@
 // 图表共用的颜色与数字格式（前后端都能用）
 
-/** 单色顺序色（浅 → 深，橙色相），亮度单调 */
-export const RAMP = ["oklch(0.87 0.07 58)", "oklch(0.78 0.12 55)", "oklch(0.69 0.155 50)", "oklch(0.55 0.14 44)"];
+/** 数量用的中性灰阶（浅 → 深），亮度单调；橙色只留给每张图里那一个重点 */
+export const RAMP = ["oklch(0.88 0 0)", "oklch(0.75 0 0)", "oklch(0.56 0 0)", "oklch(0.32 0 0)"];
 
 const compactFmt = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
 export const compact = (n: number) => compactFmt.format(n);

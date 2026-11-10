@@ -34,7 +34,7 @@ export function ShareForm({ kind, token, seller }: { kind: ShareFormKind; token:
   return (
     <form action={submit} className="mx-auto max-w-lg rounded-2xl bg-card p-6 shadow-card sm:p-8">
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{seller}</p>
-      <h1 className="mt-1 text-2xl font-semibold">{form.title}</h1>
+      <h1 className="mt-1 text-2xl font-normal tracking-tight">{form.title}</h1>
       <p className="mt-1.5 text-sm text-muted-foreground">{form.intro}</p>
       <div className="mt-6 space-y-4">
         {form.fields.map((f) => (

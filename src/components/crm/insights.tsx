@@ -8,7 +8,7 @@ export function InsightRow({ children, className }: { children: React.ReactNode;
   return (
     <div
       className={cn(
-        "-mx-3 mb-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-1 [scrollbar-width:none]",
+        "-mx-3 mb-3 flex snap-x snap-mandatory scroll-px-3 gap-3 overflow-x-auto px-3 pb-1 [scrollbar-width:none]",
         "md:mx-0 md:mb-4 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4",
         className,
       )}
@@ -45,7 +45,7 @@ export function InsightCard({
       </header>
       {value !== undefined && <p className="mt-1 truncate text-2xl leading-tight font-normal">{value}</p>}
       {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
-      {children && <div className="mt-3 flex-1">{children}</div>}
+      {children && <div className="mt-2 flex-1 md:mt-3">{children}</div>}
     </section>
   );
 }

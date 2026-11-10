@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/crm";
+import { EmptyState } from "@/components/crm/empty-state";
 
 /** 分类色，固定顺序取用（与 globals.css 的 --chart-1..5 一致），超过 5 类归入「其他」 */
 const SERIES = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
@@ -25,7 +26,7 @@ export function Donut({ data, unit = "", empty = "暂无数据" }: { data: Slice
   const [hover, setHover] = useState<number | null>(null);
   const slices = foldSlices(data);
   const total = slices.reduce((n, s) => n + s.value, 0);
-  if (!total) return <p className="py-10 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (!total) return <EmptyState>{empty}</EmptyState>;
 
   const R = 52;
   const W = 14;
@@ -101,7 +102,7 @@ export function BarTrend({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(...data.map((d) => d.value), 0);
-  if (!max) return <p className="py-10 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (!max) return <EmptyState>{empty}</EmptyState>;
   const peak = data.findIndex((d) => d.value === max);
   const last = data.length - 1;
 
@@ -155,7 +156,7 @@ export function HBars({
   empty?: string;
 }) {
   const max = Math.max(...data.map((d) => d.value), 0);
-  if (!max) return <p className="py-10 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (!max) return <EmptyState>{empty}</EmptyState>;
   return (
     <ul className="space-y-3">
       {data.map((d) => (

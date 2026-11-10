@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { OTHER, RAMP, SERIES, compact, yuan } from "@/lib/viz";
+import { EmptyState } from "@/components/crm/empty-state";
 
 /**
  * 工作台可视化组件。
@@ -194,7 +195,7 @@ export function Funnel({ steps }: { steps: { label: string; value: number; href?
                 className="absolute inset-y-0 left-0 rounded-r-[4px] transition-[width] duration-500"
                 style={{
                   width: `${Math.max((s.value / max) * 100, s.value ? 2 : 0)}%`,
-                  background: RAMP[Math.min(3, 3 - Math.floor((i * 4) / steps.length))],
+                  background: i === steps.length - 1 ? "var(--brand)" : RAMP[Math.min(3, 3 - Math.floor((i * 4) / steps.length))],
                 }}
               />
             </span>
@@ -203,9 +204,13 @@ export function Funnel({ steps }: { steps: { label: string; value: number; href?
         );
         return (
           <li key={s.label}>
-            {i > 0 && <p className="ml-16 py-0.5 pl-2 text-[11px] text-muted-foreground tabular-nums">↓ {rate === null ? "—" : `${rate}%`}</p>}
+            {i > 0 && (
+              <p className="ml-16 py-0.5 pl-2 text-[11px] text-muted-foreground tabular-nums">
+                {rate === null ? "↓ —" : rate > 100 ? `↑ ${rate}%` : `↓ ${rate}%`}
+              </p>
+            )}
             {s.href ? (
-              <Link href={s.href} className="-mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-0.5 hover:bg-muted/60">
+              <Link href={s.href} className="-mx-2 flex items-center gap-2.5 rounded-full px-2 py-0.5 hover:bg-muted/60">
                 {body}
               </Link>
             ) : (
@@ -234,7 +239,7 @@ export function SegmentBar({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const total = parts.reduce((n, p) => n + p.value, 0);
-  if (!total) return <p className="py-6 text-center text-sm text-muted-foreground">暂无数据</p>;
+  if (!total) return <EmptyState compact />;
   const cur = hover !== null ? parts[hover] : null;
   return (
     <div>
@@ -381,7 +386,7 @@ export function Heatmap({ days, today }: { days: HeatDay[]; today: string }) {
                   onBlur={() => setHover(null)}
                   className={cn(
                     "size-[13px] rounded-[3px] outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-ring",
-                    d.key === today && "ring-2 ring-primary/50",
+                    d.key === today && "ring-2 ring-brand ring-offset-1 ring-offset-card",
                   )}
                   style={{ background: lv < 0 ? NONE : RAMP[lv] }}
                 />
@@ -430,7 +435,7 @@ export function StackedDaily({
   const top = Math.max(2, niceMax(Math.max(...totals, 0)));
   const mid = top % 2 ? null : top / 2;
   const peak = totals.indexOf(Math.max(...totals));
-  if (!totals.some(Boolean)) return <p className="py-10 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (!totals.some(Boolean)) return <EmptyState>{empty}</EmptyState>;
   return (
     <div>
       <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
@@ -543,7 +548,7 @@ export function Breakdown({
   const rest = list.slice(max).reduce((n, p) => n + p.value, 0);
   const rows = rest > 0 ? [...head, { label: "其他", value: rest, color: OTHER, href: undefined }] : head;
   const total = rows.reduce((n, p) => n + p.value, 0);
-  if (!total) return <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (!total) return <EmptyState compact>{empty}</EmptyState>;
   const fmt = (v: number) => (money ? yuan(v) : `${v}${unit}`);
   return (
     <div>
@@ -602,7 +607,7 @@ export function MiniColumns({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(...data.map((d) => d.value), 0);
-  if (!max) return <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">{empty}</p>;
+  if (!max) return <EmptyState compact>{empty}</EmptyState>;
   const fmt = (v: number) => (money ? yuan(v) : `${compact(v)}${unit}`);
   const peak = data.findIndex((d) => d.value === max);
   const last = data.length - 1;
@@ -715,7 +720,7 @@ export function RankSwitch({ metrics }: { metrics: RankMetric[] }) {
                   className={cn("h-2 rounded-r-[4px] transition-[width] duration-500", i === 0 ? "bg-[var(--chart-1)]" : "bar-stripes")}
                   style={{ width: `${(r.value / max) * 82}%`, minWidth: r.value ? 3 : 0 }}
                 />
-                <span className={cn("text-xs whitespace-nowrap tabular-nums", r.value ? "font-medium" : "text-muted-foreground/60")}>
+                <span className={cn("text-xs whitespace-nowrap tabular-nums", r.value ? "font-medium" : "text-muted-foreground")}>
                   {fmt(r.value)}
                 </span>
               </span>
@@ -739,7 +744,7 @@ export function MatrixHeat({ rows, labels, unit = "次" }: { rows: { label: stri
     const el = scroller.current;
     if (el) el.scrollLeft = el.scrollWidth;
   }, []);
-  if (!rows.length) return <p className="py-8 text-center text-sm text-muted-foreground">暂无成员</p>;
+  if (!rows.length) return <EmptyState>暂无成员</EmptyState>;
   const cur = hover ? { who: rows[hover[0]].label, day: labels[hover[1]], v: rows[hover[0]].values[hover[1]] } : null;
   return (
     <div>

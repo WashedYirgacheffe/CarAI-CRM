@@ -249,12 +249,18 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const suggestions = suggestionsFor(pathname, sp);
   // 有底部输入框的页面（聊天、写信）把角色抬高一点，别挡住发送按钮
   const lifted = pathname.startsWith("/whatsapp") || pathname.startsWith("/mail/compose");
+  // 客户详情在手机上底部有「写跟进」操作条
+  const liftMobile = /^\/customers\/(?!new)[^/]+$/.test(pathname);
 
   return (
     <div
       className={cn(
         "pointer-events-none fixed right-3 z-40 flex w-[min(40rem,calc(100vw-1.5rem))] flex-col items-end gap-2 md:right-6",
-        lifted ? "bottom-[calc(9rem+env(safe-area-inset-bottom))] md:bottom-24" : "bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-6",
+        lifted
+          ? "bottom-[calc(9rem+env(safe-area-inset-bottom))] md:bottom-24"
+          : liftMobile
+            ? "bottom-[calc(9rem+env(safe-area-inset-bottom))] md:bottom-6"
+            : "bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-6",
       )}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) toggle(false);

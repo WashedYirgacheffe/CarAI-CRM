@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { EmptyState } from "@/components/crm/empty-state";
 import { Inbox, Mail, Paperclip, PenSquare, Search, Send, Star, UserRound, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WaAvatar } from "@/components/crm/wa-avatar";
@@ -145,7 +146,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               key={b.key}
               href={href({ box: b.key, page: 1, id: null })}
               className={cn(
-                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm",
                 box === b.key ? "bg-sidebar-accent font-medium" : "hover:bg-muted",
               )}
             >
@@ -163,7 +164,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
           <div className="space-y-0.5">
             <Link
               href={href({ acc: null, page: 1, id: null })}
-              className={cn("block truncate rounded-md px-2 py-1 text-sm", !acc ? "bg-sidebar-accent font-medium" : "hover:bg-muted")}
+              className={cn("block truncate rounded-full px-3 py-1 text-sm", !acc ? "bg-sidebar-accent font-medium" : "hover:bg-muted")}
             >
               全部邮箱
             </Link>
@@ -173,7 +174,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 href={href({ acc: a.id, page: 1, id: null })}
                 title={a.lastError ?? a.email}
                 className={cn(
-                  "flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-sm",
+                  "flex items-center gap-1.5 truncate rounded-full px-3 py-1 text-sm",
                   acc === a.id ? "bg-sidebar-accent font-medium" : "hover:bg-muted",
                 )}
               >
@@ -250,7 +251,13 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
           </div>
         </div>
         <ul className="flex-1 divide-y overflow-y-auto">
-          {rows.length === 0 && <li className="py-16 text-center text-sm text-muted-foreground">没有邮件</li>}
+          {rows.length === 0 && (
+            <li>
+              <EmptyState icon={Inbox} className="py-16">
+                没有邮件
+              </EmptyState>
+            </li>
+          )}
           {rows.map((m) => {
             const peer =
               m.folder === "SENT"
@@ -312,9 +319,9 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                             {m.customer.name}
                           </span>
                         )}
-                        {!m.customer && m.leadId && <span className="rounded bg-blue-50 px-1.5 text-[11px] text-blue-700">线索</span>}
+                        {!m.customer && m.leadId && <span className="rounded-full bg-brand-soft px-1.5 text-[11px] text-brand-ink">线索</span>}
                         {intent && (
-                          <span className={cn("inline-flex items-center gap-0.5 rounded border px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>
+                          <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>
                         )}
                       </div>
                     )}

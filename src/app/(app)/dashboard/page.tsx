@@ -1,3 +1,4 @@
+import { EmptyState } from "@/components/crm/empty-state";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
@@ -488,7 +489,7 @@ export default async function DashboardPage() {
           <SegmentBar
             unit=" 家"
             parts={[
-              { label: "7 天内", value: health[0], color: RAMP[3], dark: true },
+              { label: "7 天内", value: health[0], color: "var(--brand)" },
               { label: "30 天内", value: health[1], color: RAMP[2], dark: true },
               { label: "90 天内", value: health[2], color: RAMP[1] },
               { label: "超过 90 天", value: health[3], color: RAMP[0] },
@@ -654,7 +655,7 @@ export default async function DashboardPage() {
         </CardHeader>
         <CardContent>
           {recent.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">还没有跟进记录</p>
+            <EmptyState compact>还没有跟进记录</EmptyState>
           ) : (
             <ul className="divide-y">
               {recent.map((a) => (
@@ -711,7 +712,12 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <PageHeader title={`你好，${user.name}`} description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`} />
+      <PageHeader
+        title={`你好，${user.name}`}
+        description={[user.tenantName, user.departmentName && user.departmentName !== user.tenantName ? user.departmentName : null, user.roleName]
+          .filter(Boolean)
+          .join(" · ")}
+      />
       {onboarding && <OnboardingChecklist steps={onboarding} />}
       <WorkspaceCanvas
         blocks={Object.fromEntries(available.map((k) => [k, blocks[k]]))}

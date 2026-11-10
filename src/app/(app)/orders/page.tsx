@@ -103,7 +103,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
         description="订单可打印为 PI；登记收款后自动计算待收金额。"
         actions={
           can(user, "order.create") && (
-            <Button size="sm" asChild>
+            <Button asChild>
               <Link href="/orders/new">
                 <Plus /> 新建订单
               </Link>

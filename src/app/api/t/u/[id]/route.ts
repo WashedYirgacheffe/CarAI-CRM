@@ -9,7 +9,7 @@ const page = (body: string) =>
 // GET 只显示确认按钮：邮件安全网关会预先打开链接，不能一打开就退订
 export async function GET() {
   return page(
-    `<h1 style="font-size:20px">Unsubscribe</h1><p>You will no longer receive marketing emails from us.</p><form method="post"><button style="margin-top:12px;padding:10px 22px;border:0;border-radius:999px;background:#3c67e8;color:#fff;font-size:14px;cursor:pointer">Confirm unsubscribe</button></form>`,
+    `<h1 style="font-size:20px">Unsubscribe</h1><p>You will no longer receive marketing emails from us.</p><form method="post"><button style="margin-top:12px;padding:10px 22px;border:0;border-radius:999px;background:#2b2b2b;color:#fff;font-size:14px;cursor:pointer">Confirm unsubscribe</button></form>`,
   );
 }
 

@@ -469,7 +469,7 @@ export function CustomerDetail({
             <Tabs defaultValue="timeline" className="gap-0">
               {/* 页签吸顶（顶栏下方） */}
               <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 overflow-x-auto rounded-t-2xl border-b border-border/70 bg-card px-1 [scrollbar-width:none] md:top-[calc(3.5rem+env(safe-area-inset-top))] md:px-3">
-                <TabsList variant="line" className="h-12">
+                <TabsList className="my-1.5">
                   <TabsTrigger value="timeline" className="px-3">
                     动态 {activities.length > 0 && <TabCount n={activities.length} />}
                   </TabsTrigger>

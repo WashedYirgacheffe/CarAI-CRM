@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { STATUS_COLORS, formatDateTime } from "@/lib/crm";
 import { CONTEXT_KINDS, REMINDER_GROUPS, REMINDER_KINDS, SNOOZE_PRESETS, TIME_PRESETS, presetLocal, type TimePreset } from "@/lib/reminders";
 import { deleteTaskAction, saveTaskAction, snoozeTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
+import { EmptyState } from "@/components/crm/empty-state";
 
 export type TaskItem = {
   id: string;
@@ -305,7 +306,7 @@ export function TaskList({
   empty?: string;
 }) {
   const [now] = useState(() => Date.now());
-  if (!tasks.length) return <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>;
+  if (!tasks.length) return <EmptyState compact>{empty}</EmptyState>;
   return (
     <ul className="divide-y">
       {tasks.map((t) => {
