@@ -71,6 +71,7 @@ model Tenant {
   mailEnrollments   MailEnrollment[]
   mailEvents        MailEvent[]
   mailSuppressions  MailSuppression[]
+  workspaces        Workspace[]
 }
 
 enum UserStatus {
@@ -80,21 +81,25 @@ enum UserStatus {
 
 /// 账号。isOwner = 主账号（企业创建者，不可被禁用/删除）。
 model User {
-  id             String     @id @default(cuid())
-  tenantId       String
-  email          String     @unique
-  name           String
-  phone          String?
-  passwordHash   String
-  isOwner        Boolean    @default(false)
-  status         UserStatus @default(ACTIVE)
-  departmentId   String?
-  roleId         String
-  lastLoginAt    DateTime?
+  id                 String     @id @default(cuid())
+  tenantId           String
+  email              String     @unique
+  name               String
+  phone              String?
+  passwordHash       String
+  isOwner            Boolean    @default(false)
+  status             UserStatus @default(ACTIVE)
+  departmentId       String?
+  roleId             String
+  lastLoginAt        DateTime?
   /// 工作台卡片（顺序即显示顺序）；空数组表示用默认布局
-  dashboardCards String[]   @default([])
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  dashboardCards     String[]   @default([])
+  /// 工作台默认情景：null = 还没选过（离开时会提示保存）；"overview" = 系统概览；否则是 Workspace.id
+  dashboardHome      String?
+  /// 不再提示「保存为默认情景」
+  dashboardPromptOff Boolean    @default(false)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -111,6 +116,7 @@ model User {
   ownedOrders        Order[]       @relation("OrderOwner")
   mailAccounts       MailAccount[]
   waAccounts         WaAccount[]
+  workspaces         Workspace[]
 
   @@index([tenantId])
 }
@@ -208,27 +214,27 @@ model CustomerGroup {
 
 /// 客户（公司）。ownerId 为空 = 在公海。
 model Customer {
-  id            String    @id @default(cuid())
-  tenantId      String
-  name          String
+  id             String    @id @default(cuid())
+  tenantId       String
+  name           String
   /// 规范化名称（小写、去空格和标点、去公司后缀），企业内唯一，用于防撞单
-  nameKey       String
-  country       String?
-  website       String?
+  nameKey        String
+  country        String?
+  website        String?
   /// 官网或邮箱域名，用于查重和邮件自动匹配
-  domain        String?
-  address       String?
-  source        String?
-  customerType  String?
-  mainProducts  String?
-  annualVolume  String?
-  star          Int       @default(0)
-  statusId      String?
-  groupId       String?
-  tags          String[]
-  remark        String?
-  ownerId       String?
-  assignedAt    DateTime?
+  domain         String?
+  address        String?
+  source         String?
+  customerType   String?
+  mainProducts   String?
+  annualVolume   String?
+  star           Int       @default(0)
+  statusId       String?
+  groupId        String?
+  tags           String[]
+  remark         String?
+  ownerId        String?
+  assignedAt     DateTime?
   /// 最近联系：任何往来（收发邮件、WhatsApp、跟进）
   lastContactAt  DateTime?
   /// 最近跟进：销售手写的跟进记录
@@ -247,9 +253,9 @@ model Customer {
   poolDueAt      DateTime?
   /// 已发过进公海提醒的时间；下次进公海时间推后会清空
   poolWarnedAt   DateTime?
-  createdById   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   owner         User?           @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
@@ -858,10 +864,10 @@ model MailMessage {
   enrollmentId String?
   createdAt    DateTime   @default(now())
 
-  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  account  MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  customer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  contact  Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account    MailAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer   Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contact    Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
   lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
   enrollment MailEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
   events     MailEvent[]
@@ -1097,25 +1103,25 @@ enum EnrollmentStatus {
 
 /// 序列里的一个收件人
 model MailEnrollment {
-  id          String           @id @default(cuid())
-  tenantId    String
-  sequenceId  String
-  accountId   String
-  email       String
-  name        String?
-  company     String?
-  country     String?
-  customerId  String?
-  contactId   String?
-  leadId      String?
-  status      EnrollmentStatus @default(ACTIVE)
+  id         String           @id @default(cuid())
+  tenantId   String
+  sequenceId String
+  accountId  String
+  email      String
+  name       String?
+  company    String?
+  country    String?
+  customerId String?
+  contactId  String?
+  leadId     String?
+  status     EnrollmentStatus @default(ACTIVE)
   /// 下一封是第几步（0 起）
-  step        Int              @default(0)
-  nextAt      DateTime?
-  lastSentAt  DateTime?
-  repliedAt   DateTime?
-  error       String?
-  createdAt   DateTime         @default(now())
+  step       Int              @default(0)
+  nextAt     DateTime?
+  lastSentAt DateTime?
+  repliedAt  DateTime?
+  error      String?
+  createdAt  DateTime         @default(now())
 
   tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sequence MailSequence  @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
@@ -1139,4 +1145,21 @@ model MailSuppression {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, email])
+}
+
+/// 工作台情景模式：一组可拼装的组件布局（每人可存多个）
+model Workspace {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  name      String
+  /// [{ id, type, size, params? }]，顺序即排列顺序
+  layout    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
 }

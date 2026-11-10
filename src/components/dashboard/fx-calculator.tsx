@@ -67,7 +67,7 @@ export function FxCalculator({ rates, currencies }: { rates: Record<string, numb
         )}
       </div>
       {others.length > 0 && (
-        <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums sm:grid-cols-3">
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums @sm:grid-cols-3">
           {others.map((c) => (
             <li key={c}>
               1 {c} = {rates[c].toFixed(4)} CNY

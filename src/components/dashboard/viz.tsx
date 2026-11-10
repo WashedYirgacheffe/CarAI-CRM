@@ -330,8 +330,8 @@ export function Heatmap({ days, today }: { days: HeatDay[]; today: string }) {
 
   return (
     <div>
-      <div className="flex flex-col gap-4 lg:flex-row-reverse lg:items-start lg:justify-end">
-        <dl className="grid grid-cols-3 gap-3 lg:w-36 lg:shrink-0 lg:grid-cols-1">
+      <div className="flex flex-col gap-4 @3xl:flex-row-reverse @3xl:items-start @3xl:justify-end">
+        <dl className="grid grid-cols-3 gap-3 @3xl:w-36 @3xl:shrink-0 @3xl:grid-cols-1">
           {(
             [
               ["活跃天数", `${active}`, `/ ${days.length} 天`],
@@ -347,7 +347,7 @@ export function Heatmap({ days, today }: { days: HeatDay[]; today: string }) {
             </div>
           ))}
         </dl>
-        <div ref={scroller} className="min-w-0 overflow-x-auto pb-1 [scrollbar-width:thin] lg:shrink-0">
+        <div ref={scroller} className="min-w-0 overflow-x-auto pb-1 [scrollbar-width:thin] @3xl:shrink-0">
           <div className="grid w-max gap-x-[3px] overflow-hidden" style={{ gridTemplateColumns: `1.25rem repeat(${weeks}, 13px)` }}>
             <span className="sticky left-0 z-[1] bg-card" />
             {months.map((m, w) => (
