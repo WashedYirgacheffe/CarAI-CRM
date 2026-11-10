@@ -49,6 +49,7 @@ const TENANT_MODELS = new Set<string>([
   "MailSequence",
   "MailEnrollment",
   "MailSuppression",
+  "Workspace",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([

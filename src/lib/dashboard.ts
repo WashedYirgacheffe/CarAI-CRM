@@ -59,6 +59,3 @@ export const COUNTRY_TZ: Record<string, string> = {
 
 /** 没有客户数据时默认显示的时钟 */
 export const DEFAULT_CLOCK_COUNTRIES = ["US", "GB", "DE", "AE", "BR"];
-
-const SIDE = new Set<string>(DASHBOARD_CARDS.filter((c) => "side" in c && c.side).map((c) => c.key));
-export const isSideCard = (k: DashboardCardKey) => SIDE.has(k);

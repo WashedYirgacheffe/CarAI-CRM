@@ -79,7 +79,7 @@ export function WorldClock({ suggested, localTz }: { suggested: string[]; localT
 
   return (
     <div>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul className="grid gap-2 @md:grid-cols-2">
         {codes.map((code) => {
           const tz = COUNTRY_TZ[code];
           const p = now ? partsIn(tz, now) : null;
