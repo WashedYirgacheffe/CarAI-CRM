@@ -3,8 +3,8 @@ import { Readable, Transform } from "node:stream";
 import { can, getCurrentUser } from "@/server/auth";
 import { putObject } from "@/server/storage";
 
-/** WhatsApp 单个文件上限（与 WhatsApp 自己的限制一致） */
-const MAX_BYTES = 64 * 1024 * 1024;
+/** 单个文件上限（反向代理 Caddy 限 50MB，留余量） */
+const MAX_BYTES = 45 * 1024 * 1024;
 
 const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       .replace(/[\\/\r\n]/g, "_")
       .slice(0, 200) || "file";
   if (!request.body || !Number.isFinite(size) || size <= 0) return Response.json({ error: "没有收到文件" }, { status: 400 });
-  if (size > MAX_BYTES) return Response.json({ error: "文件不能超过 64MB（WhatsApp 的限制）" }, { status: 400 });
+  if (size > MAX_BYTES) return Response.json({ error: "文件不能超过 45MB" }, { status: 400 });
 
   let received = 0;
   const guard = new Transform({
