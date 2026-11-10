@@ -21,7 +21,28 @@ export class AiError extends Error {}
 type Msg = { role: "user" | "assistant"; content: string };
 export type AiOptions = { system?: string; messages: Msg[]; maxTokens?: number; temperature?: number; timeoutMs?: number };
 
-async function request(opts: AiOptions, stream: boolean): Promise<Response> {
+/** 带工具调用的对话消息（OpenAI 格式） */
+export type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
+export type ChatMessage =
+  | { role: "user" | "system"; content: string }
+  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+export type ToolSpec = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
+type RawOptions = Omit<AiOptions, "messages"> & { messages: ChatMessage[]; tools?: ToolSpec[]; toolChoice?: "auto" | "none" };
+
+/**
+ * 这个网关会丢掉 system / developer 角色的消息（实测模型完全看不到），
+ * 所以把系统指令包进第一条用户消息里，模型才会遵守。
+ */
+function withInstructions(system: string | undefined, messages: ChatMessage[]): ChatMessage[] {
+  if (!system) return messages;
+  const i = messages.findIndex((m) => m.role === "user");
+  const wrap = (body: string) => `<instructions>\n${system}\n</instructions>\n\n${body}`;
+  if (i < 0) return [{ role: "user", content: wrap("") }, ...messages];
+  return messages.map((m, j) => (j === i ? { ...m, content: wrap(m.content as string) } : m)) as ChatMessage[];
+}
+
+async function request(opts: RawOptions, stream: boolean): Promise<Response> {
   const apiKey = process.env.AI_API_KEY;
   if (!apiKey) throw new AiError("还没有配置 AI（服务器 .env 中的 AI_API_KEY）");
   let res: Response;
@@ -35,7 +56,8 @@ async function request(opts: AiOptions, stream: boolean): Promise<Response> {
         thinking: { type: "disabled" },
         ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
         ...(stream ? { stream: true } : {}),
-        messages: [...(opts.system ? [{ role: "system", content: opts.system }] : []), ...opts.messages],
+        ...(opts.tools?.length ? { tools: opts.tools, ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}) } : {}),
+        messages: withInstructions(opts.system, opts.messages),
       }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
     });
@@ -86,6 +108,51 @@ export async function* aiStream(opts: AiOptions): AsyncGenerator<string> {
       }
     }
   }
+}
+
+export type ToolStreamEvent = { type: "text"; text: string } | { type: "tools"; calls: ToolCall[] };
+
+/**
+ * 流式 + 工具调用：文字片段边生成边吐出；结束时如果模型要调工具，最后吐一个 tools 事件。
+ * 工具参数是分片到达的，按 index 拼起来。
+ */
+export async function* aiToolStream(opts: RawOptions): AsyncGenerator<ToolStreamEvent> {
+  const res = await request(opts, true);
+  if (!res.body) throw new AiError("AI 没有返回内容，请重试");
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  const calls: ToolCall[] = [];
+  let buf = "";
+  type Delta = { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] };
+  outer: for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    let i: number;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") break outer;
+      let delta: Delta | undefined;
+      try {
+        delta = (JSON.parse(data) as { choices?: { delta?: Delta }[] }).choices?.[0]?.delta;
+      } catch {
+        continue;
+      }
+      if (delta?.content) yield { type: "text", text: delta.content };
+      for (const tc of delta?.tool_calls ?? []) {
+        const k = tc.index ?? calls.length;
+        calls[k] ??= { id: "", type: "function", function: { name: "", arguments: "" } };
+        if (tc.id) calls[k].id = tc.id;
+        if (tc.function?.name) calls[k].function.name += tc.function.name;
+        if (tc.function?.arguments) calls[k].function.arguments += tc.function.arguments;
+      }
+    }
+  }
+  const done = calls.filter((c) => c && c.function.name);
+  done.forEach((c, i) => (c.id ||= `call_${i}`));
+  if (done.length) yield { type: "tools", calls: done };
 }
 
 /** 让模型只输出 JSON，并解析出第一个 JSON 对象 */

@@ -33,6 +33,9 @@ import { CURRENCIES, LEAD_OPEN_STATUSES, countryName, dayRange, followMethodLabe
 import { ORDER_NOT_COUNTED, dateInput } from "@/lib/docs";
 import { COUNTRY_TZ, DEFAULT_CLOCK_COUNTRIES, DEFAULT_DASHBOARD } from "@/lib/dashboard";
 import { OVERVIEW_ID, overviewLayout, sanitizeLayout } from "@/lib/canvas";
+import { METRICS } from "@/lib/metrics";
+import { canMetric } from "@/server/metrics";
+import { aiConfigured } from "@/server/ai";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -675,13 +678,24 @@ export default async function DashboardPage() {
   };
 
   const available = cards.filter((k) => blocks[k] != null);
+  // 业务组件（按对象打开）：有对应权限才能用
+  const business = [
+    canWa && "whatsapp",
+    canCustomers && "customer",
+    canCustomers && "followups",
+    can(user, "report.view") && "team",
+    METRICS.some((m) => canMetric(user, m.key)) && "chart",
+  ].filter((x): x is string => !!x);
 
   return (
     <>
       <PageHeader title={`你好，${user.name}`} description={`${user.tenantName} · ${user.departmentName ?? "未分配部门"} · ${user.roleName}`} />
       <WorkspaceCanvas
         blocks={Object.fromEntries(available.map((k) => [k, blocks[k]]))}
-        available={available}
+        available={[...available, ...business]}
+        tz={tz}
+        aiEnabled={can(user, "ai.use") && aiConfigured()}
+        metrics={METRICS.filter((m) => canMetric(user, m.key)).map((m) => m.key)}
         overview={overviewLayout(saved?.dashboardCards)}
         workspaces={spaces.map((w) => ({ id: w.id, name: w.name, layout: sanitizeLayout(w.layout) }))}
         home={saved?.dashboardHome === OVERVIEW_ID || spaces.some((w) => w.id === saved?.dashboardHome) ? saved!.dashboardHome : null}
