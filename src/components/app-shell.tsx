@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import {
   AlarmClock,
   BarChart3,
@@ -28,6 +28,7 @@ import {
 import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";
+import { AiDock } from "@/components/ai/ai-dock";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -66,12 +67,15 @@ export function AppShell({
   tenantName,
   user,
   menuCollapsed: initialCollapsed,
+  ai,
   children,
 }: {
   modules: NavModule[];
   tenantName: string;
   user: UserInfo;
   menuCollapsed: boolean;
+  /** 能用 AI 时是对话记录的存储 key，不能用为 null */
+  ai: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -161,6 +165,12 @@ export function AppShell({
         </main>
       </div>
 
+      {ai && (
+        <Suspense>
+          <AiDock storageKey={ai} />
+        </Suspense>
+      )}
+
       <TabBar modules={modules} activeKey={active?.module.key} badges={badges} moreOpen={mobileOpen} onMore={() => setMobileOpen(true)} />
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -179,7 +189,7 @@ export function AppShell({
             {modules.map((m) => {
               const Icon = ICONS[m.icon] ?? ChevronRight;
               const on = active?.module.key === m.key;
-              const count = m.badge ? badges[m.badge] ?? 0 : 0;
+              const count = m.badge ? (badges[m.badge] ?? 0) : 0;
               return (
                 <li key={m.key}>
                   <Link href={m.href} className="flex flex-col items-center gap-1.5 text-xs font-medium">
@@ -208,18 +218,20 @@ export function AppShell({
               <section key={m.key} className="mt-5">
                 <h3 className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">{m.title}</h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {m.menu!.flatMap((g) => g.items).map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={cn(
-                        "flex h-11 items-center rounded-xl px-3.5 text-sm",
-                        item.href === active?.leaf ? "bg-accent font-semibold text-primary" : "bg-muted/60",
-                      )}
-                    >
-                      {item.title}
-                    </Link>
-                  ))}
+                  {m
+                    .menu!.flatMap((g) => g.items)
+                    .map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={cn(
+                          "flex h-11 items-center rounded-xl px-3.5 text-sm",
+                          item.href === active?.leaf ? "bg-accent font-semibold text-primary" : "bg-muted/60",
+                        )}
+                      >
+                        {item.title}
+                      </Link>
+                    ))}
                 </div>
               </section>
             ))}
@@ -259,7 +271,7 @@ function TabBar({
       {tabs.map((m) => {
         const Icon = ICONS[m.icon] ?? ChevronRight;
         const on = !moreOpen && m.key === activeKey;
-        const count = m.badge ? badges[m.badge] ?? 0 : 0;
+        const count = m.badge ? (badges[m.badge] ?? 0) : 0;
         return (
           <Link key={m.key} href={m.href} aria-current={on ? "page" : undefined} className={cn(item, on ? "text-primary" : "text-muted-foreground")}>
             <span className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", on && "bg-accent")}>
@@ -275,7 +287,9 @@ function TabBar({
         );
       })}
       <button type="button" onClick={onMore} className={cn(item, moreOpen || !inTabs ? "text-primary" : "text-muted-foreground")}>
-        <span className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", (moreOpen || !inTabs) && "bg-accent")}>
+        <span
+          className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", (moreOpen || !inTabs) && "bg-accent")}
+        >
           <LayoutGrid className="size-[21px]" strokeWidth={moreOpen || !inTabs ? 2.2 : 1.8} />
           {moreCount > 0 && (
             <span className="absolute -top-1 right-1">
@@ -422,7 +436,11 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
             {due.map((t) => (
               <li key={t.id} className="flex items-start gap-2 px-3.5 py-2.5 hover:bg-muted/40">
                 <AlarmClock className="mt-0.5 size-4 shrink-0 text-destructive" />
-                <Link href={t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/schedule")} onClick={() => setOpen(false)} className="min-w-0 flex-1">
+                <Link
+                  href={t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/schedule")}
+                  onClick={() => setOpen(false)}
+                  className="min-w-0 flex-1"
+                >
                   <span className="flex items-center gap-1.5">
                     <KindTag kind={t.kind} />
                     <span className="truncate text-sm">{t.title}</span>

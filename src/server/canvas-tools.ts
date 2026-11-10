@@ -136,3 +136,47 @@ export async function listSequences(user: CurrentUser) {
   }
   return { sequences: out };
 }
+
+/** 用户当前所在页面：让「这个客户」「这封邮件」能对上号 */
+export async function pageContext(user: CurrentUser, page: string): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(page, "http://x");
+  } catch {
+    return "";
+  }
+  const path = url.pathname;
+  const db = tenantDb(user.tenantId);
+  const lines = [`页面：${path}`];
+  const customer = path.match(/^\/customers\/([^/]+)$/)?.[1];
+  if (customer) {
+    const found = await getCustomerForUser(user, customer);
+    if (found) lines.push(`正在看客户「${found.customer.name}」（customerId=${found.customer.id}）。用户说「这个客户 / 他 / 这家」就是指它。`);
+  }
+  const mailId = path === "/mail" ? url.searchParams.get("id") : null;
+  if (mailId && can(user, "mail.use")) {
+    const m = await db.mailMessage.findFirst({
+      where: { id: mailId, account: { userId: user.id } },
+      select: { folder: true, fromAddr: true, fromName: true, subject: true, snippet: true, text: true, aiSummary: true, customerId: true },
+    });
+    if (m)
+      lines.push(
+        `正在看一封${m.folder === "SENT" ? "自己发出的" : "收到的"}邮件：发件人 ${m.fromName ?? ""} <${m.fromAddr}>，主题「${clip(m.subject, 150)}」${
+          m.customerId ? `，已归档到客户 customerId=${m.customerId}` : "，还没归档到客户"
+        }。${m.aiSummary ? `AI 摘要：${clip(m.aiSummary, 200)}。` : ""}正文开头：${clip(m.text ?? m.snippet, 1200)}
+用户说「这封邮件 / 回复他」就是指它；起草回复用 propose_action send_email，to 用发件人邮箱，主题用 "Re: 原主题"，正文用对方来信的语言。`,
+      );
+  }
+  const quote = path.match(/^\/quotations\/([^/]+)$/)?.[1];
+  if (quote && can(user, "quotation.view")) {
+    const q = await db.quotation.findFirst({
+      where: { AND: [await docScopeWhere(user), { id: quote }] },
+      include: { customer: { select: { name: true } } },
+    });
+    if (q)
+      lines.push(
+        `正在看报价单 ${q.no}（quotationId=${q.id}），客户「${q.customer.name}」（customerId=${q.customerId}），金额 ${formatAmount(q.total.toString(), q.currency)}，状态 ${quotationStatus(q.status).label}。`,
+      );
+  }
+  return lines.join("\n");
+}
