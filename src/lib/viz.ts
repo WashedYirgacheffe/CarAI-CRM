@@ -1,7 +1,7 @@
 // 图表共用的颜色与数字格式（前后端都能用）
 
-/** 单色顺序色（浅 → 深），已校验：单色相、亮度单调、浅端对白底 ≥ 2:1 */
-export const RAMP = ["oklch(0.78 0.1 266)", "oklch(0.67 0.15 266)", "oklch(0.56 0.19 266)", "oklch(0.44 0.18 266)"];
+/** 单色顺序色（浅 → 深，橙色相），亮度单调 */
+export const RAMP = ["oklch(0.87 0.07 58)", "oklch(0.78 0.12 55)", "oklch(0.69 0.155 50)", "oklch(0.55 0.14 44)"];
 
 const compactFmt = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
 export const compact = (n: number) => compactFmt.format(n);
@@ -10,13 +10,13 @@ export const yuan = (n: number) => `¥${compact(Math.round(n))}`;
 /** 分类色，固定顺序（与 globals.css 的 --chart-1..5 一致） */
 export const SERIES = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 /** 「其他」/ 未设置 的中性灰 */
-export const OTHER = "oklch(0.82 0.015 262)";
+export const OTHER = "oklch(0.86 0 0)";
 
 /** 单据状态的颜色名 → 图表色（同一状态在所有图里同色） */
 export const TONE: Record<string, string> = {
-  blue: "var(--chart-1)",
-  emerald: "var(--chart-2)",
-  teal: "var(--chart-2)",
+  blue: "var(--chart-2)",
+  emerald: "var(--chart-1)",
+  teal: "var(--chart-1)",
   amber: "var(--chart-3)",
   violet: "var(--chart-4)",
   rose: "var(--chart-5)",

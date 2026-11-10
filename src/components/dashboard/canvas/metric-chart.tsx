@@ -38,10 +38,7 @@ function Columns({ result }: { result: MetricResult }) {
         {data.map((d, i) => (
           <div key={d.label} className="flex h-full min-w-0 flex-1 items-end justify-center" onMouseEnter={() => setHover(i)}>
             <div
-              className={cn(
-                "w-full max-w-9 rounded-t-[4px] transition-colors",
-                i === focus ? "bg-[var(--chart-1)]" : "bg-[color-mix(in_oklch,var(--chart-1)_40%,white)]",
-              )}
+              className={cn("w-full max-w-9 rounded-t-[4px] transition-colors", i === focus ? "bg-[var(--chart-1)]" : "bar-stripes")}
               style={{ height: `${max ? Math.max((d.value / max) * 100, d.value > 0 ? 1.5 : 0) : 0}%` }}
             />
           </div>

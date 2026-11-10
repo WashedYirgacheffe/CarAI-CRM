@@ -137,7 +137,7 @@ export default async function SequencePage({ params, searchParams }: PageProps<"
               href={t.key ? `/marketing/${id}?status=${t.key}` : `/marketing/${id}`}
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm",
-                (status ?? "") === t.key ? "bg-accent font-semibold text-accent-foreground" : "text-foreground/80 hover:bg-muted",
+                (status ?? "") === t.key ? "bg-accent font-medium text-accent-foreground" : "text-foreground/80 hover:bg-muted",
               )}
             >
               {t.label}

@@ -202,7 +202,7 @@ export function OpportunityBoard({
           </DropdownMenu>
         )}
       </div>
-      <p className="mt-1 text-base font-bold tabular-nums">{formatMoney(o.amount, o.currency)}</p>
+      <p className="mt-1 text-base font-medium tabular-nums">{formatMoney(o.amount, o.currency)}</p>
       <Link href={`/customers/${o.customerId}`} className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary">
         <Building2 className="size-3.5 shrink-0" />
         <span className="truncate">{o.customerName}</span>

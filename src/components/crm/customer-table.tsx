@@ -15,12 +15,7 @@ import { cn } from "@/lib/utils";
 import { formatDate, relativeDays } from "@/lib/crm";
 import { CountryLabel, StarRating, StatusBadge, Tags } from "@/components/crm/bits";
 import { CustomerForm, type CustomerOptionsProp } from "@/components/crm/customer-form";
-import {
-  assignPoolCustomersAction,
-  claimCustomersAction,
-  releaseCustomersAction,
-  transferCustomersAction,
-} from "@/app/(app)/customers/actions";
+import { assignPoolCustomersAction, claimCustomersAction, releaseCustomersAction, transferCustomersAction } from "@/app/(app)/customers/actions";
 import type { CustomerRow } from "@/server/customer-list";
 import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 
@@ -135,7 +130,7 @@ export function CustomerTable({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-5">
-        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-medium">
           {title}
           <span className="text-[13px] font-normal text-muted-foreground">
             · <span className="tabular-nums">{total}</span> 个客户
@@ -144,7 +139,7 @@ export function CustomerTable({
         {ids.length > 0 && (
           <div className="flex items-center gap-1.5 rounded-full bg-accent py-0.5 pr-1 pl-3 text-[13px] text-accent-foreground">
             <span>
-              已选 <span className="font-semibold tabular-nums">{ids.length}</span> 个
+              已选 <span className="font-medium tabular-nums">{ids.length}</span> 个
             </span>
             {batchButtons}
             <Button size="icon-xs" variant="ghost" onClick={() => setSelected(new Set())} aria-label="取消选择">
@@ -194,7 +189,11 @@ export function CustomerTable({
                         ["最近联系", relativeDays(r.lastContactAt, now)],
                         ["下次跟进", r.nextFollowAt ? formatDate(r.nextFollowAt, tz) : "—", overdue ? "font-medium text-destructive" : undefined],
                         ["负责人", r.ownerName],
-                        poolDays !== null && ["进公海", poolDays <= 0 ? "即将回收" : `${poolDays} 天后`, poolDays <= 7 ? "font-medium text-amber-600" : undefined],
+                        poolDays !== null && [
+                          "进公海",
+                          poolDays <= 0 ? "即将回收" : `${poolDays} 天后`,
+                          poolDays <= 7 ? "font-medium text-amber-600" : undefined,
+                        ],
                       ]
                     : [
                         ["进入公海", formatDate(r.poolEnteredAt, tz) || "—"],
@@ -293,13 +292,7 @@ export function CustomerTable({
                         className={cn("whitespace-nowrap tabular-nums", poolDays !== null && poolDays <= 7 && "font-medium text-amber-600")}
                         title={r.poolDueAt ? `预计 ${formatDate(r.poolDueAt, tz)} 进入公海` : "不会自动进公海"}
                       >
-                        {poolDays === null ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : poolDays <= 0 ? (
-                          "即将回收"
-                        ) : (
-                          `${poolDays} 天后`
-                        )}
+                        {poolDays === null ? <span className="text-muted-foreground">—</span> : poolDays <= 0 ? "即将回收" : `${poolDays} 天后`}
                       </TableCell>
                     </>
                   ) : (
@@ -323,12 +316,7 @@ export function CustomerTable({
       <Dialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)}>
         <DialogContent>
           {dialog === "release" ? (
-            <ReleaseForm
-              count={ids.length}
-              busy={busy}
-              onCancel={() => setDialog(null)}
-              onSubmit={(why) => run(releaseCustomersAction(ids, why))}
-            />
+            <ReleaseForm count={ids.length} busy={busy} onCancel={() => setDialog(null)} onSubmit={(why) => run(releaseCustomersAction(ids, why))} />
           ) : dialog ? (
             <MemberPickForm
               title={dialog === "transfer" ? `转移 ${ids.length} 个客户` : `分配 ${ids.length} 个公海客户`}

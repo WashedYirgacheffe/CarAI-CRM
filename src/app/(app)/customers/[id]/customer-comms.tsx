@@ -189,7 +189,7 @@ export function CustomerAiPanel({
     <Panel
       title="AI 助手"
       icon={
-        <span className="flex size-6 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
+        <span className="flex size-6 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
           <Sparkles className="size-3.5" />
         </span>
       }
@@ -212,7 +212,7 @@ export function CustomerAiPanel({
             onClick={() => setTab(k)}
             className={cn(
               "flex-1 rounded-full px-2 py-1 transition-colors",
-              tab === k ? "bg-background font-medium text-violet-700 shadow-xs" : "text-muted-foreground hover:text-foreground",
+              tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {label}

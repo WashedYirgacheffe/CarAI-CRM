@@ -57,7 +57,7 @@ export function FxCalculator({ rates, currencies }: { rates: Record<string, numb
       <div className="rounded-lg bg-muted/50 px-3 py-2.5">
         {result !== null ? (
           <>
-            <p className="text-2xl font-semibold tabular-nums">{formatAmount(result, to)}</p>
+            <p className="text-2xl font-normal tabular-nums">{formatAmount(result, to)}</p>
             <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
               1 {from} = {unit!.toFixed(4)} {to}
             </p>

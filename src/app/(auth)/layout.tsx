@@ -17,7 +17,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-[oklch(0.27_0.06_245)] p-10 text-white lg:flex">
         <Brand onDark className="h-8" />
         <div className="max-w-md space-y-8">
-          <p className="text-3xl leading-tight font-semibold">
+          <p className="text-3xl leading-tight font-normal">
             给中小外贸团队的
             <br />
             多渠道客户跟进系统

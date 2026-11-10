@@ -36,7 +36,7 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight tabular-nums">{q.no}</h1>
+            <h1 className="text-xl font-normal tracking-tight tabular-nums">{q.no}</h1>
             <StatusBadge name={st.label} color={st.color} />
             {q.approval !== "NONE" && <StatusBadge name={approvalStatus(q.approval).label} color={approvalStatus(q.approval).color} />}
           </div>
@@ -48,25 +48,25 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-        <QuickReminder tz={tz} context="quotation" customerId={q.customer.id} link={`/quotations/${q.id}`} subject={`报价单 ${q.no}`} />
-        <QuotationActions
-          id={q.id}
-          no={q.no}
-          status={q.status}
-          perms={{
-            edit: can(user, "quotation.edit"),
-            create: can(user, "quotation.create"),
-            delete: can(user, "quotation.delete"),
-            createOrder: can(user, "order.create"),
-          }}
-        />
+          <QuickReminder tz={tz} context="quotation" customerId={q.customer.id} link={`/quotations/${q.id}`} subject={`报价单 ${q.no}`} />
+          <QuotationActions
+            id={q.id}
+            no={q.no}
+            status={q.status}
+            perms={{
+              edit: can(user, "quotation.edit"),
+              create: can(user, "quotation.create"),
+              delete: can(user, "quotation.delete"),
+              createOrder: can(user, "order.create"),
+            }}
+          />
         </div>
       </div>
 
       <div className="grid gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">报价信息</CardTitle>
+            <CardTitle>报价信息</CardTitle>
           </CardHeader>
           <CardContent>
             <InfoGrid
@@ -90,15 +90,13 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">条款</CardTitle>
+              <CardTitle>条款</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm whitespace-pre-line">
-              {q.terms || <span className="text-muted-foreground">无</span>}
-            </CardContent>
+            <CardContent className="text-sm whitespace-pre-line">{q.terms || <span className="text-muted-foreground">无</span>}</CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">内部备注与关联</CardTitle>
+              <CardTitle>内部备注与关联</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <p className="whitespace-pre-line">{q.remark || <span className="text-muted-foreground">无备注</span>}</p>

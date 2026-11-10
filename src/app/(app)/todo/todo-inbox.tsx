@@ -38,8 +38,8 @@ export type TodoItem = {
 };
 
 const KINDS: { key: TodoItem["kind"]; label: string; icon: LucideIcon; tone: string }[] = [
-  { key: "task", label: "提醒", icon: AlarmClock, tone: "bg-amber-100 text-amber-700" },
-  { key: "mail", label: "邮件", icon: Mail, tone: "bg-blue-100 text-blue-700" },
+  { key: "task", label: "提醒", icon: AlarmClock, tone: "bg-brand-soft text-brand-ink" },
+  { key: "mail", label: "邮件", icon: Mail, tone: "bg-muted text-foreground/80" },
   { key: "wa", label: "WhatsApp", icon: MessageCircle, tone: "bg-emerald-100 text-emerald-700" },
 ];
 
@@ -119,7 +119,7 @@ export function TodoInbox({ items, tz }: { items: TodoItem[]; tz: string }) {
 
       {shown.length === 0 ? (
         <div className="surface flex flex-col items-center gap-2 px-6 py-16 text-center">
-          <span className="flex size-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+          <span className="flex size-14 items-center justify-center rounded-full border border-dashed border-foreground/25 text-foreground/70">
             <Check className="size-6" />
           </span>
           <p className="font-medium">都处理完了</p>
@@ -159,18 +159,18 @@ function Row({
       </span>
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {i.high && <span className="rounded-full bg-rose-500 px-1.5 py-px text-[11px] leading-4 font-semibold text-white">高优先</span>}
+          {i.high && <span className="rounded-full bg-brand px-1.5 py-px text-[11px] leading-4 text-brand-foreground">高优先</span>}
           {i.kind === "task" && <KindTag kind={i.tag} />}
           {intent && <span className={cn("rounded-full border px-1.5 py-px text-[11px] leading-4 font-medium", intent.cls)}>{intent.label}</span>}
           {i.href ? (
-            <Link href={i.href} className={cn("min-w-0 truncate text-sm hover:text-primary", i.unread && "font-semibold")}>
+            <Link href={i.href} className={cn("min-w-0 truncate text-sm hover:text-primary", i.unread && "font-medium")}>
               {i.title}
             </Link>
           ) : (
             <span className="min-w-0 truncate text-sm">{i.title}</span>
           )}
           {!!i.count && (
-            <span className="rounded-full bg-emerald-600 px-1.5 text-[11px] leading-4 font-semibold text-white tabular-nums">{i.count}</span>
+            <span className="rounded-full bg-destructive px-1.5 text-[11px] leading-4 font-medium text-white tabular-nums">{i.count}</span>
           )}
         </p>
         {(i.who || i.detail) && (
@@ -218,7 +218,7 @@ function Row({
           onClick={onDone}
           aria-label={doneLabel}
           title={doneLabel}
-          className="hover:bg-emerald-50 hover:text-emerald-700"
+          className="hover:bg-primary hover:text-primary-foreground"
         >
           <Check />
         </Button>

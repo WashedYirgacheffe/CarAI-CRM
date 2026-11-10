@@ -143,7 +143,7 @@ function CustomerInsightRow({
             { label: "30 天内", value: i.d30, color: RAMP[2], dark: true },
             { label: "90 天内", value: i.d90, color: RAMP[1] },
             { label: "超过 90 天", value: i.old, color: RAMP[0] },
-            { label: "从未联系", value: i.never, color: "oklch(0.9 0.01 262)" },
+            { label: "从未联系", value: i.never, color: "oklch(0.9 0 0)" },
           ]}
         />
       </InsightCard>

@@ -96,7 +96,7 @@ export function AppShell({
 
   return (
     <div className="min-h-svh">
-      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur md:border-b-0 md:bg-background/90 [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
         <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
           <span className="hidden w-[72px] shrink-0 justify-center md:flex">
             <BrandMark className="size-9" />
@@ -109,7 +109,7 @@ export function AppShell({
         <div className="flex flex-1 justify-end md:justify-center">
           <GlobalSearch />
         </div>
-        <div className="flex items-center md:gap-1">
+        <div className="flex items-center gap-1 md:gap-2">
           <Reminders modules={modules} badges={badges} reload={reloadBadges} />
           <UserMenu {...user} />
         </div>
@@ -118,7 +118,7 @@ export function AppShell({
       <div className="flex">
         <nav
           aria-label="模块"
-          className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[72px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto border-r border-sidebar-border bg-sidebar px-2 py-3 md:flex"
+          className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto rounded-tr-3xl bg-sidebar px-2 py-3 md:flex"
         >
           {modules.map((m) => (
             <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
@@ -129,7 +129,7 @@ export function AppShell({
           <aside
             aria-label={`${active.module.title}菜单`}
             className={cn(
-              "sticky top-14 hidden h-[calc(100svh-3.5rem)] shrink-0 border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:block",
+              "sticky top-14 hidden h-[calc(100svh-3.5rem)] shrink-0 border-l border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:block",
               collapsed ? "w-6" : "w-44",
             )}
           >
@@ -145,11 +145,11 @@ export function AppShell({
             ) : (
               <div className="flex h-full flex-col overflow-y-auto px-3 py-4">
                 <div className="mb-3 flex items-center justify-between pl-2">
-                  <span className="text-[15px] font-bold tracking-tight">{active.module.title}</span>
+                  <span className="text-lg tracking-[-0.01em]">{active.module.title}</span>
                   <button
                     type="button"
                     onClick={toggleMenu}
-                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
                     aria-label="收起菜单"
                   >
                     <ChevronsLeft className="size-4" />
@@ -194,11 +194,11 @@ export function AppShell({
               const count = m.badge ? (badges[m.badge] ?? 0) : 0;
               return (
                 <li key={m.key}>
-                  <Link href={m.href} className="flex flex-col items-center gap-1.5 text-xs font-medium">
+                  <Link href={m.href} className="flex flex-col items-center gap-1.5 text-xs">
                     <span
                       className={cn(
                         "relative flex size-12 items-center justify-center rounded-2xl",
-                        on ? "bg-primary text-primary-foreground" : "bg-accent text-primary",
+                        on ? "bg-primary text-primary-foreground" : "bg-muted text-foreground/80",
                       )}
                     >
                       <Icon className="size-[22px]" />
@@ -227,8 +227,8 @@ export function AppShell({
                         key={item.href}
                         href={item.href}
                         className={cn(
-                          "flex h-11 items-center rounded-xl px-3.5 text-sm",
-                          item.href === active?.leaf ? "bg-accent font-semibold text-primary" : "bg-muted/60",
+                          "flex h-11 items-center rounded-full px-4 text-sm",
+                          item.href === active?.leaf ? "bg-primary text-primary-foreground" : "bg-muted/70",
                         )}
                       >
                         {item.title}
@@ -264,7 +264,7 @@ function TabBar({
   const inTabs = tabs.some((t) => t.key === activeKey);
   // 「更多」上的红点：不在标签栏里的模块的未读数
   const moreCount = modules.filter((m) => m.badge && !tabs.includes(m)).reduce((n, m) => n + (badges[m.badge!] ?? 0), 0);
-  const item = "relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] leading-none font-medium transition-colors";
+  const item = "relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] leading-none transition-colors";
   return (
     <nav
       aria-label="主导航"
@@ -275,9 +275,19 @@ function TabBar({
         const on = !moreOpen && m.key === activeKey;
         const count = m.badge ? (badges[m.badge] ?? 0) : 0;
         return (
-          <Link key={m.key} href={m.href} aria-current={on ? "page" : undefined} className={cn(item, on ? "text-primary" : "text-muted-foreground")}>
-            <span className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", on && "bg-accent")}>
-              <Icon className="size-[21px]" strokeWidth={on ? 2.2 : 1.8} />
+          <Link
+            key={m.key}
+            href={m.href}
+            aria-current={on ? "page" : undefined}
+            className={cn(item, on ? "text-foreground" : "text-muted-foreground")}
+          >
+            <span
+              className={cn(
+                "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+                on && "bg-primary text-primary-foreground",
+              )}
+            >
+              <Icon className="size-[19px]" strokeWidth={on ? 2 : 1.7} />
               {count > 0 && (
                 <span className="absolute -top-1 right-1">
                   <CountPill count={count} />
@@ -288,11 +298,14 @@ function TabBar({
           </Link>
         );
       })}
-      <button type="button" onClick={onMore} className={cn(item, moreOpen || !inTabs ? "text-primary" : "text-muted-foreground")}>
+      <button type="button" onClick={onMore} className={cn(item, moreOpen || !inTabs ? "text-foreground" : "text-muted-foreground")}>
         <span
-          className={cn("relative flex h-7 w-12 items-center justify-center rounded-full transition-colors", (moreOpen || !inTabs) && "bg-accent")}
+          className={cn(
+            "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+            (moreOpen || !inTabs) && "bg-primary text-primary-foreground",
+          )}
         >
-          <LayoutGrid className="size-[21px]" strokeWidth={moreOpen || !inTabs ? 2.2 : 1.8} />
+          <LayoutGrid className="size-[19px]" strokeWidth={moreOpen || !inTabs ? 2 : 1.7} />
           {moreCount > 0 && (
             <span className="absolute -top-1 right-1">
               <CountPill count={moreCount} />
@@ -319,8 +332,8 @@ function SubTabs({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]
             href={i.href}
             aria-current={on ? "page" : undefined}
             className={cn(
-              "flex h-8 shrink-0 items-center rounded-full px-3.5 text-[13px] font-medium whitespace-nowrap ring-1 transition-colors",
-              on ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-foreground/75 ring-border/70",
+              "flex h-8 shrink-0 items-center rounded-full px-3.5 text-[13px] whitespace-nowrap ring-1 transition-colors",
+              on ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-foreground/75 ring-transparent shadow-card",
             )}
           >
             {i.title}
@@ -338,13 +351,11 @@ function RailItem({ module: m, active, count = 0 }: { module: NavModule; active:
       href={m.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] leading-none font-medium transition-colors",
-        active
-          ? "bg-primary text-primary-foreground shadow-[0_4px_12px_-4px_var(--color-primary)]"
-          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "relative flex flex-col items-center gap-1.5 rounded-2xl px-1 py-2.5 text-[11px] leading-none transition-colors",
+        active ? "bg-primary text-primary-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
       )}
     >
-      <Icon className="size-5" strokeWidth={active ? 2.2 : 1.8} />
+      <Icon className="size-5" strokeWidth={active ? 2 : 1.7} />
       <span className="whitespace-nowrap">{m.title}</span>
       {count > 0 && (
         <span className="absolute top-1 right-1">
@@ -370,14 +381,14 @@ function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["men
                     href={item.href}
                     aria-current={on ? "page" : undefined}
                     className={cn(
-                      "flex items-center justify-between rounded-lg px-2.5 py-2 text-sm transition-colors",
-                      on
-                        ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
-                        : "text-foreground/75 hover:bg-muted hover:text-foreground",
+                      "flex items-center justify-between rounded-full px-3.5 py-2 text-sm transition-colors",
+                      on ? "bg-primary text-primary-foreground" : "text-foreground/75 hover:bg-muted hover:text-foreground",
                     )}
                   >
                     {item.title}
-                    {item.phase && <span className="text-[10px] text-muted-foreground">{item.phase}</span>}
+                    {item.phase && (
+                      <span className={cn("text-[10px]", on ? "text-primary-foreground/60" : "text-muted-foreground")}>{item.phase}</span>
+                    )}
                   </Link>
                 </li>
               );
@@ -391,7 +402,7 @@ function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["men
 
 function CountPill({ count }: { count: number }) {
   return (
-    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-semibold text-white tabular-nums ring-2 ring-sidebar">
+    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-medium text-white tabular-nums ring-2 ring-sidebar">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -423,19 +434,19 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="relative flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="relative flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground/75 transition-colors hover:bg-muted hover:text-foreground aria-expanded:bg-primary aria-expanded:text-primary-foreground md:size-10"
           aria-label={total ? `提醒，${total} 条未处理` : "提醒"}
         >
           <Bell className={cn("size-[18px]", (badges.tasks ?? 0) > 0 && "text-foreground")} />
           {total > 0 && (
-            <span className="absolute top-0.5 right-0.5">
+            <span className="absolute -top-1 -right-1">
               <CountPill count={total} />
             </span>
           )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-0">
-        <p className="px-3.5 pt-3 pb-2 text-sm font-semibold">提醒</p>
+        <p className="px-4 pt-3.5 pb-2 text-base">提醒</p>
         {due.length > 0 && (
           <ul className="max-h-80 overflow-y-auto border-y border-border/70">
             {due.map((t) => (
@@ -460,7 +471,7 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
                     title="推迟到明天上午"
                     aria-label="推迟到明天上午"
                     onClick={() => act(runAction(snoozeTaskAction(t.id, "tomorrow")))}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Clock className="size-4" />
                   </button>
@@ -469,7 +480,7 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
                     title="标记完成"
                     aria-label="标记完成"
                     onClick={() => act(runAction(toggleTaskAction(t.id, true)))}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700"
+                    className="rounded-full p-1.5 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
                   >
                     <Check className="size-4" />
                   </button>
@@ -481,9 +492,9 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
         <ul className="p-1.5">
           {items.map((i) => (
             <li key={i.key}>
-              <Link href={i.href} onClick={() => setOpen(false)} className="flex justify-between rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+              <Link href={i.href} onClick={() => setOpen(false)} className="flex justify-between rounded-xl px-2.5 py-2 text-sm hover:bg-muted">
                 {REMINDER_LABEL[i.key]}
-                <span className={cn("tabular-nums", i.count ? "font-semibold text-destructive" : "text-muted-foreground")}>{i.count}</span>
+                <span className={cn("tabular-nums", i.count ? "font-medium text-destructive" : "text-muted-foreground")}>{i.count}</span>
               </Link>
             </li>
           ))}

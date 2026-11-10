@@ -161,7 +161,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
               >
                 <MobileMeta
                   items={[
-                    ["金额", formatAmount(o.total.toString(), o.currency), "font-semibold"],
+                    ["金额", formatAmount(o.total.toString(), o.currency), "font-medium"],
                     [
                       "待收",
                       due > 0 ? formatAmount(due) : "已收齐",

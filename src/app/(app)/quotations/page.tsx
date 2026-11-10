@@ -148,7 +148,7 @@ export default async function QuotationsPage({ searchParams }: PageProps<"/quota
               >
                 <MobileMeta
                   items={[
-                    ["金额", formatAmount(q.total.toString(), q.currency), "font-semibold"],
+                    ["金额", formatAmount(q.total.toString(), q.currency), "font-medium"],
                     ["产品", `${q._count.items} 项`],
                     ["报价日期", formatDate(q.quoteDate, tz)],
                     ["有效期至", q.validUntil ? formatDate(q.validUntil, tz) : "—", expired ? "text-destructive" : undefined],

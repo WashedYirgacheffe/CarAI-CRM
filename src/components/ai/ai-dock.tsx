@@ -264,10 +264,10 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       {open && (
         <section
           aria-label="AI 助手"
-          className="pointer-events-auto flex max-h-[min(34rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-2xl border bg-popover shadow-2xl ring-1 ring-black/5 duration-200 fade-in-0 slide-in-from-bottom-2"
+          className="pointer-events-auto flex max-h-[min(34rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-3xl bg-popover shadow-2xl ring-1 ring-black/[0.06] duration-200 fade-in-0 slide-in-from-bottom-2"
         >
           <header className="flex items-center gap-2 border-b px-4 py-2.5">
-            <span className="shrink-0 text-sm font-semibold">AI 助手</span>
+            <span className="shrink-0 text-base">AI 助手</span>
             <span className="truncate text-xs text-muted-foreground max-sm:hidden">能查数据、摆工作台、起草消息和单据，确认后才执行</span>
             <span className="ml-auto flex items-center gap-0.5">
               {turns.length > 0 && (
@@ -289,7 +289,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
                     key={s}
                     type="button"
                     onClick={() => void send(s)}
-                    className="rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-primary hover:bg-primary/5"
+                    className="rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
                   >
                     {s}
                   </button>
@@ -375,9 +375,9 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           )}
         >
           <AiMascot thinking={busy} className="size-full" />
-          {busy && !open && <LoaderCircle className="absolute -top-1 -left-1 size-4 animate-spin rounded-full bg-popover text-primary" />}
+          {busy && !open && <LoaderCircle className="absolute -top-1 -left-1 size-4 animate-spin rounded-full bg-popover text-brand" />}
           {unread && !open && (
-            <span className="absolute top-0.5 right-0.5 size-3 rounded-full bg-rose-500 ring-2 ring-popover" aria-label="有新回复" />
+            <span className="absolute top-0.5 right-0.5 size-3 rounded-full bg-destructive ring-2 ring-popover" aria-label="有新回复" />
           )}
         </button>
       </div>
@@ -428,7 +428,7 @@ function AssistantView({
                 type="button"
                 disabled={!last || busy}
                 onClick={() => onReply(o.reply)}
-                className="rounded-xl border px-3 py-1.5 text-left transition-colors enabled:hover:border-primary enabled:hover:bg-primary/5 disabled:opacity-60"
+                className="rounded-xl border px-3 py-1.5 text-left transition-colors enabled:hover:border-foreground/30 enabled:hover:bg-muted disabled:opacity-60"
               >
                 <span className="block font-medium">{o.label}</span>
                 {o.detail && <span className="block text-xs text-muted-foreground">{o.detail}</span>}

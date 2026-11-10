@@ -89,7 +89,7 @@ function Shell({
     <section className="surface flex h-full min-h-40 flex-col p-4 md:p-5">
       <header className="mb-3 flex items-start gap-2 pr-1">
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold">{title}</h3>
+          <h3 className="truncate text-base font-medium">{title}</h3>
           {sub && <p className="mt-0.5 truncate text-xs text-muted-foreground">{sub}</p>}
         </div>
         {loading && <LoaderCircle className="mt-1 size-4 shrink-0 animate-spin text-muted-foreground" aria-label="加载中" />}

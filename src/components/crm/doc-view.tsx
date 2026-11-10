@@ -55,7 +55,7 @@ export function ItemsCard({ items, money }: { items: ViewItem[]; money: ViewMone
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">产品明细（{items.length} 项）</CardTitle>
+        <CardTitle>产品明细（{items.length} 项）</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
@@ -101,7 +101,7 @@ export function ItemsCard({ items, money }: { items: ViewItem[]; money: ViewMone
           {fee("折扣", money.discount, "−")}
           {fee("运费", money.shippingFee)}
           {fee("其他费用", money.otherFee)}
-          <div className="flex justify-between border-t pt-2 text-base font-semibold">
+          <div className="flex justify-between border-t pt-2 text-base font-medium">
             <span>合计</span>
             <span className="tabular-nums">{formatAmount(money.total, c)}</span>
           </div>

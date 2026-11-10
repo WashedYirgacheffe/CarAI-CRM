@@ -30,7 +30,7 @@ export function SuggestionList({ rows, tz }: { rows: Suggestion[]; tz: string })
     <>
       <div className="overflow-hidden surface">
         <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-5 py-3">
-          <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+          <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-medium">
             待建档
             <span className="text-[13px] font-normal text-muted-foreground">
               · <span className="tabular-nums">{shown.length}</span> 个往来对象
@@ -50,7 +50,7 @@ export function SuggestionList({ rows, tz }: { rows: Suggestion[]; tz: string })
                 onClick={() => setKind(k)}
                 className={cn(
                   "rounded-full px-3 py-1 text-[13px] transition-colors",
-                  kind === k ? "bg-card font-semibold text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  kind === k ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {label} <span className="tabular-nums opacity-70">{n}</span>

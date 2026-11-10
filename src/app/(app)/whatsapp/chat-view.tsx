@@ -454,7 +454,7 @@ export function ChatView({
             <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className="size-10 text-sm" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
-                <span className="truncate font-semibold">{title}</span>
+                <span className="truncate font-medium">{title}</span>
                 {chat.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="已置顶" />}
               </span>
               <span className="block truncate text-xs text-muted-foreground">

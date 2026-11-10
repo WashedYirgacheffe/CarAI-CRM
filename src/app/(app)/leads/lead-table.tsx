@@ -10,13 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { DesktopOnly, MobileCard, MobileList } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -25,14 +19,7 @@ import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
 import { cn } from "@/lib/utils";
 import { COUNTRIES, CURRENCIES, CUSTOMER_SOURCES, LEAD_INVALID_REASONS, LEAD_STATUSES, countryName, formatDate } from "@/lib/crm";
-import {
-  assignLeadsAction,
-  claimLeadAction,
-  convertLeadAction,
-  deleteLeadAction,
-  saveLeadAction,
-  setLeadStatusAction,
-} from "./actions";
+import { assignLeadsAction, claimLeadAction, convertLeadAction, deleteLeadAction, saveLeadAction, setLeadStatusAction } from "./actions";
 
 export type LeadRow = {
   id: string;
@@ -59,8 +46,9 @@ type Perms = { create: boolean; edit: boolean; delete: boolean; assign: boolean;
 type Modal = { kind: "edit"; lead: Partial<LeadRow> } | { kind: "convert" | "invalid"; lead: LeadRow } | { kind: "assign"; ids: string[] } | null;
 
 /** 跟进中的三个阶段，可以互相切换 */
-const PROGRESS = LEAD_STATUSES.filter((s): s is Extract<(typeof LEAD_STATUSES)[number], { value: "NEW" | "QUALIFYING" | "CONTACTED" }> =>
-  s.value === "NEW" || s.value === "QUALIFYING" || s.value === "CONTACTED",
+const PROGRESS = LEAD_STATUSES.filter(
+  (s): s is Extract<(typeof LEAD_STATUSES)[number], { value: "NEW" | "QUALIFYING" | "CONTACTED" }> =>
+    s.value === "NEW" || s.value === "QUALIFYING" || s.value === "CONTACTED",
 );
 
 const STATUS_STYLE: Record<LeadRow["status"], string> = {
@@ -153,15 +141,11 @@ export function LeadTable({
                   改为「{p.label}」
                 </DropdownMenuItem>
               ))}
-            {perms.edit && open && (
-              <DropdownMenuItem onSelect={() => setModal({ kind: "invalid", lead: l })}>标记为无效</DropdownMenuItem>
-            )}
+            {perms.edit && open && <DropdownMenuItem onSelect={() => setModal({ kind: "invalid", lead: l })}>标记为无效</DropdownMenuItem>}
             {perms.edit && l.status === "INVALID" && (
               <DropdownMenuItem onSelect={() => runAction(setLeadStatusAction(l.id, "NEW"))}>恢复为新线索</DropdownMenuItem>
             )}
-            {perms.assign && open && (
-              <DropdownMenuItem onSelect={() => setModal({ kind: "assign", ids: [l.id] })}>分配给…</DropdownMenuItem>
-            )}
+            {perms.assign && open && <DropdownMenuItem onSelect={() => setModal({ kind: "assign", ids: [l.id] })}>分配给…</DropdownMenuItem>}
             {perms.delete && (
               <>
                 <DropdownMenuSeparator />
@@ -176,11 +160,10 @@ export function LeadTable({
     </div>
   );
 
-
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-5">
-        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-semibold">
+        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-medium">
           {title}
           <span className="text-[13px] font-normal text-muted-foreground">
             · <span className="tabular-nums">{total}</span> 条线索
@@ -189,7 +172,7 @@ export function LeadTable({
         {perms.assign && ids.length > 0 && (
           <div className="flex items-center gap-1.5 rounded-full bg-accent py-0.5 pr-1 pl-3 text-[13px] text-accent-foreground">
             <span>
-              已选 <span className="font-semibold tabular-nums">{ids.length}</span> 条
+              已选 <span className="font-medium tabular-nums">{ids.length}</span> 条
             </span>
             <Button variant="outline" size="xs" className="bg-card" onClick={() => setModal({ kind: "assign", ids })}>
               分配给…
@@ -334,8 +317,7 @@ export function LeadTable({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{l.ownerName ?? <span className="text-muted-foreground">待分配</span>}</TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">{formatDate(l.createdAt, tz)}</TableCell>
-                  <TableCell>{actions(l, open)}
-                  </TableCell>
+                  <TableCell>{actions(l, open)}</TableCell>
                 </TableRow>
               );
             })}
@@ -452,7 +434,7 @@ function ConvertForm({ lead, canOpp, onDone }: { lead: LeadRow; canOpp: boolean;
     onDone();
     if (r.customerId) router.push(`/customers/${r.customerId}`);
   });
-  const defaultName = lead.companyName ?? (lead.email ? lead.email.split("@")[1]?.split(".")[0] ?? "" : lead.contactName ?? "");
+  const defaultName = lead.companyName ?? (lead.email ? (lead.email.split("@")[1]?.split(".")[0] ?? "") : (lead.contactName ?? ""));
   return (
     <form onSubmit={submit}>
       <DialogHeader>

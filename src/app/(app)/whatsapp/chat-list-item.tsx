@@ -85,7 +85,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
           <WaAvatar src={c.avatar} name={c.rawName} phone={c.phone} className="size-12" />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
-              <span className={cn("min-w-0 flex-1 truncate text-[15px]", unread ? "font-semibold" : "font-medium")}>{c.name}</span>
+              <span className={cn("min-w-0 flex-1 truncate text-[15px]", unread ? "font-medium" : "font-medium")}>{c.name}</span>
               <span className={cn("shrink-0 text-xs tabular-nums", unread ? "font-medium text-emerald-600" : "text-muted-foreground")}>{c.time}</span>
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
@@ -93,7 +93,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
               <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">{c.lastText || " "}</p>
               {c.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="已置顶" />}
               {unread && (
-                <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white tabular-nums">
+                <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-medium text-white tabular-nums">
                   {c.unread > 99 ? "99+" : c.unread}
                 </span>
               )}

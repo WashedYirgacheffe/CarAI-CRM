@@ -195,7 +195,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
                 aria-current={tab === t.key ? "page" : undefined}
                 className={cn(
                   "inline-flex h-7 items-center rounded-full px-3.5 text-sm font-medium transition-colors",
-                  tab === t.key ? "bg-card text-primary shadow-sm" : "text-foreground/60 hover:text-foreground",
+                  tab === t.key ? "bg-primary text-primary-foreground" : "text-foreground/60 hover:text-foreground",
                 )}
               >
                 {t.label}
@@ -250,7 +250,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
                     </>
                   }
                   aside={
-                    <span className="text-sm font-semibold whitespace-nowrap text-emerald-700 tabular-nums">
+                    <span className="text-sm font-medium whitespace-nowrap text-emerald-700 tabular-nums">
                       +{formatAmount(p.amount.toString(), p.order.currency)}
                       <span className="block text-xs font-normal text-muted-foreground">{formatDate(p.receivedAt, tz)}</span>
                     </span>
@@ -269,7 +269,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
                   >
                     <MobileMeta
                       items={[
-                        ["待收", formatAmount(o.due), "font-semibold text-amber-700"],
+                        ["待收", formatAmount(o.due), "font-medium text-amber-700"],
                         ["订单金额", formatAmount(o.total.toString(), o.currency)],
                         ["已收", formatAmount(o.paidAmount.toString())],
                         ["交货", o.deliveryDate ? formatDate(o.deliveryDate, tz) : "未定"],

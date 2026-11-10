@@ -35,7 +35,9 @@ const WEEKDAY: Record<string, string> = { Mon: "周一", Tue: "周二", Wed: "�
 /** 时差（小时，可带 .5），正数表示比本地快 */
 function diffHours(tz: string, localTz: string, now: Date) {
   const off = (z: string) => {
-    const s = new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "longOffset" }).formatToParts(now).find((x) => x.type === "timeZoneName")?.value ?? "GMT";
+    const s =
+      new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "longOffset" }).formatToParts(now).find((x) => x.type === "timeZoneName")
+        ?.value ?? "GMT";
     const m = /GMT([+-])(\d{2}):(\d{2})/.exec(s);
     return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) + Number(m[3]) / 60) : 0;
   };
@@ -99,7 +101,7 @@ export function WorldClock({ suggested, localTz }: { suggested: string[]; localT
                   {p ? `${dayShift || p.date} ${WEEKDAY[p.weekday] ?? ""} · ${d === 0 ? "同本地" : `${d > 0 ? "+" : ""}${d}h`}` : "—"}
                 </p>
               </div>
-              <span className="text-xl font-semibold tabular-nums">{p ? `${String(p.hour).padStart(2, "0")}:${p.minute}` : "--:--"}</span>
+              <span className="text-xl font-normal tabular-nums">{p ? `${String(p.hour).padStart(2, "0")}:${p.minute}` : "--:--"}</span>
               <button
                 type="button"
                 onClick={() => save(codes.filter((c) => c !== code))}

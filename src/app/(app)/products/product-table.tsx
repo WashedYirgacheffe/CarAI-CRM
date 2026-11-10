@@ -8,13 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel, FieldDescription } from "@/components/ui/field";
 import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -27,13 +21,7 @@ import { GalleryUpload, ImageUpload, VideoUpload, Thumb } from "@/components/crm
 import { runAction, useActionForm } from "@/hooks/use-action-form";
 import { CURRENCIES } from "@/lib/crm";
 import { PRODUCT_UNITS, formatPrice } from "@/lib/docs";
-import {
-  deleteCategoryAction,
-  deleteProductAction,
-  saveCategoryAction,
-  saveProductAction,
-  setProductStatusAction,
-} from "./actions";
+import { deleteCategoryAction, deleteProductAction, saveCategoryAction, saveProductAction, setProductStatusAction } from "./actions";
 
 export type ProductRow = {
   id: string;
@@ -63,13 +51,7 @@ export type ProductRow = {
 
 type Category = { id: string; name: string; count?: number };
 
-export function ProductFilters({
-  filters,
-  categories,
-}: {
-  filters: { q: string; category: string; status: string };
-  categories: Category[];
-}) {
+export function ProductFilters({ filters, categories }: { filters: { q: string; category: string; status: string }; categories: Category[] }) {
   const autoSubmit = (e: React.ChangeEvent<HTMLSelectElement>) => e.currentTarget.form?.requestSubmit();
   const active = filters.q || filters.category || filters.status !== "ACTIVE";
   return (
@@ -135,9 +117,7 @@ export function ProductTable({
         <DropdownMenuItem onSelect={() => setEditing(p)}>
           <Pencil /> 编辑
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => runAction(setProductStatusAction(p.id, p.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"))}
-        >
+        <DropdownMenuItem onSelect={() => runAction(setProductStatusAction(p.id, p.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"))}>
           {p.status === "ACTIVE" ? "停售" : "恢复在售"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -193,7 +173,7 @@ export function ProductTable({
                 </>
               }
               aside={
-                <span className="text-sm font-semibold whitespace-nowrap tabular-nums">
+                <span className="text-sm font-medium whitespace-nowrap tabular-nums">
                   {p.currency} {formatPrice(p.price)}
                   <span className="block text-xs font-normal text-muted-foreground">/ {p.unit}</span>
                 </span>
@@ -217,73 +197,69 @@ export function ProductTable({
           ))}
         </MobileList>
         <DesktopOnly>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="pl-4">产品</TableHead>
-              <TableHead>分类</TableHead>
-              <TableHead>规格</TableHead>
-              <TableHead className="text-right">单价</TableHead>
-              <TableHead className="text-right">MOQ</TableHead>
-              <TableHead>包装</TableHead>
-              <TableHead>状态</TableHead>
-              {manage && <TableHead className="w-10" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 && (
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
-                  {manage ? "还没有产品，点右上角「添加产品」建立产品库" : "还没有产品"}
-                </TableCell>
+                <TableHead className="pl-4">产品</TableHead>
+                <TableHead>分类</TableHead>
+                <TableHead>规格</TableHead>
+                <TableHead className="text-right">单价</TableHead>
+                <TableHead className="text-right">MOQ</TableHead>
+                <TableHead>包装</TableHead>
+                <TableHead>状态</TableHead>
+                {manage && <TableHead className="w-10" />}
               </TableRow>
-            )}
-            {rows.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell className="pl-4">
-                  <div className="flex items-center gap-3">
-                    <Thumb src={p.imageUrl} alt={p.name} />
-                    <div className="min-w-0">
-                      <button
-                        type="button"
-                        className="block max-w-64 truncate text-left font-medium hover:text-primary disabled:hover:text-foreground"
-                        onClick={() => setEditing(p)}
-                        disabled={!manage}
-                      >
-                        {p.name}
-                      </button>
-                      <p className="max-w-64 truncate text-xs text-muted-foreground">
-                        <span className="tabular-nums">{p.sku}</span>
-                        {p.nameEn && ` · ${p.nameEn}`}
-                      </p>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{p.categoryName ?? "—"}</TableCell>
-                <TableCell>
-                  <p className="max-w-56 truncate text-sm">{[p.model, p.spec].filter(Boolean).join(" · ") || "—"}</p>
-                </TableCell>
-                <TableCell className="text-right whitespace-nowrap tabular-nums">
-                  {p.currency} {formatPrice(p.price)}
-                  <span className="text-muted-foreground"> / {p.unit}</span>
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{p.moq ?? "—"}</TableCell>
-                <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
-                  {p.cartonQty ? `${p.cartonQty} ${p.unit}/箱` : "—"}
-                  {p.cartonSize && ` · ${p.cartonSize}`}
-                </TableCell>
-                <TableCell>
-                  {p.status === "ACTIVE" ? <StatusBadge name="在售" color="emerald" /> : <StatusBadge name="停售" color="slate" />}
-                </TableCell>
-                {manage && (
-                  <TableCell>
-                    {menu(p)}
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                    {manage ? "还没有产品，点右上角「添加产品」建立产品库" : "还没有产品"}
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                </TableRow>
+              )}
+              {rows.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="pl-4">
+                    <div className="flex items-center gap-3">
+                      <Thumb src={p.imageUrl} alt={p.name} />
+                      <div className="min-w-0">
+                        <button
+                          type="button"
+                          className="block max-w-64 truncate text-left font-medium hover:text-primary disabled:hover:text-foreground"
+                          onClick={() => setEditing(p)}
+                          disabled={!manage}
+                        >
+                          {p.name}
+                        </button>
+                        <p className="max-w-64 truncate text-xs text-muted-foreground">
+                          <span className="tabular-nums">{p.sku}</span>
+                          {p.nameEn && ` · ${p.nameEn}`}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{p.categoryName ?? "—"}</TableCell>
+                  <TableCell>
+                    <p className="max-w-56 truncate text-sm">{[p.model, p.spec].filter(Boolean).join(" · ") || "—"}</p>
+                  </TableCell>
+                  <TableCell className="text-right whitespace-nowrap tabular-nums">
+                    {p.currency} {formatPrice(p.price)}
+                    <span className="text-muted-foreground"> / {p.unit}</span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{p.moq ?? "—"}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
+                    {p.cartonQty ? `${p.cartonQty} ${p.unit}/箱` : "—"}
+                    {p.cartonSize && ` · ${p.cartonSize}`}
+                  </TableCell>
+                  <TableCell>
+                    {p.status === "ACTIVE" ? <StatusBadge name="在售" color="emerald" /> : <StatusBadge name="停售" color="slate" />}
+                  </TableCell>
+                  {manage && <TableCell>{menu(p)}</TableCell>}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </DesktopOnly>
         {footer && <div className="border-t border-border/70 px-3 py-3 md:px-4 [&>div]:mt-0">{footer}</div>}
       </div>

@@ -99,7 +99,7 @@ export default async function MarketingPage() {
           <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Send className="size-5" />
           </span>
-          <h2 className="mt-4 text-base font-semibold">还没有营销序列</h2>
+          <h2 className="mt-4 text-base font-medium">还没有营销序列</h2>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             从模板开始：写好几封邮件和间隔天数，选客户或线索加入，系统在工作时间自动发出，并追踪打开和回复。
           </p>

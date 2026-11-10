@@ -114,14 +114,14 @@ export async function CustomerInsights({
   return (
     <section className="surface p-4 md:p-5">
       <header className="flex items-baseline justify-between gap-2">
-        <h2 className="font-semibold">往来概况</h2>
+        <h2 className="font-medium">往来概况</h2>
         <span className="text-xs text-muted-foreground">近 {WEEKS} 周，按周统计</span>
       </header>
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
         {stats.map((s) => (
           <div key={s.label} className="min-w-0 rounded-xl bg-muted/50 p-3">
             <dt className="text-xs text-muted-foreground">{s.label}</dt>
-            <dd className="mt-0.5 text-xl leading-tight font-bold tabular-nums">{s.value}</dd>
+            <dd className="mt-0.5 text-xl leading-tight font-normal tabular-nums">{s.value}</dd>
             {s.meter && (
               <div className="mt-1.5">
                 <Meter value={s.meter.value} max={s.meter.max} tone={s.meter.tone} label={s.label} />

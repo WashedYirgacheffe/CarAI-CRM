@@ -63,7 +63,7 @@ export function ActionCardView({ value, onChange }: { value: CardState; onChange
         >
           {card.outward ? "待确认 · 会对外发出" : "待确认"}
         </span>
-        <h4 className="min-w-0 flex-1 truncate text-sm font-semibold">{card.title}</h4>
+        <h4 className="min-w-0 flex-1 truncate text-sm font-medium">{card.title}</h4>
       </div>
 
       {card.fields.length > 0 && (

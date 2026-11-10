@@ -65,7 +65,8 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
       <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" />
         <p>
-          这里走的是 WhatsApp 网页版协议，不是官方商业接口。正常一对一沟通没有问题，但<strong>不要用它群发、频繁加陌生人</strong>，否则号码可能被 WhatsApp 限制。建议先用业务专用号码。
+          这里走的是 WhatsApp 网页版协议，不是官方商业接口。正常一对一沟通没有问题，但<strong>不要用它群发、频繁加陌生人</strong>，否则号码可能被
+          WhatsApp 限制。建议先用业务专用号码。
         </p>
       </div>
 
@@ -93,7 +94,13 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
             </div>
             <Badge
               variant="outline"
-              className={a?.status === "CONNECTED" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : waiting ? "border-amber-200 bg-amber-50 text-amber-800" : ""}
+              className={
+                a?.status === "CONNECTED"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : waiting
+                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : ""
+              }
             >
               {a?.status === "CONNECTED" ? "已连接" : waiting ? "连接中" : "未连接"}
             </Badge>
@@ -135,7 +142,10 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
                       onChange={(e) => setPhone(e.target.value)}
                       className="max-w-xs"
                     />
-                    <p className="text-xs text-muted-foreground">不用加 +，中国号码以 86 开头。提交后会显示一个 8 位配对码，在手机上输入即可，不需要扫码。这种方式只能同步最近的聊天记录，要同步全部历史请用扫码登录。</p>
+                    <p className="text-xs text-muted-foreground">
+                      不用加 +，中国号码以 86 开头。提交后会显示一个 8
+                      位配对码，在手机上输入即可，不需要扫码。这种方式只能同步最近的聊天记录，要同步全部历史请用扫码登录。
+                    </p>
                   </div>
                   <Button type="submit" disabled={busy || phone.replace(/\D/g, "").length < 8}>
                     获取配对码
@@ -143,7 +153,9 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
                 </form>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">生成二维码后，用手机 WhatsApp 扫描，关联后会同步手机上的全部历史聊天。如果扫码时提示无法关联设备，请改用手机号登录。</p>
+                  <p className="text-xs text-muted-foreground">
+                    生成二维码后，用手机 WhatsApp 扫描，关联后会同步手机上的全部历史聊天。如果扫码时提示无法关联设备，请改用手机号登录。
+                  </p>
                   <Button disabled={busy} onClick={() => run(connectWhatsappAction())}>
                     获取登录二维码
                   </Button>
@@ -157,7 +169,7 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
               <div className="flex h-[120px] w-[264px] shrink-0 flex-col items-center justify-center gap-1 rounded-md bg-muted">
                 {code ? (
                   <>
-                    <span className="font-mono text-3xl font-semibold tracking-[0.2em] select-all">{code}</span>
+                    <span className="font-mono text-3xl font-normal tracking-[0.2em] select-all">{code}</span>
                     <span className="text-xs text-muted-foreground">+{a?.pairPhone}</span>
                   </>
                 ) : (

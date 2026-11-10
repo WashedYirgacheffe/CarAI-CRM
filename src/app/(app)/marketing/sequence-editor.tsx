@@ -134,7 +134,7 @@ export function SequenceEditor({
 
         <section className="surface p-4 md:p-5">
           <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold">邮件内容</h2>
+            <h2 className="font-medium">邮件内容</h2>
             <NativeSelect aria-label="套用模板" className="h-8 w-auto text-sm" value="" onChange={(e) => applyPreset(e.target.value)}>
               <option value="">套用模板…</option>
               {SEQUENCE_PRESETS.map((p) => (
@@ -171,7 +171,7 @@ export function SequenceEditor({
                 )}
               >
                 <div className="mb-2.5 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
                     {i + 1}
                   </span>
                   <Clock className="size-3.5 text-muted-foreground" />
@@ -257,7 +257,7 @@ export function SequenceEditor({
           <h2 className="text-sm text-muted-foreground">预览 · 第 {active + 1} 封</h2>
           {preview ? (
             <div className="mt-3 text-sm">
-              <p className="font-semibold break-words">{renderTemplate(preview.subject, sample) || "（无主题）"}</p>
+              <p className="font-medium break-words">{renderTemplate(preview.subject, sample) || "（无主题）"}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 发给 {sample.name} · {sample.company}
               </p>

@@ -40,7 +40,7 @@ export function ClassifySettings({ statuses, groups }: { statuses: Status[]; gro
     <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">客户状态</CardTitle>
+          <CardTitle>客户状态</CardTitle>
           <CardAction>
             <Button size="sm" variant="outline" onClick={() => setStatus({ color: "slate" })}>
               <Plus /> 添加
@@ -70,7 +70,7 @@ export function ClassifySettings({ statuses, groups }: { statuses: Status[]; gro
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">客户分组</CardTitle>
+          <CardTitle>客户分组</CardTitle>
           <CardAction>
             <Button size="sm" variant="outline" onClick={() => setGroup({})}>
               <Plus /> 添加
@@ -142,11 +142,7 @@ function StatusForm({ status, onDone }: { status: Partial<Status>; onDone: () =>
                 role="radio"
                 aria-checked={color === c}
                 onClick={() => setColor(c)}
-                className={cn(
-                  "rounded-md border px-2.5 py-1 text-xs font-medium",
-                  STATUS_COLORS[c],
-                  color === c && "ring-2 ring-ring ring-offset-1",
-                )}
+                className={cn("rounded-md border px-2.5 py-1 text-xs font-medium", STATUS_COLORS[c], color === c && "ring-2 ring-ring ring-offset-1")}
               >
                 {COLOR_LABEL[c]}
               </button>

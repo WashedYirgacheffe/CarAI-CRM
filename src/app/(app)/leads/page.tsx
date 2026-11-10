@@ -68,7 +68,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
       href={tabHref(key)}
       className={cn(
         "flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors lg:shrink",
-        tab === key ? "bg-accent font-semibold text-accent-foreground" : "text-foreground/80 hover:bg-muted",
+        tab === key ? "bg-accent font-medium text-accent-foreground" : "text-foreground/80 hover:bg-muted",
       )}
     >
       <span className="truncate">{label}</span>
