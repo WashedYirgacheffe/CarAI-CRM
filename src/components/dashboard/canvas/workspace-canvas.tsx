@@ -2,17 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { LayoutGrid, Minimize2, Plus, Redo2, Sparkles, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Minimize2, Redo2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { runAction } from "@/hooks/use-action-form";
 import { saveWorkspaceAction } from "@/app/(app)/dashboard/actions";
-import { MAX_ITEMS, OVERVIEW_ID, WIDGETS, makeItem, sameLayout, widgetDef, type CanvasLayout, type CanvasSize } from "@/lib/canvas";
+import { MAX_ITEMS, OVERVIEW_ID, itemTitle, makeItem, sameLayout, type CanvasItem, type CanvasLayout, type CanvasSize } from "@/lib/canvas";
 import { cn } from "@/lib/utils";
 import { CanvasCell, type DropHint } from "./canvas-cell";
 import { useLayoutHistory } from "./use-layout-history";
 import { WorkspaceSwitcher, SaveAsDialog, type Space } from "./workspace-switcher";
 import { LeavePrompt } from "./leave-prompt";
+import { AiBar } from "./ai-bar";
+import { AddMenu } from "./add-menu";
+import { BusinessWidget, type WidgetApi } from "./business-widgets";
 
 type Props = {
   blocks: Record<string, React.ReactNode>;
@@ -21,10 +24,26 @@ type Props = {
   workspaces: Space[];
   home: string | null;
   promptOff: boolean;
+  tz: string;
+  metrics: string[];
+  aiEnabled: boolean;
 };
 
+/** 同一个对象的业务组件：客户看 customerId，会话看 chatId */
+const sameTarget = (a: CanvasItem, type: string, params: Record<string, string>) =>
+  a.type === type &&
+  (type === "whatsapp"
+    ? a.params?.chatId === params.chatId
+    : type === "customer" || type === "followups"
+      ? a.params?.customerId === params.customerId
+      : false);
+
+const scrollToCell = (id: string) =>
+  requestAnimationFrame(() => document.querySelector(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+
 /** 工作台画布：情景切换 + 12 列网格自动排列的组件 */
-export function WorkspaceCanvas({ blocks, available, overview, workspaces, home: initialHome, promptOff }: Props) {
+export function WorkspaceCanvas({ blocks, available, overview, workspaces, home: initialHome, promptOff, tz, metrics, aiEnabled }: Props) {
+  const router = useRouter();
   const [spaces, setSpaces] = useState<Space[]>(workspaces);
   const [home, setHome] = useState<string | null>(initialHome);
   const [activeId, setActiveId] = useState<string>(() => initialHome ?? OVERVIEW_ID);
@@ -71,11 +90,44 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
       rest.splice(after ? t + 1 : t, 0, dragged);
       return rest;
     });
-  const add = (type: string) => {
-    const item = makeItem(type);
+  const add = (type: string, params?: Record<string, string>) => {
+    const existing = params && layout.find((it) => sameTarget(it, type, params));
+    if (existing) return scrollToCell(existing.id);
+    const item = makeItem(type, undefined, params);
     set([...layout, item]);
-    requestAnimationFrame(() => document.querySelector(`[data-cell="${item.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    scrollToCell(item.id);
   };
+
+  // 业务组件的回调：改自己的参数、在旁边再打开一个组件
+  const apiFor = (it: CanvasItem): WidgetApi => ({
+    tz,
+    setParams: (params) => update((l) => l.map((x) => (x.id === it.id ? { ...x, params } : x))),
+    open: (type, params, size) => {
+      if (!can.has(type)) return;
+      const existing = layout.find((x) => sameTarget(x, type, params));
+      if (existing) return scrollToCell(existing.id);
+      const item = makeItem(type, size, params);
+      update((l) => {
+        const i = l.findIndex((x) => x.id === it.id);
+        const n = [...l];
+        n.splice(i < 0 ? n.length : i + 1, 0, item);
+        return n;
+      });
+      scrollToCell(item.id);
+    },
+  });
+  const render = (it: CanvasItem) => blocks[it.type] ?? <BusinessWidget item={it} api={apiFor(it)} />;
+
+  // 内嵌页（WhatsApp 聊天）里点了站内链接：在外层页面跳转
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== location.origin) return;
+      const d = e.data as { type?: string; href?: string } | null;
+      if (d?.type === "crm:navigate" && typeof d.href === "string" && d.href.startsWith("/") && !d.href.startsWith("//")) router.push(d.href);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [router]);
 
   const switchTo = (id: string) => {
     if (id === activeId) return;
@@ -114,11 +166,10 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
   }, [undo, redo]);
 
   const maxItem = visible.find((it) => it.id === maxId) ?? null;
-  const addable = WIDGETS.filter((w) => can.has(w.type));
 
   return (
     <>
-      <AiBar />
+      <AiBar enabled={aiEnabled} layout={layout} onLayout={(l) => (setMaxId(null), set(l))} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <WorkspaceSwitcher
@@ -156,46 +207,14 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
           <Button variant="ghost" size="icon-sm" onClick={h.redo} disabled={!h.canRedo} aria-label="重做" title="重做（⇧⌘Z）">
             <Redo2 />
           </Button>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="ml-1">
-                <Plus /> 添加组件
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-1.5">
-              <ul className="max-h-[60vh] overflow-y-auto">
-                {addable.map((w) => {
-                  const placed = onCanvas.has(w.type);
-                  return (
-                    <li key={w.type}>
-                      <button
-                        type="button"
-                        disabled={placed || layout.length >= MAX_ITEMS}
-                        onClick={() => add(w.type)}
-                        className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-                      >
-                        <LayoutGrid className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-baseline justify-between gap-2 text-sm font-medium">
-                            {w.label}
-                            {placed && <span className="text-xs font-normal text-muted-foreground">已在画布上</span>}
-                          </span>
-                          <span className="block text-xs text-muted-foreground">{w.desc}</span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </PopoverContent>
-          </Popover>
+          <AddMenu available={can} onCanvas={onCanvas} full={layout.length >= MAX_ITEMS} metrics={metrics} onAdd={add} />
         </div>
       </div>
 
       {visible.length === 0 ? (
         <div className="surface flex flex-col items-center gap-3 px-6 py-16 text-center">
           <p className="font-medium">画布是空的</p>
-          <p className="text-sm text-muted-foreground">用右上角的「添加组件」把需要的模块放上来，或切回「概览」。</p>
+          <p className="text-sm text-muted-foreground">在上方告诉 AI 你想看什么，或用右上角的「添加组件」把需要的模块放上来。</p>
         </div>
       ) : (
         <div
@@ -234,7 +253,7 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
               {maxId === it.id ? (
                 <div className="surface flex h-full min-h-32 items-center justify-center text-sm text-muted-foreground">正在放大显示</div>
               ) : (
-                blocks[it.type]
+                render(it)
               )}
             </CanvasCell>
           ))}
@@ -242,8 +261,8 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
       )}
 
       {maxItem && (
-        <MaximizedView title={widgetDef(maxItem.type)!.label} onClose={() => setMaxId(null)}>
-          {blocks[maxItem.type]}
+        <MaximizedView title={itemTitle(maxItem)} onClose={() => setMaxId(null)}>
+          {render(maxItem)}
         </MaximizedView>
       )}
 
@@ -260,19 +279,6 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
         }}
       />
     </>
-  );
-}
-
-/** 顶部 AI 栏：第 2 期接通，先占好位置 */
-function AiBar() {
-  return (
-    <div className="surface mb-4 flex items-center gap-3 px-4 py-3" aria-disabled>
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-500/10 text-violet-600">
-        <Sparkles className="size-4" />
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">告诉 AI 你想看什么、做什么，它会帮你把需要的组件摆上来</span>
-      <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">即将上线</span>
-    </div>
   );
 }
 

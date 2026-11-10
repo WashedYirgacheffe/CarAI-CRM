@@ -1,4 +1,3 @@
-import { waMediaOf } from "@/components/crm/wa-media";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Archive, ChevronLeft, LoaderCircle, MessageCircle, Search, Smartphone } from "lucide-react";
@@ -8,10 +7,10 @@ import { can, requirePermission } from "@/server/auth";
 import { prisma, tenantDb } from "@/server/db";
 import { aiConfigured } from "@/server/ai";
 import { waListTime } from "@/lib/wa-time";
-import { countryName } from "@/lib/crm";
 import { cn } from "@/lib/utils";
 import { ChatView, LiveRefresh, NewChatButton, StartFromParams } from "./chat-view";
 import { ChatListItem } from "./chat-list-item";
+import { loadChatView } from "./chat-data";
 
 export const metadata: Metadata = { title: "WhatsApp" };
 
@@ -52,7 +51,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
   const chatId = s("chat");
   const contains = { contains: q, mode: "insensitive" as const };
   const base = { accountId: account.id, lastMessageAt: { not: null } };
-  const [chats, chat, unreadChats, archivedCount] = await Promise.all([
+  const [chats, view, unreadChats, archivedCount] = await Promise.all([
     db.waChat.findMany({
       where: {
         ...base,
@@ -64,61 +63,11 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
       take: 300,
       include: { customer: { select: { id: true, name: true } } },
     }),
-    chatId
-      ? db.waChat.findFirst({
-          where: { id: chatId, accountId: account.id },
-          include: {
-            customer: { select: { id: true, name: true, country: true, status: { select: { name: true } }, owner: { select: { name: true } } } },
-            contact: { select: { name: true, title: true, email: true } },
-          },
-        })
-      : null,
+    chatId ? loadChatView(user, account.id, chatId) : null,
     db.waChat.count({ where: { ...base, archived: false, unread: { gt: 0 } } }),
     db.waChat.count({ where: { ...base, archived: true } }),
   ]);
-  const visible = { hiddenAt: null };
-  const customerId = chat?.customerId ?? null;
-  const [messages, media, msgCount, starred, firstMsg, tasks, activities, quotations] = chat
-    ? await Promise.all([
-        db.waMessage.findMany({ where: { chatId: chat.id, ...visible }, orderBy: { timestamp: "desc" }, take: 300 }).then((r) => r.reverse()),
-        db.waMessage.findMany({
-          where: { chatId: chat.id, ...visible, mediaKey: { not: null }, type: { in: ["image", "video"] } },
-          orderBy: { timestamp: "desc" },
-          take: 12,
-          select: { id: true, type: true },
-        }),
-        db.waMessage.count({ where: { chatId: chat.id, ...visible } }),
-        db.waMessage.findMany({
-          where: { chatId: chat.id, ...visible, starred: true },
-          orderBy: { timestamp: "desc" },
-          take: 30,
-          select: { id: true, body: true, fromMe: true, timestamp: true, type: true },
-        }),
-        db.waMessage.findFirst({ where: { chatId: chat.id }, orderBy: { timestamp: "asc" }, select: { timestamp: true } }),
-        db.task.findMany({
-          where: { ownerId: user.id, OR: [{ link: `/whatsapp?chat=${chat.id}` }, ...(customerId ? [{ customerId }] : [])] },
-          orderBy: [{ done: "asc" }, { dueAt: "asc" }],
-          take: 30,
-          include: { customer: { select: { name: true } } },
-        }),
-        customerId
-          ? db.activity.findMany({ where: { customerId }, orderBy: { createdAt: "desc" }, take: 15, include: { user: { select: { name: true } } } })
-          : Promise.resolve([]),
-        customerId
-          ? db.quotation.findMany({
-              where: { customerId },
-              orderBy: { createdAt: "desc" },
-              take: 8,
-              select: { id: true, no: true, total: true, currency: true, status: true, approval: true, quoteDate: true },
-            })
-          : Promise.resolve([]),
-      ])
-    : [[], [], 0, [], null, [], [], []];
-  const quotedIds = [...new Set(messages.map((m) => m.quotedId).filter((x): x is string => !!x))];
-  const quotedRows = quotedIds.length
-    ? await db.waMessage.findMany({ where: { id: { in: quotedIds } }, select: { id: true, fromMe: true, body: true, type: true } })
-    : [];
-  const quotedMap = new Map(quotedRows.map((r) => [r.id, r]));
+  const chat = view?.chat ?? null;
 
   const href = (p: { chat?: string | null; f?: string }) => {
     const u = new URLSearchParams();
@@ -274,93 +223,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
 
       {/* ── 聊天 + 右侧客户面板 ── */}
       {chat ? (
-        <ChatView
-          key={chat.id}
-          tz={user.timezone}
-          backHref={href({ chat: null })}
-          connected={connected}
-          canAi={canAi}
-          chat={{
-            id: chat.id,
-            name: chat.name,
-            phone: chat.phone,
-            unread: chat.unread,
-            avatar: avatarSrc(chat.id, chat.avatarKey, chat.avatarAt),
-            pinned: !!chat.pinnedAt,
-            archived: chat.archived,
-            customer: chat.customer ? { id: chat.customer.id, name: chat.customer.name } : null,
-          }}
-          messages={messages.map((m) => {
-            const qm = m.quotedId ? quotedMap.get(m.quotedId) : undefined;
-            return {
-              id: m.id,
-              fromMe: m.fromMe,
-              body: m.body,
-              type: m.type,
-              media: waMediaOf(m),
-              status: m.status,
-              error: m.error,
-              timestamp: m.timestamp.toISOString(),
-              starred: m.starred,
-              quoted: qm ? { id: qm.id, fromMe: qm.fromMe, body: qm.body, type: qm.type } : null,
-            };
-          })}
-          panel={{
-            chat: {
-              id: chat.id,
-              name: chat.name,
-              phone: chat.phone,
-              avatar: avatarSrc(chat.id, chat.avatarKey, chat.avatarAt),
-              customer: chat.customer
-                ? {
-                    id: chat.customer.id,
-                    name: chat.customer.name,
-                    status: chat.customer.status?.name ?? null,
-                    country: chat.customer.country ? countryName(chat.customer.country) : null,
-                    owner: chat.customer.owner?.name ?? null,
-                  }
-                : null,
-              contact: chat.contact,
-            },
-            msgCount,
-            firstAt: firstMsg?.timestamp.toISOString() ?? null,
-            media,
-            starred: starred.map((m) => ({
-              id: m.id,
-              body: m.body || (m.type !== "text" ? `[${m.type}]` : ""),
-              fromMe: m.fromMe,
-              timestamp: m.timestamp.toISOString(),
-            })),
-            tasks: tasks.map((t) => ({
-              id: t.id,
-              title: t.title,
-              dueAt: t.dueAt.toISOString(),
-              done: t.done,
-              customerId: t.customerId,
-              customerName: t.customer?.name ?? null,
-              kind: t.kind,
-              note: t.note,
-              link: t.link,
-              snoozeCount: t.snoozeCount,
-            })),
-            activities: activities.map((a) => ({
-              id: a.id,
-              content: a.content,
-              createdAt: a.createdAt.toISOString(),
-              user: a.user?.name ?? null,
-              follow: a.type === "FOLLOW_UP",
-            })),
-            quotations: quotations.map((x) => ({
-              id: x.id,
-              no: x.no,
-              total: x.total.toString(),
-              currency: x.currency,
-              status: x.status,
-              approval: x.approval,
-              date: x.quoteDate.toISOString(),
-            })),
-          }}
-        />
+        <ChatView key={chat.id} tz={user.timezone} backHref={href({ chat: null })} connected={connected} canAi={canAi} {...view!} />
       ) : (
         <section className="hidden min-w-0 flex-1 flex-col md:flex">
           <div className="m-auto max-w-xs px-6 text-center">

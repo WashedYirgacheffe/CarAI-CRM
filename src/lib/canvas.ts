@@ -19,6 +19,10 @@ export type WidgetDef = {
   desc: string;
   sizes: CanvasSize[];
   size: CanvasSize;
+  /** 需要的参数（业务组件）；概览卡片没有参数 */
+  params?: { key: string; desc: string; optional?: boolean }[];
+  /** 可以放多个（业务组件按对象区分） */
+  multi?: boolean;
 };
 
 const SIZE_RULES: Record<DashboardCardKey, Pick<WidgetDef, "sizes" | "size">> = {
@@ -37,7 +41,65 @@ const SIZE_RULES: Record<DashboardCardKey, Pick<WidgetDef, "sizes" | "size">> = 
   fx: { sizes: ["s", "m", "l"], size: "s" },
 };
 
-export const WIDGETS: WidgetDef[] = DASHBOARD_CARDS.map((c) => ({ type: c.key, label: c.label, desc: c.desc, ...SIZE_RULES[c.key] }));
+/** 业务组件：绑定某个客户 / 会话，或带查询条件 */
+export const BUSINESS_WIDGETS: WidgetDef[] = [
+  {
+    type: "customer",
+    label: "客户资料",
+    desc: "某个客户的关键信息：国家、状态、负责人、联系人、最近联系、下次跟进",
+    sizes: ["s", "m", "l"],
+    size: "s",
+    params: [{ key: "customerId", desc: "客户 id" }],
+    multi: true,
+  },
+  {
+    type: "followups",
+    label: "跟进记录",
+    desc: "某个客户的跟进时间线（跟进、邮件、WhatsApp、报价等动态），可直接写跟进",
+    sizes: ["s", "m", "l"],
+    size: "s",
+    params: [{ key: "customerId", desc: "客户 id" }],
+    multi: true,
+  },
+  {
+    type: "whatsapp",
+    label: "WhatsApp 聊天",
+    desc: "和某个 WhatsApp 会话直接聊天（完整聊天窗口，含右侧客户面板）",
+    sizes: ["m", "l", "xl"],
+    size: "l",
+    params: [{ key: "chatId", desc: "WhatsApp 会话 id" }],
+    multi: true,
+  },
+  {
+    type: "team",
+    label: "团队业绩",
+    desc: "团队每个成员的成交额、订单、报价、跟进、新客户、新询盘",
+    sizes: ["m", "l", "xl"],
+    size: "xl",
+    params: [{ key: "range", desc: "时间范围", optional: true }],
+    multi: true,
+  },
+  {
+    type: "chart",
+    label: "数据图表",
+    desc: "任选指标、维度、时间范围生成的图表",
+    sizes: ["s", "m", "l", "xl"],
+    size: "m",
+    params: [
+      { key: "metric", desc: "指标" },
+      { key: "by", desc: "维度" },
+      { key: "range", desc: "时间范围" },
+      { key: "chart", desc: "图表类型", optional: true },
+    ],
+    multi: true,
+  },
+];
+
+export const WIDGETS: WidgetDef[] = [
+  ...DASHBOARD_CARDS.map((c) => ({ type: c.key, label: c.label, desc: c.desc, ...SIZE_RULES[c.key] })),
+  ...BUSINESS_WIDGETS,
+];
+export const isBusiness = (type: string) => BUSINESS_WIDGETS.some((w) => w.type === type);
 const BY_TYPE = new Map(WIDGETS.map((w) => [w.type, w]));
 export const widgetDef = (type: string) => BY_TYPE.get(type);
 
@@ -51,9 +113,23 @@ export const MAX_WORKSPACES = 20;
 let seq = 0;
 export const newItemId = () => `w${Date.now().toString(36)}${(seq++).toString(36)}`;
 
-export const makeItem = (type: string, size?: CanvasSize): CanvasItem => {
+export const makeItem = (type: string, size?: CanvasSize, params?: Record<string, string>): CanvasItem => {
   const def = widgetDef(type)!;
-  return { id: newItemId(), type, size: size && def.sizes.includes(size) ? size : def.size };
+  return {
+    id: newItemId(),
+    type,
+    size: size && def.sizes.includes(size) ? size : def.size,
+    ...(params && Object.keys(params).length ? { params } : {}),
+  };
+};
+
+/** 组件标题：业务组件带上对象名（params.title） */
+export const itemTitle = (it: CanvasItem) => {
+  const def = widgetDef(it.type);
+  const t = it.params?.title;
+  if (!def) return it.type;
+  if (!t) return def.label;
+  return it.type === "chart" ? t : `${def.label} · ${t}`;
 };
 
 /** 系统「概览」情景：沿用用户以前在旧版工作台勾选的卡片 */
@@ -72,7 +148,7 @@ export function sanitizeLayout(raw: unknown): CanvasLayout {
     const def = typeof type === "string" ? widgetDef(type) : undefined;
     if (!def || typeof id !== "string" || !id || id.length > 40 || seen.has(id)) continue;
     // 概览卡片每种只放一张
-    if (out.some((o) => o.type === def.type)) continue;
+    if (!def.multi && out.some((o) => o.type === def.type)) continue;
     seen.add(id);
     const sz = def.sizes.includes(size as CanvasSize) ? (size as CanvasSize) : def.size;
     const item: CanvasItem = { id, type: def.type, size: sz };
@@ -84,6 +160,8 @@ export function sanitizeLayout(raw: unknown): CanvasLayout {
       ) as Record<string, string>;
       if (Object.keys(p).length) item.params = p;
     }
+    // 业务组件缺必填参数就丢掉
+    if (def.params?.some((x) => !x.optional && !item.params?.[x.key])) continue;
     out.push(item);
   }
   return out;
