@@ -42,34 +42,60 @@ function withInstructions(system: string | undefined, messages: ChatMessage[]): 
   return messages.map((m, j) => (j === i ? { ...m, content: wrap(m.content as string) } : m)) as ChatMessage[];
 }
 
+/** 网关偶尔抽风（Cloudflare 502 / 限流），这些状态自动重试 */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 520, 522, 524]);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** 给用户看的错误：不把网关返回的整页 HTML 甩出去 */
+function friendlyError(status: number, body: string) {
+  if (status === 401 || status === 403) return "AI 服务的密钥无效或没有权限，请管理员检查 AI 配置";
+  if (status === 429) return "AI 服务现在请求太多，请稍后再试";
+  if (status >= 500) return "AI 服务暂时不可用（上游网关出错），请稍后重试";
+  const text = /^\s*</.test(body) ? "" : body.replace(/\s+/g, " ").slice(0, 160);
+  return `AI 服务返回错误 ${status}${text ? `：${text}` : ""}`;
+}
+
 async function request(opts: RawOptions, stream: boolean): Promise<Response> {
   const apiKey = process.env.AI_API_KEY;
   if (!apiKey) throw new AiError("还没有配置 AI（服务器 .env 中的 AI_API_KEY）");
-  let res: Response;
-  try {
-    res = await fetch(`${BASE_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: opts.maxTokens ?? 2000,
-        thinking: { type: "disabled" },
-        ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
-        ...(stream ? { stream: true } : {}),
-        ...(opts.tools?.length ? { tools: opts.tools, ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}) } : {}),
-        messages: withInstructions(opts.system, opts.messages),
-      }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
-    });
-  } catch (e) {
-    const msg = (e as Error).name === "TimeoutError" ? "AI 响应超时，请重试" : `AI 服务连接失败：${(e as Error).message}`;
-    throw new AiError(msg);
+  const body = JSON.stringify({
+    model: MODEL,
+    max_tokens: opts.maxTokens ?? 2000,
+    thinking: { type: "disabled" },
+    ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    ...(stream ? { stream: true } : {}),
+    ...(opts.tools?.length ? { tools: opts.tools, ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}) } : {}),
+    messages: withInstructions(opts.system, opts.messages),
+  });
+  const deadline = Date.now() + (opts.timeoutMs ?? 60_000);
+  for (let attempt = 0; ; attempt++) {
+    const last = attempt >= 2;
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body,
+        signal: AbortSignal.timeout(Math.max(5_000, deadline - Date.now())),
+      });
+    } catch (e) {
+      const timeout = (e as Error).name === "TimeoutError";
+      if (!timeout && !last) {
+        await sleep(600 * (attempt + 1));
+        continue;
+      }
+      throw new AiError(timeout ? "AI 响应超时，请重试" : "AI 服务连接失败，请检查网络后重试");
+    }
+    if (res.ok) return res;
+    const text = await res.text().catch(() => "");
+    if (RETRY_STATUS.has(res.status) && !last && deadline - Date.now() > 8_000) {
+      console.warn(`[ai] ${res.status}，第 ${attempt + 1} 次重试`);
+      await sleep(800 * (attempt + 1));
+      continue;
+    }
+    console.error(`[ai] ${res.status}`, text.replace(/\s+/g, " ").slice(0, 200));
+    throw new AiError(friendlyError(res.status, text));
   }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new AiError(`AI 服务返回错误 ${res.status}：${body.slice(0, 200)}`);
-  }
-  return res;
 }
 
 export async function aiComplete(opts: AiOptions): Promise<string> {

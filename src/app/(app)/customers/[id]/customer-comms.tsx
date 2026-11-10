@@ -1,9 +1,9 @@
 "use client";
 
 import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, Paperclip, PenSquare, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, LoaderCircle, Paperclip, PenSquare, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/crm";
@@ -69,7 +69,11 @@ export function CustomerMails({ rows, tz, composeHref }: { rows: CustomerMailRow
                   {m.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {m.attachments.map((a) => (
-                        <a key={a.id} href={`/api/mail/attachments/${m.id}/${a.id}`} className="rounded-full bg-background px-2.5 py-0.5 text-xs ring-1 ring-border hover:bg-muted">
+                        <a
+                          key={a.id}
+                          href={`/api/mail/attachments/${m.id}/${a.id}`}
+                          className="rounded-full bg-background px-2.5 py-0.5 text-xs ring-1 ring-border hover:bg-muted"
+                        >
                           {a.filename}
                         </a>
                       ))}
@@ -130,20 +134,56 @@ export function CustomerWhatsapp({ rows, tz, chatHref }: { rows: CustomerWaRow[]
 
 type Insight = { content: string; createdAt: string } | null;
 
-/** AI 面板：客户背景速览 + 跟进建议 */
-export function CustomerAiPanel({ customerId, brief, next, tz }: { customerId: string; brief: Insight; next: Insight; tz: string }) {
-  const [tab, setTab] = useState<"next" | "brief">("next");
-  const [data, setData] = useState({ brief, next });
-  const [busy, setBusy] = useState(false);
-  const cur = data[tab];
+/** AI 面板：近况摘要（打开客户页后自动生成）+ 跟进建议 + 背景速览 */
+type AiTab = "summary" | "next" | "brief";
+const AI_TABS: [AiTab, string, string][] = [
+  ["summary", "近况", "最近在聊什么、卡在哪、下一步做什么。"],
+  ["next", "跟进建议", "根据跟进动态、往来邮件和聊天记录，给出下一步建议和可直接发送的话术。"],
+  ["brief", "背景速览", "根据客户资料、域名和往来记录，概括客户画像、需求和合作进展。"],
+];
 
-  async function generate(refresh: boolean) {
-    setBusy(true);
-    const r = await customerInsightAction(customerId, tab, refresh);
-    setBusy(false);
-    if (r.ok) setData((d) => ({ ...d, [tab]: { content: r.content, createdAt: r.createdAt } }));
+export function CustomerAiPanel({
+  customerId,
+  summary,
+  brief,
+  next,
+  freshAt,
+  tz,
+}: {
+  customerId: string;
+  summary: Insight;
+  brief: Insight;
+  next: Insight;
+  /** 最近一次往来 / 跟进的时间：比它旧的摘要自动重新生成 */
+  freshAt: string | null;
+  tz: string;
+}) {
+  const [tab, setTab] = useState<AiTab>("summary");
+  const [data, setData] = useState({ summary, brief, next });
+  const [busy, setBusy] = useState<AiTab | null>(null);
+  const tried = useRef(new Set<AiTab>());
+  const cur = data[tab];
+  const stale = (x: Insight) => !x || (!!freshAt && x.createdAt < freshAt);
+
+  async function generate(which: AiTab, refresh: boolean) {
+    setBusy(which);
+    const r = await customerInsightAction(customerId, which, refresh);
+    setBusy((b) => (b === which ? null : b));
+    if (r.ok) setData((d) => ({ ...d, [which]: { content: r.content, createdAt: r.createdAt } }));
     else toast.error(r.message);
   }
+
+  // 打开页面（或切到某个标签）后才去生成：没有或过时了才调 AI，每个标签只自动跑一次
+  useEffect(() => {
+    if (tried.current.has(tab) || !stale(data[tab])) return;
+    // 记号放进定时器里：开发模式下 effect 会先跑一次再清掉，提前记会导致一次都不跑
+    const t = setTimeout(() => {
+      tried.current.add(tab);
+      void generate(tab, !!data[tab]);
+    }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   return (
     <Panel
@@ -155,50 +195,54 @@ export function CustomerAiPanel({ customerId, brief, next, tz }: { customerId: s
       }
       action={
         cur && (
-          <Button size="icon-sm" variant="ghost" aria-label="重新生成" title="重新生成" disabled={busy} onClick={() => generate(true)}>
-            <RefreshCw className={busy ? "animate-spin" : undefined} />
+          <Button size="icon-sm" variant="ghost" aria-label="重新生成" title="重新生成" disabled={busy === tab} onClick={() => generate(tab, true)}>
+            <RefreshCw className={busy === tab ? "animate-spin" : undefined} />
           </Button>
         )
       }
       bodyClassName="space-y-3"
     >
-        <div className="flex gap-1 rounded-full bg-muted p-1 text-xs" role="tablist" aria-label="AI 助手内容">
-          {(
-            [
-              ["next", "跟进建议"],
-              ["brief", "背景速览"],
-            ] as const
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              role="tab"
-              aria-selected={tab === k}
-              onClick={() => setTab(k)}
-              className={cn(
-                "flex-1 rounded-full px-2 py-1 transition-colors",
-                tab === k ? "bg-background font-medium text-violet-700 shadow-xs" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
+      <div className="flex gap-1 rounded-full bg-muted p-1 text-xs" role="tablist" aria-label="AI 助手内容">
+        {AI_TABS.map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={tab === k}
+            onClick={() => setTab(k)}
+            className={cn(
+              "flex-1 rounded-full px-2 py-1 transition-colors",
+              tab === k ? "bg-background font-medium text-violet-700 shadow-xs" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {cur ? (
+        <>
+          <p className={cn("text-sm leading-relaxed whitespace-pre-wrap transition-opacity", busy === tab && "opacity-50")}>{cur.content}</p>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {busy === tab ? "有新的往来，正在更新…" : `生成于 ${formatDateTime(cur.createdAt, tz)}`}
+          </p>
+        </>
+      ) : busy === tab ? (
+        <div className="space-y-2 py-1" aria-live="polite">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <LoaderCircle className="size-3.5 animate-spin" /> AI 正在读这个客户的往来记录…
+          </p>
+          <div className="h-3 w-11/12 animate-pulse rounded bg-muted" />
+          <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
+          <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />
         </div>
-        {cur ? (
-          <>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{cur.content}</p>
-            <p className="text-[11px] text-muted-foreground tabular-nums">生成于 {formatDateTime(cur.createdAt, tz)}，资料更新后可点右上角重新生成</p>
-          </>
-        ) : (
-          <div className="space-y-2 py-2 text-center">
-            <p className="text-xs text-muted-foreground">
-              {tab === "next" ? "根据跟进动态、往来邮件和聊天记录，给出下一步建议和可直接发送的话术。" : "根据客户资料、域名和往来记录，概括客户画像、需求和合作进展。"}
-            </p>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => generate(false)}>
-              <Sparkles /> {busy ? "生成中，约 10~30 秒…" : "生成"}
-            </Button>
-          </div>
-        )}
+      ) : (
+        <div className="space-y-2 py-2 text-center">
+          <p className="text-xs text-muted-foreground">{AI_TABS.find((x) => x[0] === tab)![2]}</p>
+          <Button size="sm" variant="outline" onClick={() => generate(tab, false)}>
+            <Sparkles /> 生成
+          </Button>
+        </div>
+      )}
     </Panel>
   );
 }

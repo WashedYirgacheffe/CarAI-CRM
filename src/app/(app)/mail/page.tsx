@@ -13,6 +13,7 @@ import { MAIL_INTENT_LABELS } from "@/lib/mail";
 import { cn } from "@/lib/utils";
 import type { Prisma } from "@/generated/prisma/client";
 import { MailReader } from "./mail-reader";
+import { MailShortcuts } from "./mail-shortcuts";
 import { SyncButton } from "./sync-button";
 
 export const metadata: Metadata = { title: "邮件" };
@@ -212,18 +213,21 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               </Button>
             ))}
           </div>
-          <form action="/mail" className="relative flex gap-2">
-            {box !== "inbox" && <input type="hidden" name="box" value={box} />}
-            {acc && <input type="hidden" name="acc" value={acc} />}
-            {tag && <input type="hidden" name="tag" value={tag} />}
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="搜索主题、发件人、内容"
-              className="h-9 w-full rounded-full bg-muted/70 pr-3 pl-9 text-sm outline-none ring-1 ring-transparent transition placeholder:text-muted-foreground focus:bg-card focus:ring-primary/40"
-            />
-          </form>
+          <div className="flex items-center gap-1">
+            <form action="/mail" className="relative flex flex-1 gap-2">
+              {box !== "inbox" && <input type="hidden" name="box" value={box} />}
+              {acc && <input type="hidden" name="acc" value={acc} />}
+              {tag && <input type="hidden" name="tag" value={tag} />}
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="搜索主题、发件人、内容"
+                className="h-9 w-full rounded-full bg-muted/70 pr-3 pl-9 text-sm outline-none ring-1 ring-transparent transition placeholder:text-muted-foreground focus:bg-card focus:ring-primary/40"
+              />
+            </form>
+            <MailShortcuts list={rows.map((m) => ({ id: m.id, href: href({ id: m.id }) }))} selectedId={selectedId} listHref={href({ id: null })} />
+          </div>
           <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 [scrollbar-width:none] lg:flex-wrap">
             {TAGS.map((t) => (
               <Link
@@ -259,6 +263,8 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               <li key={m.id}>
                 <Link
                   href={href({ id: m.id })}
+                  scroll={false}
+                  data-mail-id={m.id}
                   className={cn(
                     "relative flex gap-3 px-4 py-3 hover:bg-muted/60 lg:block lg:px-3 lg:py-2.5",
                     !m.seen && "bg-primary/[0.035] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary",

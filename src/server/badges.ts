@@ -3,6 +3,7 @@ import { prisma } from "@/server/db";
 import { can, type CurrentUser } from "@/server/auth";
 import { LEAD_OPEN_STATUSES } from "@/lib/crm";
 import type { BadgeKey } from "@/lib/nav";
+import { countTodo } from "@/server/todo";
 
 /**
  * 图标栏 / 顶栏提醒 / 工作台的提醒数：
@@ -10,23 +11,23 @@ import type { BadgeKey } from "@/lib/nav";
  * - 邮件：我绑定的邮箱里收件箱未读
  * - WhatsApp：我的账号下未读消息数
  * - 日程：我已到点还没完成的提醒
+ * - 待办：今天及以前的提醒 + 待回邮件 + 待回 WhatsApp（见 server/todo.ts）
  */
 export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, number>> {
   const t = user.tenantId;
-  const [myLeads, poolLeads, mail, wa, tasks] = await Promise.all([
+  const [myLeads, poolLeads, mail, wa, tasks, todo] = await Promise.all([
     can(user, "lead.view") ? prisma.lead.count({ where: { tenantId: t, ownerId: user.id, status: "NEW" } }) : 0,
     can(user, "lead.view") && can(user, "lead.assign")
       ? prisma.lead.count({ where: { tenantId: t, ownerId: null, status: { in: [...LEAD_OPEN_STATUSES] } } })
       : 0,
-    can(user, "mail.use")
-      ? prisma.mailMessage.count({ where: { tenantId: t, account: { userId: user.id }, folder: "INBOX", seen: false } })
-      : 0,
+    can(user, "mail.use") ? prisma.mailMessage.count({ where: { tenantId: t, account: { userId: user.id }, folder: "INBOX", seen: false } }) : 0,
     can(user, "whatsapp.use")
       ? prisma.waChat.aggregate({ where: { tenantId: t, account: { userId: user.id } }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
       : 0,
     prisma.task.count({ where: { tenantId: t, ownerId: user.id, done: false, dueAt: { lte: new Date() } } }),
+    countTodo(user),
   ]);
-  return { leads: myLeads + poolLeads, mail, whatsapp: wa, tasks };
+  return { leads: myLeads + poolLeads, mail, whatsapp: wa, tasks, todo };
 }
 
 export type DueReminder = {

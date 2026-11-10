@@ -20,6 +20,7 @@ import {
   FileText,
   Forward,
   Image as ImageIcon,
+  Languages,
   Link2,
   Link2Off,
   LoaderCircle,
@@ -67,12 +68,18 @@ import {
   sendWaMediaAction,
   sendWaMessageAction,
   startChatAction,
+  translateWaAction,
+  translateWaOutAction,
   unlinkChatAction,
 } from "./actions";
+import { looksChinese, looksForeign } from "@/lib/lang";
 import { ChatPanel, type PanelData, type PanelTab } from "./chat-panel";
 import { LinkChatDialog } from "./link-chat";
 
 export type Quoted = { id: string; fromMe: boolean; body: string; type: string } | null;
+const TR_IN_KEY = "crm-wa-tr";
+const TR_OUT_KEY = "crm-wa-tr-out";
+
 export type Msg = {
   id: string;
   fromMe: boolean;
@@ -83,6 +90,8 @@ export type Msg = {
   error: string | null;
   timestamp: string;
   starred: boolean;
+  /** 对方消息的中文译文：null 还没翻，"" 不用翻 */
+  translation?: string | null;
   quoted: Quoted;
 };
 
@@ -166,6 +175,54 @@ export function ChatView({
   const lastCount = useRef(0);
   const title = chat.name || (chat.phone ? `+${chat.phone}` : "未知号码");
 
+  // ── 自动翻译：对方的外文消息译成中文；可选「中文写、发前译成客户的语言」──
+  const [trOn, setTrOn] = useState(true);
+  const [outTr, setOutTr] = useState(false);
+  const [trPending, setTrPending] = useState<Set<string>>(() => new Set());
+  const [trFrom, setTrFrom] = useState<{ zh: string; lang: string } | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const trAsked = useRef(new Set<string>());
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setTrOn(localStorage.getItem(TR_IN_KEY) !== "0");
+      setOutTr(localStorage.getItem(TR_OUT_KEY) === "1");
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  const toggleTrOn = () => {
+    setTrOn(!trOn);
+    localStorage.setItem(TR_IN_KEY, trOn ? "0" : "1");
+  };
+  const toggleOutTr = () => {
+    setOutTr(!outTr);
+    localStorage.setItem(TR_OUT_KEY, outTr ? "0" : "1");
+    if (outTr) setTrFrom(null);
+  };
+  useEffect(() => {
+    if (!canAi || !trOn) return;
+    const ids = messages
+      .filter((m) => !m.fromMe && m.translation == null && !trAsked.current.has(m.id) && looksForeign(waCaption(m.body, m.media), 2))
+      .slice(-20)
+      .map((m) => m.id);
+    if (!ids.length) return;
+    const mark = (on: boolean) =>
+      setTrPending((s) => {
+        const n = new Set(s);
+        ids.forEach((id) => (on ? n.add(id) : n.delete(id)));
+        return n;
+      });
+    // 放进定时器：开发模式下 effect 会先跑一次再清掉，避免重复请求或一次都不发
+    const t = setTimeout(() => {
+      ids.forEach((id) => trAsked.current.add(id));
+      mark(true);
+      void translateWaAction(chat.id, ids).then((r) => {
+        mark(false);
+        if (r.ok && r.count) router.refresh();
+      });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [messages, trOn, canAi, chat.id, router]);
+
   // 打开会话时清未读；每 4 秒拉一次新消息
   useEffect(() => {
     if (chat.unread) void markChatReadAction(chat.id);
@@ -216,13 +273,27 @@ export function ChatView({
     requestAnimationFrame(() => input.current?.focus());
   }
 
+  const willTranslate = canAi && outTr && !trFrom && looksChinese(text);
+
   async function send() {
-    if (!text.trim()) return;
+    if (!text.trim() || translating) return;
+    // 中文写的：先译成客户的语言放回输入框，看过再按一次发送
+    if (willTranslate) {
+      setTranslating(true);
+      const r = await translateWaOutAction(chat.id, text);
+      setTranslating(false);
+      if (!r.ok || !r.text) return void toast.error(r.message ?? "翻译失败，请重试");
+      setTrFrom({ zh: text, lang: r.lang ?? "外文" });
+      setText(r.text);
+      requestAnimationFrame(() => input.current?.focus());
+      return;
+    }
     setSending(true);
     const r = await sendWaMessageAction(chat.id, text, replyTo?.id);
     setSending(false);
     if (r.ok) {
       setText("");
+      setTrFrom(null);
       setReplyTo(null);
       router.refresh();
     } else toast.error(r.message);
@@ -402,6 +473,19 @@ export function ChatView({
               <Link2 /> 关联客户
             </Button>
           )}
+          {canAi && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={toggleTrOn}
+              aria-pressed={trOn}
+              aria-label="自动翻译对方消息"
+              title={trOn ? "自动翻译已开：对方的外文消息显示中文（点击关闭）" : "自动翻译已关（点击开启）"}
+              className={cn(trOn && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
+            >
+              <Languages />
+            </Button>
+          )}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -502,7 +586,22 @@ export function ChatView({
                         </button>
                       )}
                       <WaMedia id={m.id} media={m.media} onOpen={() => openImage(m.id)} />
-                      {caption && <span className="break-words whitespace-pre-wrap">{caption}</span>}
+                      {caption &&
+                        (trOn && !m.fromMe && m.translation ? (
+                          <>
+                            <span className="break-words whitespace-pre-wrap">{m.translation}</span>
+                            <span className="mt-1 block border-t border-black/5 pt-1 text-[12.5px] leading-snug break-words whitespace-pre-wrap text-[#667781]">
+                              {caption}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="break-words whitespace-pre-wrap">{caption}</span>
+                        ))}
+                      {trOn && trPending.has(m.id) && (
+                        <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[#667781]">
+                          <LoaderCircle className="size-3 animate-spin" /> 正在翻译…
+                        </span>
+                      )}
                       <span
                         className={cn(
                           "float-right ml-2.5 inline-flex translate-y-1 items-center gap-0.5 text-[11px] text-[#667781] tabular-nums",
@@ -561,6 +660,24 @@ export function ChatView({
             </p>
           )}
           {canAi && <AiWriter channel="whatsapp" compact original={lastIncoming || undefined} getDraft={() => text} onApply={setText} />}
+          {trFrom && (
+            <div className="flex items-center gap-2 rounded-xl bg-primary/5 px-3 py-1.5 text-xs ring-1 ring-primary/20">
+              <Languages className="size-3.5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate text-foreground/80">
+                已译成 {trFrom.lang}，看一下再按发送 · 原文：{trFrom.zh}
+              </span>
+              <button
+                type="button"
+                className="shrink-0 font-medium text-primary hover:underline"
+                onClick={() => {
+                  setText(trFrom.zh);
+                  setTrFrom(null);
+                }}
+              >
+                改回中文
+              </button>
+            </div>
+          )}
           {replyTo && (
             <div className="flex items-stretch gap-2 rounded-xl bg-card p-1.5 shadow-xs ring-1 ring-border/70">
               <div
@@ -609,7 +726,7 @@ export function ChatView({
                 onChange={(e) => setText(e.target.value)}
                 rows={1}
                 className="field-sizing-content max-h-40 min-h-6 w-full resize-none bg-transparent text-[14.5px] leading-6 outline-none placeholder:text-muted-foreground"
-                placeholder="输入消息"
+                placeholder={canAi && outTr ? "用中文写，发送前自动译成客户的语言" : "输入消息"}
                 title="Enter 发送，Shift+Enter 换行，可直接粘贴图片"
                 aria-label="消息"
                 onPaste={(e) => {
@@ -629,9 +746,30 @@ export function ChatView({
                   }
                 }}
               />
+              {canAi && (
+                <button
+                  type="button"
+                  onClick={toggleOutTr}
+                  aria-pressed={outTr}
+                  title="开启后，用中文写的消息会先按客户的语言翻译好放回输入框，确认后再发送"
+                  className={cn(
+                    "mb-0.5 ml-2 inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium whitespace-nowrap transition-colors",
+                    outTr ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  中→外
+                </button>
+              )}
             </div>
-            <Button onClick={send} disabled={sending || !text.trim()} size="icon" className="size-10 shrink-0 rounded-full" aria-label="发送">
-              {sending ? <LoaderCircle className="animate-spin" /> : <Send />}
+            <Button
+              onClick={send}
+              disabled={sending || translating || !text.trim()}
+              size="icon"
+              className="size-10 shrink-0 rounded-full"
+              aria-label={willTranslate ? "翻译" : "发送"}
+              title={willTranslate ? "先译成客户的语言（不会直接发出）" : "发送"}
+            >
+              {sending || translating ? <LoaderCircle className="animate-spin" /> : willTranslate ? <Languages /> : <Send />}
             </Button>
           </div>
           <input

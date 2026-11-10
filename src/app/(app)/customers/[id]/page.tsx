@@ -71,7 +71,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
       },
     }),
     db.waChat.findMany({ where: { customerId: id }, select: { id: true } }),
-    canAi ? db.aiInsight.findMany({ where: { targetId: id, kind: { in: ["customer_brief", "customer_next"] } } }) : [],
+    canAi ? db.aiInsight.findMany({ where: { targetId: id, kind: { in: ["customer_summary", "customer_brief", "customer_next"] } } }) : [],
   ]);
   const waMsgs = waChats.length
     ? await db.waMessage.findMany({
@@ -124,7 +124,19 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
       comms={{
         mailEnabled: mailAccounts.length > 0,
         waEnabled,
-        ai: canAi ? { brief: insight("customer_brief"), next: insight("customer_next") } : null,
+        ai: canAi
+          ? {
+              summary: insight("customer_summary"),
+              brief: insight("customer_brief"),
+              next: insight("customer_next"),
+              // 有比摘要更新的往来就重新生成
+              freshAt:
+                [customer.lastContactAt, customer.lastFollowAt]
+                  .filter((d): d is Date => !!d)
+                  .sort((a, b) => +b - +a)[0]
+                  ?.toISOString() ?? null,
+            }
+          : null,
         mails: mails.map((m) => {
           const to = asAddresses(m.toList);
           return {

@@ -98,6 +98,8 @@ model User {
   dashboardHome      String?
   /// 不再提示「保存为默认情景」
   dashboardPromptOff Boolean    @default(false)
+  /// 收起了「上手清单」
+  onboardingOff      Boolean    @default(false)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
@@ -851,6 +853,8 @@ model MailMessage {
   /// high / medium / low
   aiPriority   String?
   aiAnalyzedAt DateTime?
+  /// 待办里标为「已处理」（不用回复）
+  doneAt       DateTime?
   // ── 追踪（只有从系统发出的邮件有） ──
   /// 打开像素 / 链接跳转用的随机 ID
   trackId      String?    @unique
@@ -973,32 +977,34 @@ enum WaMsgStatus {
 }
 
 model WaMessage {
-  id        String      @id @default(cuid())
-  tenantId  String
-  accountId String
-  chatId    String
+  id          String      @id @default(cuid())
+  tenantId    String
+  accountId   String
+  chatId      String
   /// WhatsApp 消息 id，去重用；待发送的为空
-  waId      String?
-  fromMe    Boolean
+  waId        String?
+  fromMe      Boolean
   /// text / image / video / audio / document / sticker / other
-  type      String      @default("text")
-  body      String      @default("")
+  type        String      @default("text")
+  body        String      @default("")
   /// 图片 / 视频 / 语音 / 文件：存储 key（<tenantId>/wa/<id>.<ext>），没下载到为空
-  mediaKey  String?
-  mediaMime String?
-  mediaName String?
-  mediaSize Int?
-  status    WaMsgStatus
-  error     String?
-  sentById  String?
+  mediaKey    String?
+  mediaMime   String?
+  mediaName   String?
+  mediaSize   Int?
+  status      WaMsgStatus
+  error       String?
+  sentById    String?
   /// 回复的是哪条消息（本表 id）
-  quotedId  String?
+  quotedId    String?
   /// 星标消息
-  starred   Boolean     @default(false)
+  starred     Boolean     @default(false)
   /// 「为我删除」：只在本系统里隐藏，不影响手机和对方
-  hiddenAt  DateTime?
-  timestamp DateTime
-  createdAt DateTime    @default(now())
+  hiddenAt    DateTime?
+  /// 译成中文的内容（对方发来的外文消息自动翻译）
+  translation String?
+  timestamp   DateTime
+  createdAt   DateTime    @default(now())
 
   tenant  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   account WaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)

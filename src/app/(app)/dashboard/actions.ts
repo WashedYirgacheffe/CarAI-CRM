@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma, tenantDb } from "@/server/db";
 import { requireUser } from "@/server/auth";
 import { MAX_WORKSPACES, OVERVIEW_ID, sanitizeLayout } from "@/lib/canvas";
@@ -68,4 +69,12 @@ export async function dismissSavePromptAction(): Promise<ActionState> {
   const user = await requireUser();
   await prisma.user.update({ where: { id: user.id }, data: { dashboardPromptOff: true } });
   return { ok: true, message: "之后不再提示" };
+}
+
+/** 收起「上手清单」 */
+export async function dismissOnboardingAction(): Promise<ActionState> {
+  const user = await requireUser();
+  await prisma.user.update({ where: { id: user.id }, data: { onboardingOff: true } });
+  revalidatePath("/dashboard");
+  return { ok: true, message: "上手清单已收起" };
 }

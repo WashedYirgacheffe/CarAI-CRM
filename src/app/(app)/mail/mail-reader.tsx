@@ -27,9 +27,19 @@ import { runAction } from "@/hooks/use-action-form";
 import { formatDateTime } from "@/lib/crm";
 import { MAIL_INTENT_LABELS, MAIL_PRIORITY_LABELS } from "@/lib/mail";
 import { QuickReminder } from "@/components/crm/tasks";
+import { looksForeign } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import { streamAiWrite } from "@/components/ai/stream-write";
-import { analyzeMailAction, linkMailAction, mailToLeadAction, searchCustomersAction, setSeenAction, setStarredAction } from "./actions";
+import {
+  analyzeMailAction,
+  linkMailAction,
+  mailToLeadAction,
+  searchCustomersAction,
+  setMailDoneAction,
+  setSeenAction,
+  setStarredAction,
+} from "./actions";
+import { useHotkeys } from "@/hooks/use-hotkeys";
 
 type Addr = { name?: string | null; address: string };
 
@@ -84,14 +94,6 @@ function freshPart(text: string) {
   return (cut > 40 ? text.slice(0, cut) : text).trim().slice(0, 6000);
 }
 
-/** 外文邮件才自动翻译：中文字符占比很低 */
-function looksForeign(text: string) {
-  const sample = text.slice(0, 1500);
-  const letters = sample.match(/[\p{L}]/gu)?.length ?? 0;
-  const cjk = sample.match(/[\u4e00-\u9fff]/g)?.length ?? 0;
-  return letters > 20 && cjk / letters < 0.15;
-}
-
 const TR_KEY = "crm-mail-tr";
 function cachedTranslation(id: string): string | null {
   try {
@@ -140,7 +142,27 @@ export function MailReader({
 
   useEffect(() => {
     if (!m.seen) void setSeenAction(m.id, true);
-  }, [m.id, m.seen]);
+    // 只在打开时标已读；之后手动「标为未读」不要又被标回来
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.id]);
+
+  const toggleStar = () => {
+    setStarred(!starred);
+    void setStarredAction(m.id, !starred);
+  };
+  const markUnread = async () => {
+    const r = await runAction(setSeenAction(m.id, false));
+    if (r.ok) router.push(backHref, { scroll: false });
+  };
+  // 阅读区快捷键（列表切换 j/k 在 MailShortcuts）
+  useHotkeys({
+    r: () => router.push(`/mail/compose?reply=${m.id}`),
+    a: () => router.push(`/mail/compose?reply=${m.id}&all=1`),
+    f: () => router.push(`/mail/compose?forward=${m.id}`),
+    s: toggleStar,
+    u: () => void markUnread(),
+    e: () => void runAction(setMailDoneAction(m.id, true)),
+  });
 
   async function analyze(manual: boolean) {
     setAnalyzing(true);
@@ -195,17 +217,17 @@ export function MailReader({
           </Link>
         </Button>
         <Button asChild size="sm">
-          <Link href={`/mail/compose?reply=${m.id}`}>
+          <Link href={`/mail/compose?reply=${m.id}`} title="回复（r）">
             <Reply /> 回复
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">
-          <Link href={`/mail/compose?reply=${m.id}&all=1`}>
+          <Link href={`/mail/compose?reply=${m.id}&all=1`} title="回复全部（a）">
             <ReplyAll /> <span className="max-sm:sr-only">回复全部</span>
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">
-          <Link href={`/mail/compose?forward=${m.id}`}>
+          <Link href={`/mail/compose?forward=${m.id}`} title="转发（f）">
             <Forward /> <span className="max-sm:sr-only">转发</span>
           </Link>
         </Button>
@@ -223,14 +245,12 @@ export function MailReader({
             size="icon-sm"
             variant="ghost"
             aria-label={starred ? "取消星标" : "加星标"}
-            onClick={() => {
-              setStarred(!starred);
-              void setStarredAction(m.id, !starred);
-            }}
+            title={starred ? "取消星标（s）" : "加星标（s）"}
+            onClick={toggleStar}
           >
             <Star className={cn(starred && "fill-amber-400 text-amber-400")} />
           </Button>
-          <Button size="icon-sm" variant="ghost" aria-label="标为未读" title="标为未读" onClick={() => runAction(setSeenAction(m.id, false))}>
+          <Button size="icon-sm" variant="ghost" aria-label="标为未读" title="标为未读（u）" onClick={markUnread}>
             <MailOpen />
           </Button>
         </span>

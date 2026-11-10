@@ -82,6 +82,7 @@ export async function loadChatView(user: CurrentUser, accountId: string, chatId:
         error: m.error,
         timestamp: m.timestamp.toISOString(),
         starred: m.starred,
+        translation: m.fromMe ? null : m.translation,
         quoted: qm ? { id: qm.id, fromMe: qm.fromMe, body: qm.body, type: qm.type } : null,
       };
     }),
