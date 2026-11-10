@@ -169,7 +169,28 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
 
   return (
     <>
-      <AiBar enabled={aiEnabled} layout={layout} onLayout={(l) => (setMaxId(null), set(l))} />
+      <AiBar
+        enabled={aiEnabled}
+        layout={layout}
+        active={activeId}
+        onLayout={(l) => (setMaxId(null), set(l))}
+        onWorkspace={(e) => {
+          setMaxId(null);
+          if (e.op === "saved") {
+            const s = { id: e.id, name: e.name, layout: e.layout };
+            setSpaces((ss) => (ss.some((x) => x.id === e.id) ? ss.map((x) => (x.id === e.id ? s : x)) : [...ss, s]));
+            if (e.home) setHome(e.id);
+            setActiveId(e.id);
+            h.reset(e.layout);
+            return e.layout;
+          }
+          // 用户亲口要求切换：不再弹「未保存」确认，切换前的样子还能在本次对话里重新摆出来
+          const next = e.id === OVERVIEW_ID ? overview : e.layout;
+          setActiveId(e.id);
+          h.reset(next);
+          return next;
+        }}
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <WorkspaceSwitcher
