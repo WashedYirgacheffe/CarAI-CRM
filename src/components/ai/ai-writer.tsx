@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/native-select";
 import { AI_LANGUAGES, AI_TONES } from "@/lib/mail";
 import { cn } from "@/lib/utils";
-import { aiWriteAction } from "@/app/(app)/ai/actions";
+import { streamAiWrite } from "./stream-write";
 
 type Mode = "compose" | "reply" | "polish" | "translate";
 
@@ -35,19 +35,26 @@ export function AiWriter({
 
   async function run(mode: Mode) {
     setBusy(mode);
+    setResult(null);
     const draft = getDraft();
-    const r = await aiWriteAction({
-      mode,
-      // 回复时只把引用线以上的部分当要点
-      draft: draft.split(/\n\n\n.{0,80}(写道：|wrote:)|\n\n\n---------- 转发的邮件/)[0],
-      original,
-      language: language || (mode === "translate" ? "English" : undefined),
-      tone: tone || undefined,
-      channel,
-    });
+    const r = await streamAiWrite(
+      {
+        mode,
+        // 回复时只把引用线以上的部分当要点
+        draft: draft.split(/\n\n\n.{0,80}(写道：|wrote:)|\n\n\n---------- 转发的邮件/)[0],
+        original,
+        language: language || (mode === "translate" ? "English" : undefined),
+        tone: tone || undefined,
+        channel,
+      },
+      setResult,
+    );
     setBusy(null);
     if (r.ok) setResult(r.text);
-    else toast.error(r.message);
+    else {
+      setResult(null);
+      toast.error(r.message);
+    }
   }
 
   const btn = (mode: Mode, label: string) => (
@@ -85,8 +92,11 @@ export function AiWriter({
       </div>
       {result && (
         <div className="rounded-md border bg-background p-2">
-          <p className="max-h-64 overflow-y-auto text-sm whitespace-pre-wrap">{result}</p>
-          <div className="mt-2 flex gap-1.5">
+          <p className="max-h-64 overflow-y-auto text-sm whitespace-pre-wrap">
+            {result}
+            {busy && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-violet-400 align-middle" aria-hidden />}
+          </p>
+          <div className={cn("mt-2 flex gap-1.5", busy && "pointer-events-none opacity-50")}>
             <Button
               type="button"
               size="xs"

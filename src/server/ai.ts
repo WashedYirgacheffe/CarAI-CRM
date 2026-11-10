@@ -1,10 +1,13 @@
 import "server-only";
 
 /**
- * AI 调用：Anthropic Messages 兼容接口（默认 moonup.dev 上的 DeepSeek），换模型只改环境变量。
+ * AI 调用：OpenAI Chat Completions 兼容接口（默认 moonup.dev 上的 DeepSeek），换模型只改环境变量。
  *   AI_BASE_URL  接口地址，默认 https://moonup.dev
  *   AI_API_KEY   密钥（只放服务器 .env，不进仓库）
  *   AI_MODEL     模型名，默认 deepseek-v4.1-flash-1017
+ *
+ * 一律关闭「思考」：这些都是摘要、写信、分类之类的活，不需要推理；开着思考时模型先想几百上千字，
+ * 既慢（多 3～5 秒），又会把 max_tokens 用光导致「没有返回内容」。
  */
 const BASE_URL = (process.env.AI_BASE_URL || "https://moonup.dev").replace(/\/+$/, "");
 const MODEL = process.env.AI_MODEL || "deepseek-v4.1-flash-1017";
@@ -16,60 +19,77 @@ export function aiConfigured() {
 export class AiError extends Error {}
 
 type Msg = { role: "user" | "assistant"; content: string };
+export type AiOptions = { system?: string; messages: Msg[]; maxTokens?: number; temperature?: number; timeoutMs?: number };
 
-export async function aiComplete({
-  system,
-  messages,
-  maxTokens = 2000,
-  temperature,
-  timeoutMs = 90_000,
-}: {
-  system?: string;
-  messages: Msg[];
-  maxTokens?: number;
-  temperature?: number;
-  timeoutMs?: number;
-}): Promise<string> {
+async function request(opts: AiOptions, stream: boolean): Promise<Response> {
   const apiKey = process.env.AI_API_KEY;
   if (!apiKey) throw new AiError("还没有配置 AI（服务器 .env 中的 AI_API_KEY）");
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}/v1/messages`, {
+    res = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "anthropic-version": "2023-06-01",
-        "x-api-key": apiKey,
-        authorization: `Bearer ${apiKey}`,
-      },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: maxTokens,
-        ...(system ? { system } : {}),
-        ...(temperature !== undefined ? { temperature } : {}),
-        messages,
+        max_tokens: opts.maxTokens ?? 2000,
+        thinking: { type: "disabled" },
+        ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+        ...(stream ? { stream: true } : {}),
+        messages: [...(opts.system ? [{ role: "system", content: opts.system }] : []), ...opts.messages],
       }),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
     });
   } catch (e) {
-    throw new AiError(`AI 服务连接失败：${(e as Error).message}`);
+    const msg = (e as Error).name === "TimeoutError" ? "AI 响应超时，请重试" : `AI 服务连接失败：${(e as Error).message}`;
+    throw new AiError(msg);
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new AiError(`AI 服务返回错误 ${res.status}：${body.slice(0, 200)}`);
   }
-  const json = (await res.json()) as { content?: { type: string; text?: string }[] };
-  const text = (json.content ?? [])
-    .filter((b) => b.type === "text" && b.text)
-    .map((b) => b.text)
-    .join("")
-    .trim();
-  if (!text) throw new AiError("AI 没有返回内容，请重试");
-  return text;
+  return res;
+}
+
+export async function aiComplete(opts: AiOptions): Promise<string> {
+  // 偶发空回复（网关抖动）时自动再试一次
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await request(opts, false);
+    const json = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string | null } }[] };
+    const text = (json.choices?.[0]?.message?.content ?? "").trim();
+    if (text) return text;
+  }
+  throw new AiError("AI 没有返回内容，请重试");
+}
+
+/** 流式输出：边生成边返回文字片段，用于写信助手，让结果一两秒内就开始出现 */
+export async function* aiStream(opts: AiOptions): AsyncGenerator<string> {
+  const res = await request(opts, true);
+  if (!res.body) throw new AiError("AI 没有返回内容，请重试");
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    let i: number;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") return;
+      try {
+        const piece = (JSON.parse(data) as { choices?: { delta?: { content?: string | null } }[] }).choices?.[0]?.delta?.content;
+        if (piece) yield piece;
+      } catch {
+        // 心跳或不完整的行，忽略
+      }
+    }
+  }
 }
 
 /** 让模型只输出 JSON，并解析出第一个 JSON 对象 */
-export async function aiJson<T>(opts: Parameters<typeof aiComplete>[0]): Promise<T> {
+export async function aiJson<T>(opts: AiOptions): Promise<T> {
   const text = await aiComplete(opts);
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -108,8 +128,7 @@ export type MailAnalysis = { summary: string; intent: string; priority: string }
 
 export async function analyzeMail(input: { from: string; subject: string; text: string }): Promise<MailAnalysis> {
   const r = await aiJson<Partial<MailAnalysis>>({
-    system:
-      "你是外贸业务助理，负责给业务员分拣来信。只输出一个 JSON 对象，不要输出其他内容。",
+    system: "你是外贸业务助理，负责给业务员分拣来信。只输出一个 JSON 对象，不要输出其他内容。",
     messages: [
       {
         role: "user",
@@ -144,7 +163,7 @@ export const WRITE_MODES = {
 
 export type WriteMode = keyof typeof WRITE_MODES;
 
-export async function aiWrite(input: {
+export type WriteInput = {
   mode: WriteMode;
   /** 当前草稿或要点 */
   draft: string;
@@ -157,7 +176,9 @@ export async function aiWrite(input: {
   channel: "email" | "whatsapp";
   senderName?: string;
   companyName?: string;
-}) {
+};
+
+export function writePrompt(input: WriteInput): AiOptions {
   const channel = input.channel === "email" ? "商务邮件" : "WhatsApp 消息（简短口语化，不要邮件格式，不要签名）";
   const lang = input.language || "";
   const tone = input.tone ? `语气：${input.tone}。` : "";
@@ -169,7 +190,9 @@ export async function aiWrite(input: {
       break;
     case "reply":
       task = `替我回复下面这条来信，写一封外贸${channel}。${lang ? `用 ${lang} 写。` : "用与来信相同的语言写。"}${tone}${
-        input.draft.trim() ? `我想表达的要点：\n${clip(input.draft, 2000)}\n\n` : "没有要点时，礼貌回应对方的问题，需要我方确认的信息用 [方括号] 标出。\n\n"
+        input.draft.trim()
+          ? `我想表达的要点：\n${clip(input.draft, 2000)}\n\n`
+          : "没有要点时，礼貌回应对方的问题，需要我方确认的信息用 [方括号] 标出。\n\n"
       }只输出回复正文。\n\n来信：\n${clip(input.original, 4000)}`;
       break;
     case "polish":
@@ -179,9 +202,13 @@ export async function aiWrite(input: {
       task = `把下面的内容翻译成${lang || "简体中文"}，保留格式，只输出译文。\n\n${clip(input.draft || input.original, 6000)}`;
       break;
   }
-  return aiComplete({
+  return {
     system: `你是资深外贸业务员的写作助手${who ? `，我是 ${who}` : ""}。行文专业、礼貌、简洁，不夸大，不编造价格、交期等具体数字。`,
     messages: [{ role: "user", content: task }],
     maxTokens: 3000,
-  });
+  };
+}
+
+export async function aiWrite(input: WriteInput) {
+  return aiComplete(writePrompt(input));
 }
