@@ -1,5 +1,5 @@
 import "server-only";
-import { rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Contact, WAMessage, WASocket } from "baileys";
 
@@ -66,14 +66,18 @@ async function start(accountId: string) {
       versionAt = Date.now();
     }
   }
+  const client = await clientKind(accountId, !!state.creds.registered);
   const sock = B.makeWASocket({
     auth: state,
     version,
     logger,
-    // 必须伪装成浏览器（Chrome）：WhatsApp 会拒绝「Desktop」客户端的手机号配对码，手机上提示「无法关联设备」
-    browser: B.Browsers.macOS("Chrome"),
+    // 扫码登录伪装成桌面版：WhatsApp 只给桌面版推送完整聊天记录。
+    // 手机号配对码只能用浏览器（Chrome）：桌面版的配对码会被拒绝，手机上提示「无法关联设备」
+    browser: client === "desktop" ? B.Browsers.macOS("Desktop") : B.Browsers.macOS("Chrome"),
     markOnlineOnConnect: false,
-    syncFullHistory: false,
+    // 关联时向手机申请完整历史，并且收下 FULL 类型的历史分片（库默认会丢掉）
+    syncFullHistory: true,
+    shouldSyncHistoryMessage: () => true,
     generateHighQualityLinkPreview: false,
   });
   const session: Session = { sock, open: false, qrCount: 0, pairRequested: false };
@@ -228,6 +232,21 @@ async function start(accountId: string) {
       if (changed.length) await prisma.waChat.updateMany({ where: { accountId, jid: { in: changed } }, data: { avatarAt: null } });
     }),
   );
+}
+
+/**
+ * 这个账号用哪种客户端身份连接。关联时按登录方式决定（扫码 → 桌面版，配对码 → 浏览器），
+ * 写进凭据目录，之后每次重连保持一致。老账号没有记录，沿用当时的浏览器身份。
+ */
+async function clientKind(accountId: string, registered: boolean): Promise<"desktop" | "browser"> {
+  const file = path.join(authDir(accountId), "client.txt");
+  const saved = (await readFile(file, "utf8").catch(() => "")).trim();
+  if (saved === "desktop" || saved === "browser") return saved;
+  if (registered) return "browser";
+  const account = await prisma.waAccount.findUnique({ where: { id: accountId }, select: { pairPhone: true } });
+  const kind = account?.pairPhone ? "browser" : "desktop";
+  await writeFile(file, kind).catch(() => {});
+  return kind;
 }
 
 const isDirect = (jid: string) => jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid");
@@ -496,15 +515,15 @@ export async function reconcileWhatsapp() {
 }
 
 /**
- * 历史同步收尾：收到「完成」信号且 15 秒没有新分片，或 2 分钟没有任何分片，就算同步完成。
- * （worker 重启后分片不会续传，靠 2 分钟兜底收尾）
+ * 历史同步收尾：收到「完成」信号且 15 秒没有新分片，或 5 分钟没有任何分片，就算同步完成。
+ * （完整历史分片之间可能隔得比较久；worker 重启后分片不会续传，靠 5 分钟兜底收尾）
  */
 async function finishSyncs(accounts: { id: string; syncStatus: string | null; syncStartedAt: Date | null }[]) {
   for (const a of accounts) {
     if (a.syncStatus !== "syncing") continue;
     const last = lastHistoryAt.get(a.id) ?? a.syncStartedAt?.getTime() ?? 0;
     const idle = Date.now() - last;
-    if ((historyComplete.has(a.id) && idle > 15_000) || idle > 120_000) {
+    if ((historyComplete.has(a.id) && idle > 15_000) || idle > 300_000) {
       historyComplete.delete(a.id);
       lastHistoryAt.delete(a.id);
       await prisma.waAccount.update({ where: { id: a.id }, data: { syncStatus: "done", syncProgress: 100, syncDoneAt: new Date() } });

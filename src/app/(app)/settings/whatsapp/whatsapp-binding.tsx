@@ -135,7 +135,7 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
                       onChange={(e) => setPhone(e.target.value)}
                       className="max-w-xs"
                     />
-                    <p className="text-xs text-muted-foreground">不用加 +，中国号码以 86 开头。提交后会显示一个 8 位配对码，在手机上输入即可，不需要扫码。</p>
+                    <p className="text-xs text-muted-foreground">不用加 +，中国号码以 86 开头。提交后会显示一个 8 位配对码，在手机上输入即可，不需要扫码。这种方式只能同步最近的聊天记录，要同步全部历史请用扫码登录。</p>
                   </div>
                   <Button type="submit" disabled={busy || phone.replace(/\D/g, "").length < 8}>
                     获取配对码
@@ -143,7 +143,7 @@ export function WhatsappBinding({ account: a, qr, tz }: { account: Account | nul
                 </form>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">生成二维码后，用手机 WhatsApp 扫描。如果扫码时提示无法关联设备，请改用手机号登录。</p>
+                  <p className="text-xs text-muted-foreground">生成二维码后，用手机 WhatsApp 扫描，关联后会同步手机上的全部历史聊天。如果扫码时提示无法关联设备，请改用手机号登录。</p>
                   <Button disabled={busy} onClick={() => run(connectWhatsappAction())}>
                     获取登录二维码
                   </Button>
