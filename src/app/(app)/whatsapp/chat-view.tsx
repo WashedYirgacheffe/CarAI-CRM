@@ -98,7 +98,7 @@ export function LiveRefresh({ ms }: { ms: number }) {
 
 /** 同一个人 5 分钟内的连续消息归成一组：组内只有第一条带小尾巴，间距更紧 */
 const GROUP_GAP = 5 * 60_000;
-const MAX_FILE = 64 * 1024 * 1024;
+const MAX_FILE = 45 * 1024 * 1024;
 const TYPE_LABEL: Record<string, string> = { image: "图片", video: "视频", audio: "语音", document: "文件", sticker: "表情" };
 
 /** 引用块、提醒标题里用的一行摘要 */
@@ -231,7 +231,7 @@ export function ChatView({
   function addFiles(list: FileList | File[] | null) {
     const arr = Array.from(list ?? []);
     const big = arr.find((f) => f.size > MAX_FILE);
-    if (big) toast.error(`「${big.name}」超过 64MB，WhatsApp 发不了`);
+    if (big) toast.error(`「${big.name}」超过 45MB，发不了`);
     const ok = arr.filter((f) => f.size > 0 && f.size <= MAX_FILE).slice(0, 10);
     if (ok.length) setFiles(ok);
   }
@@ -549,7 +549,7 @@ export function ChatView({
             <div className="rounded-2xl border-2 border-dashed border-emerald-500 px-10 py-8 text-center text-emerald-800">
               <Paperclip className="mx-auto mb-2 size-7" />
               <p className="font-medium">松开发送给 {title}</p>
-              <p className="mt-1 text-xs text-emerald-700/80">图片、视频、PDF 等文件，单个不超过 64MB</p>
+              <p className="mt-1 text-xs text-emerald-700/80">图片、视频、PDF 等文件，单个不超过 45MB</p>
             </div>
           </div>
         )}
