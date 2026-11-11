@@ -158,7 +158,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
                 href={href({ f: x.key })}
                 aria-current={f === x.key ? "page" : undefined}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  "inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] font-medium transition-colors md:h-auto md:px-3 md:py-1 md:text-xs",
                   f === x.key ? "bg-emerald-100 text-emerald-800" : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >

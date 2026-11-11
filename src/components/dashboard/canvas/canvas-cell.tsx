@@ -81,6 +81,8 @@ export function CanvasCell(p: Props) {
         className={cn(
           "absolute -top-3.5 right-4 z-10 flex items-center gap-0.5 rounded-full border bg-background/95 p-0.5 shadow-sm backdrop-blur",
           "opacity-0 transition-opacity group-hover/cell:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100",
+          // 触屏没有悬停、也拖不动：手机上不出工具条，排版在电脑上调
+          "max-md:hidden",
         )}
       >
         <button

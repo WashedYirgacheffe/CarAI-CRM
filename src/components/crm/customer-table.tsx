@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, X } from "lucide-react";
+import { ArrowRightLeft, Hand, Plus, UserPlus, Waves, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import { CountryLabel, StarRating, StatusBadge, Tags } from "@/components/crm/bi
 import { CustomerForm, type CustomerOptionsProp } from "@/components/crm/customer-form";
 import { assignPoolCustomersAction, claimCustomersAction, releaseCustomersAction, transferCustomersAction } from "@/app/(app)/customers/actions";
 import type { CustomerRow } from "@/server/customer-list";
-import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
+import { DesktopOnly, MobileCard, MobileLine, MobileList } from "@/components/crm/mobile-list";
 
 type Member = { id: string; name: string };
 
@@ -88,6 +88,20 @@ export function CustomerTable({
       return n;
     });
 
+  // 手机左滑单行操作：只选中这一行再打开对应弹窗
+  const [solo, setSolo] = useState(false);
+  const only = (id: string, d: BatchDialog) => {
+    setSelected(new Set([id]));
+    setSolo(true);
+    setDialog(d);
+  };
+  const closeDialog = () => {
+    setDialog(null);
+    // 左滑进来的单行操作，取消后不留在多选状态
+    if (solo) setSelected(new Set());
+    setSolo(false);
+  };
+
   async function run(p: Promise<{ ok?: boolean }>) {
     setBusy(true);
     const r = await runAction(p as never);
@@ -95,6 +109,7 @@ export function CustomerTable({
     if (r.ok) {
       setSelected(new Set());
       setDialog(null);
+      setSolo(false);
     }
   }
 
@@ -130,7 +145,7 @@ export function CustomerTable({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-3 md:px-5">
-        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-medium">
+        <h2 className="mr-1 flex min-h-8 items-baseline gap-1.5 text-[15px] font-medium max-md:hidden">
           {title}
           <span className="text-[13px] font-normal text-muted-foreground">
             · <span className="tabular-nums">{total}</span> 个客户
@@ -171,35 +186,35 @@ export function CustomerTable({
                   )}
                 </span>
               }
-              select={{ checked: selected.has(r.id), onChange: (v) => toggle(r.id, v), label: `选择 ${r.name}` }}
-              footer={
-                (r.star > 0 || r.groupName || r.tags.length > 0) && (
-                  <>
-                    {r.star > 0 && <StarRating value={r.star} />}
-                    {r.groupName && <span className="text-xs text-muted-foreground">{r.groupName}</span>}
-                    <Tags tags={r.tags} max={2} />
-                  </>
-                )
-              }
+              select={{ checked: selected.has(r.id), onChange: (v) => toggle(r.id, v), label: `选择 ${r.name}`, selecting: ids.length > 0 }}
+              swipe={{
+                right:
+                  mode === "mine"
+                    ? [
+                        { label: "放入公海", icon: Waves, tone: "amber", hidden: !perms.release, onAction: () => only(r.id, "release") },
+                        { label: "转移", icon: ArrowRightLeft, tone: "neutral", hidden: !perms.transfer, onAction: () => only(r.id, "transfer") },
+                      ]
+                    : [
+                        { label: "领取", icon: Hand, tone: "primary", hidden: !perms.claim, onAction: () => run(claimCustomersAction([r.id])) },
+                        { label: "分配", icon: UserPlus, tone: "neutral", hidden: !perms.assign, onAction: () => only(r.id, "assign") },
+                      ],
+              }}
             >
-              <MobileMeta
+              <MobileLine
                 items={
                   mode === "mine"
                     ? [
-                        ["最近联系", relativeDays(r.lastContactAt, now)],
-                        ["下次跟进", r.nextFollowAt ? formatDate(r.nextFollowAt, tz) : "—", overdue ? "font-medium text-destructive" : undefined],
-                        ["负责人", r.ownerName],
-                        poolDays !== null && [
-                          "进公海",
-                          poolDays <= 0 ? "即将回收" : `${poolDays} 天后`,
-                          poolDays <= 7 ? "font-medium text-amber-600" : undefined,
-                        ],
+                        r.star > 0 && <StarRating value={r.star} />,
+                        r.lastContactAt ? `${relativeDays(r.lastContactAt, now)}联系` : "从未联系",
+                        r.nextFollowAt && (
+                          <span className={cn(overdue && "font-medium text-destructive")}>下次 {formatDate(r.nextFollowAt, tz).slice(5)}</span>
+                        ),
+                        r.ownerName,
+                        poolDays !== null && poolDays <= 7 && (
+                          <span className="font-medium text-amber-600">{poolDays <= 0 ? "即将进公海" : `${poolDays} 天后进公海`}</span>
+                        ),
                       ]
-                    : [
-                        ["进入公海", formatDate(r.poolEnteredAt, tz) || "—"],
-                        ["原负责人", r.prevOwnerName ?? "—"],
-                        r.poolReason && ["原因", r.poolReason],
-                      ]
+                    : [`${formatDate(r.poolEnteredAt, tz) || "—"} 进公海`, r.prevOwnerName && `原 ${r.prevOwnerName}`, r.poolReason]
                 }
               />
             </MobileCard>
@@ -313,17 +328,17 @@ export function CustomerTable({
       </DesktopOnly>
       {footer}
 
-      <Dialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)}>
+      <Dialog open={!!dialog} onOpenChange={(o) => !o && closeDialog()}>
         <DialogContent>
           {dialog === "release" ? (
-            <ReleaseForm count={ids.length} busy={busy} onCancel={() => setDialog(null)} onSubmit={(why) => run(releaseCustomersAction(ids, why))} />
+            <ReleaseForm count={ids.length} busy={busy} onCancel={closeDialog} onSubmit={(why) => run(releaseCustomersAction(ids, why))} />
           ) : dialog ? (
             <MemberPickForm
               title={dialog === "transfer" ? `转移 ${ids.length} 个客户` : `分配 ${ids.length} 个公海客户`}
               description={dialog === "transfer" ? "转移后，新负责人接手跟进，动态里会留下转移记录。" : "分配后客户进入该成员的私海。"}
               members={members}
               busy={busy}
-              onCancel={() => setDialog(null)}
+              onCancel={closeDialog}
               onSubmit={(uid) => run(dialog === "transfer" ? transferCustomersAction(ids, uid) : assignPoolCustomersAction(ids, uid))}
             />
           ) : null}
