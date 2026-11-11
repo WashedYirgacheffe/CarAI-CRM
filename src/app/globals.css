@@ -6,6 +6,11 @@
 
 /* 状态色统一降饱和，不和强调橙抢视线（覆盖 Tailwind 默认色板） */
 @theme {
+  /* 全站缓动：非线性，起步快、收尾柔（ease-out 工具类和默认 transition 都用它） */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  --default-transition-duration: 180ms;
   --color-red-50: oklch(97.1% 0.010 17.38);
   --color-red-100: oklch(93.6% 0.024 17.717);
   --color-red-200: oklch(88.5% 0.046 18.334);
@@ -378,6 +383,57 @@
 /* 手机上去掉点按时的灰色高亮 */
 html {
   -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * 页面进场：main 的直接子元素在插入 DOM 时淡入上浮，逐个错开 40ms。
+ * 只在新挂载时触发（切页面、骨架换成真内容），同页筛选复用节点不会重放。
+ */
+[data-page-root] > * {
+  animation: page-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+[data-page-root] > :nth-child(2) { animation-delay: 40ms; }
+[data-page-root] > :nth-child(3) { animation-delay: 80ms; }
+[data-page-root] > :nth-child(4) { animation-delay: 120ms; }
+[data-page-root] > :nth-child(n + 5) { animation-delay: 160ms; }
+/* transform 会让里面 position:fixed 的元素（手机底部操作条）跟着位移，这类只做淡入 */
+[data-page-root] > :has(.fixed) {
+  animation-name: skeleton-in;
+}
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 骨架屏：延迟 120ms 再淡入，快的页面不闪灰块 */
+[data-page-root] > .skeleton-shell,
+.skeleton-shell {
+  animation: skeleton-in 260ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+@keyframes skeleton-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* 灰块上横扫的柔光；background-attachment: fixed 让整页灰块同步扫过 */
+.skeleton-bone {
+  /* 半透明墨色：白卡片上、浅灰底上、暗色模式下都看得见 */
+  background-color: color-mix(in oklch, var(--foreground) 7%, transparent);
+  background-image: linear-gradient(100deg, transparent 30%, color-mix(in oklch, var(--card) 70%, transparent) 50%, transparent 70%);
+  background-size: 200vw 100%;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes skeleton-sweep {
+  from { background-position: 100vw 0; }
+  to { background-position: -200vw 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-page-root] > *,
+  .skeleton-shell,
+  .skeleton-bone {
+    animation: none;
+  }
 }
 
 /* WhatsApp 同步中的不定进度条 */
