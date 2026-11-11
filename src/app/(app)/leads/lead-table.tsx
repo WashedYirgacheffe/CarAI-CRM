@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/crm/empty-state";
 import Form from "next/form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { Ban, Hand, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Trash2, UserCheck, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { DesktopOnly, MobileCard, MobileList } from "@/components/crm/mobile-list";
+import { ActionSheet } from "@/components/crm/swipe-row";
+import type { MenuEntry } from "@/components/crm/action-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
@@ -114,6 +116,28 @@ export function LeadTable({
       else n.delete(id);
       return n;
     });
+  const [sheetLead, setSheetLead] = useState<LeadRow | null>(null);
+  const menu = (l: LeadRow): MenuEntry[] => {
+    const open = l.status === "NEW" || l.status === "QUALIFYING" || l.status === "CONTACTED";
+    return [
+      { label: "编辑", icon: Pencil, hidden: !perms.edit, onSelect: () => setModal({ kind: "edit", lead: l }) },
+      ...PROGRESS.filter((p) => p.value !== l.status).map((p) => ({
+        label: `改为「${p.label}」`,
+        hidden: !(perms.edit && open),
+        onSelect: () => void runAction(setLeadStatusAction(l.id, p.value)),
+      })),
+      { label: "标记为无效", icon: Ban, hidden: !(perms.edit && open), onSelect: () => setModal({ kind: "invalid", lead: l }) },
+      {
+        label: "恢复为新线索",
+        icon: RotateCcw,
+        hidden: !(perms.edit && l.status === "INVALID"),
+        onSelect: () => void runAction(setLeadStatusAction(l.id, "NEW")),
+      },
+      { label: "分配给…", icon: UserPlus, hidden: !(perms.assign && open), onSelect: () => setModal({ kind: "assign", ids: [l.id] }) },
+      "sep",
+      { label: "删除", icon: Trash2, destructive: true, hidden: !perms.delete, onSelect: () => void runAction(deleteLeadAction(l.id)) },
+    ];
+  };
   const actions = (l: LeadRow, open: boolean) => (
     <div className="flex items-center gap-1">
       {!l.ownerId && open && perms.edit && (
@@ -129,7 +153,7 @@ export function LeadTable({
       {(perms.edit || perms.delete) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+            <Button variant="ghost" size="icon-sm" aria-label="更多操作" className="max-md:hidden">
               <MoreHorizontal />
             </Button>
           </DropdownMenuTrigger>
@@ -211,7 +235,33 @@ export function LeadTable({
                   {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
                 </span>
               }
-              select={perms.assign ? { checked: selected.has(l.id), onChange: (v) => toggle(l.id, v), label: "选择" } : undefined}
+              select={
+                perms.assign
+                  ? { checked: selected.has(l.id), onChange: (v) => toggle(l.id, v), label: "选择", selecting: selected.size > 0 }
+                  : undefined
+              }
+              swipe={{
+                left: [
+                  {
+                    label: "领取",
+                    icon: Hand,
+                    tone: "primary",
+                    hidden: !(!l.ownerId && open && perms.edit),
+                    onAction: () => void runAction(claimLeadAction(l.id)),
+                  },
+                  {
+                    label: "转客户",
+                    icon: UserCheck,
+                    tone: "primary",
+                    hidden: !(l.ownerId && open && perms.edit),
+                    onAction: () => setModal({ kind: "convert", lead: l }),
+                  },
+                ],
+                right: [
+                  { label: "更多", icon: MoreHorizontal, tone: "neutral", hidden: !(perms.edit || perms.delete), onAction: () => setSheetLead(l) },
+                  { label: "无效", icon: Ban, tone: "amber", hidden: !(perms.edit && open), onAction: () => setModal({ kind: "invalid", lead: l }) },
+                ],
+              }}
               footer={
                 <>
                   <span className="mr-auto text-xs text-muted-foreground">
@@ -238,6 +288,12 @@ export function LeadTable({
           );
         })}
       </MobileList>
+      <ActionSheet
+        open={!!sheetLead}
+        onOpenChange={(o) => !o && setSheetLead(null)}
+        title={sheetLead ? (sheetLead.companyName ?? sheetLead.contactName ?? sheetLead.email) : ""}
+        items={sheetLead ? menu(sheetLead) : []}
+      />
 
       <DesktopOnly>
         <Table>

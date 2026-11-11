@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BellPlus, ChevronDown, Clock, ExternalLink, Trash2 } from "lucide-react";
+import { BellPlus, Check, ChevronDown, Clock, ExternalLink, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { STATUS_COLORS, formatDateTime } from "@/lib/crm";
 import { CONTEXT_KINDS, REMINDER_GROUPS, REMINDER_KINDS, SNOOZE_PRESETS, TIME_PRESETS, presetLocal, type TimePreset } from "@/lib/reminders";
 import { deleteTaskAction, saveTaskAction, snoozeTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
 import { EmptyState } from "@/components/crm/empty-state";
+import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
 
 export type TaskItem = {
   id: string;
@@ -309,62 +310,96 @@ export function TaskList({
   if (!tasks.length) return <EmptyState compact>{empty}</EmptyState>;
   return (
     <ul className="divide-y">
-      {tasks.map((t) => {
-        const overdue = !t.done && new Date(t.dueAt).getTime() < now;
-        return (
-          <li key={t.id} className="group flex items-start gap-3 py-2.5">
-            <Checkbox
-              className="mt-0.5"
-              checked={t.done}
-              aria-label={t.done ? "标记为未完成" : "标记为完成"}
-              onCheckedChange={(v) => runAction(toggleTaskAction(t.id, !!v))}
-            />
-            <div className="min-w-0 flex-1">
-              <p className={cn("flex min-w-0 items-center gap-1.5 text-sm", t.done && "text-muted-foreground line-through")}>
-                {!t.done && <KindTag kind={t.kind} />}
-                <span className="truncate">{t.title}</span>
-              </p>
-              {t.note && <p className="mt-0.5 line-clamp-2 text-xs text-foreground/70">{t.note}</p>}
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                <span className={cn("tabular-nums", overdue && "font-medium text-destructive")}>
-                  {formatDateTime(t.dueAt, tz)}
-                  {overdue && " 已到期"}
-                </span>
-                {!!t.snoozeCount && ` · 推迟过 ${t.snoozeCount} 次`}
-                {showCustomer && t.customerId && (
-                  <>
-                    {" · "}
-                    <Link href={`/customers/${t.customerId}`} className="hover:text-primary hover:underline">
-                      {t.customerName}
-                    </Link>
-                  </>
-                )}
-                {t.ownerName && ` · ${t.ownerName}`}
-                {t.link && (
-                  <>
-                    {" · "}
-                    <Link href={t.link} className="inline-flex items-center gap-0.5 hover:text-primary hover:underline">
-                      查看来源 <ExternalLink className="size-3" />
-                    </Link>
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center">
-              {!t.done && <SnoozeMenu id={t.id} className={cn(!overdue && "md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100")} />}
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                aria-label="删除日程"
-                onClick={() => runAction(deleteTaskAction(t.id))}
-              >
-                <Trash2 />
-              </Button>
-            </div>
-          </li>
-        );
-      })}
+      {tasks.map((t) => (
+        <TaskRow key={t.id} t={t} tz={tz} now={now} showCustomer={showCustomer} />
+      ))}
     </ul>
+  );
+}
+
+function TaskRow({ t, tz, now, showCustomer }: { t: TaskItem; tz: string; now: number; showCustomer: boolean }) {
+  const [sheet, setSheet] = useState(false);
+  const overdue = !t.done && new Date(t.dueAt).getTime() < now;
+  return (
+    <li>
+      {/* 手机：右滑完成，左滑推迟 / 删除 */}
+      <SwipeRow
+        contentClassName="bg-card"
+        left={[
+          {
+            label: t.done ? "未完成" : "完成",
+            icon: Check,
+            tone: "emerald",
+            onAction: () => void runAction(toggleTaskAction(t.id, !t.done)),
+          },
+        ]}
+        right={[
+          { label: "删除", icon: Trash2, tone: "destructive", onAction: () => void runAction(deleteTaskAction(t.id)) },
+          { label: "推迟", icon: Clock, tone: "amber", hidden: t.done, onAction: () => setSheet(true) },
+        ]}
+      >
+        <div className="group flex items-start gap-3 py-2.5">
+          <Checkbox
+            className="mt-0.5"
+            checked={t.done}
+            aria-label={t.done ? "标记为未完成" : "标记为完成"}
+            onCheckedChange={(v) => runAction(toggleTaskAction(t.id, !!v))}
+          />
+          <div className="min-w-0 flex-1">
+            <p className={cn("flex min-w-0 items-center gap-1.5 text-sm", t.done && "text-muted-foreground line-through")}>
+              {!t.done && <KindTag kind={t.kind} />}
+              <span className="truncate">{t.title}</span>
+            </p>
+            {t.note && <p className="mt-0.5 line-clamp-2 text-xs text-foreground/70">{t.note}</p>}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              <span className={cn("tabular-nums", overdue && "font-medium text-destructive")}>
+                {formatDateTime(t.dueAt, tz)}
+                {overdue && " 已到期"}
+              </span>
+              {!!t.snoozeCount && ` · 推迟过 ${t.snoozeCount} 次`}
+              {showCustomer && t.customerId && (
+                <>
+                  {" · "}
+                  <Link href={`/customers/${t.customerId}`} className="hover:text-primary hover:underline">
+                    {t.customerName}
+                  </Link>
+                </>
+              )}
+              {t.ownerName && ` · ${t.ownerName}`}
+              {t.link && (
+                <>
+                  {" · "}
+                  <Link href={t.link} className="inline-flex items-center gap-0.5 hover:text-primary hover:underline">
+                    查看来源 <ExternalLink className="size-3" />
+                  </Link>
+                </>
+              )}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center max-md:hidden">
+            {!t.done && <SnoozeMenu id={t.id} className={cn(!overdue && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")} />}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label="删除日程"
+              onClick={() => runAction(deleteTaskAction(t.id))}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        </div>
+      </SwipeRow>
+      <ActionSheet
+        open={sheet}
+        onOpenChange={setSheet}
+        title="还在等？推迟到"
+        items={SNOOZE_PRESETS.map((p) => ({
+          label: TIME_PRESETS.find((x) => x.key === p)!.label,
+          icon: Clock,
+          onSelect: () => void runAction(snoozeTaskAction(t.id, p)),
+        }))}
+      />
+    </li>
   );
 }

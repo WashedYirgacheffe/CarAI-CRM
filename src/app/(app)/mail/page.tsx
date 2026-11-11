@@ -16,6 +16,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { MailReader } from "./mail-reader";
 import { MailShortcuts } from "./mail-shortcuts";
 import { SyncButton } from "./sync-button";
+import { MailSwipe } from "./mail-swipe";
 
 export const metadata: Metadata = { title: "邮件" };
 
@@ -235,7 +236,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 key={t.key}
                 href={href({ tag: t.key || null, page: 1, id: null })}
                 className={cn(
-                  "shrink-0 rounded-full border px-2.5 py-1 text-xs lg:px-2 lg:py-0.5",
+                  "inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[13px] lg:h-auto lg:px-2 lg:py-0.5 lg:text-xs",
                   tag === t.key
                     ? "border-primary bg-primary text-primary-foreground"
                     : t.key === "high" && urgent > 0
@@ -268,65 +269,67 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
             const intent = m.aiIntent ? MAIL_INTENT_LABELS[m.aiIntent] : null;
             return (
               <li key={m.id}>
-                <Link
-                  href={href({ id: m.id })}
-                  scroll={false}
-                  data-mail-id={m.id}
-                  className={cn(
-                    "relative flex gap-3 px-4 py-3 hover:bg-muted/60 lg:block lg:px-3 lg:py-2.5",
-                    !m.seen && "bg-primary/[0.035] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary",
-                    selectedId === m.id && "bg-sidebar-accent",
-                  )}
-                >
-                  <WaAvatar src={null} name={peer || null} phone={null} className="size-10 text-sm lg:hidden" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      {!m.seen && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
-                      {m.aiPriority === "high" && m.folder === "INBOX" && (
-                        <span
-                          className="shrink-0 rounded-full bg-rose-500 px-1.5 text-[10px] leading-4 font-medium text-white"
-                          title="AI 判断：高优先，尽快回复"
-                        >
-                          高优先
-                        </span>
-                      )}
-                      <span className={cn("min-w-0 flex-1 truncate text-[15px] lg:text-sm", !m.seen && "font-medium")}>
-                        {m.folder === "SENT" && <span className="text-muted-foreground">发给 </span>}
-                        {peer || "—"}
-                      </span>
-                      {m.starred && <Star className="size-3 fill-amber-400 text-amber-400" />}
-                      {asAttachments(m.attachments).length > 0 && <Paperclip className="size-3 text-muted-foreground" />}
-                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                        <span className="lg:hidden">{waListTime(m.date, user.timezone)}</span>
-                        <span className="hidden lg:inline">{formatDateTime(m.date, user.timezone)}</span>
-                      </span>
-                    </div>
-                    <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
-                    {m.aiSummary && m.folder === "INBOX" ? (
-                      <p className="line-clamp-2 text-xs text-foreground/75" title={m.snippet ?? undefined}>
-                        <Sparkles className="mr-0.5 inline size-3 -translate-y-px text-brand" />
-                        {m.aiSummary}
-                      </p>
-                    ) : (
-                      <p className="truncate text-xs text-muted-foreground">{m.snippet}</p>
+                <MailSwipe id={m.id} seen={m.seen} starred={m.starred} inbox={m.folder === "INBOX"}>
+                  <Link
+                    href={href({ id: m.id })}
+                    scroll={false}
+                    data-mail-id={m.id}
+                    className={cn(
+                      "relative flex gap-3 px-4 py-3 hover:bg-muted/60 lg:block lg:px-3 lg:py-2.5",
+                      !m.seen && "bg-primary/[0.035] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary",
+                      selectedId === m.id && "bg-sidebar-accent",
                     )}
-                    {m.folder === "SENT" && m.trackId && <TrackChip opens={m.openCount} clicks={m.clickCount} bounced={!!m.bouncedAt} />}
-                    {(m.customer || m.leadId || intent) && (
-                      <div className="mt-1 flex flex-wrap items-center gap-1">
-                        {m.customer && (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[11px] text-muted-foreground">
-                            <UserRound className="size-3" />
-                            {m.customer.name}
+                  >
+                    <WaAvatar src={null} name={peer || null} phone={null} className="size-10 text-sm lg:hidden" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {!m.seen && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
+                        {m.aiPriority === "high" && m.folder === "INBOX" && (
+                          <span
+                            className="shrink-0 rounded-full bg-rose-500 px-1.5 text-[10px] leading-4 font-medium text-white"
+                            title="AI 判断：高优先，尽快回复"
+                          >
+                            高优先
                           </span>
                         )}
-                        {!m.customer && m.leadId && <span className="rounded-full bg-brand-soft px-1.5 text-[11px] text-brand-ink">线索</span>}
-                        {intent && (
-                          <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>
-                        )}
+                        <span className={cn("min-w-0 flex-1 truncate text-[15px] lg:text-sm", !m.seen && "font-medium")}>
+                          {m.folder === "SENT" && <span className="text-muted-foreground">发给 </span>}
+                          {peer || "—"}
+                        </span>
+                        {m.starred && <Star className="size-3 fill-amber-400 text-amber-400" />}
+                        {asAttachments(m.attachments).length > 0 && <Paperclip className="size-3 text-muted-foreground" />}
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                          <span className="lg:hidden">{waListTime(m.date, user.timezone)}</span>
+                          <span className="hidden lg:inline">{formatDateTime(m.date, user.timezone)}</span>
+                        </span>
                       </div>
-                    )}
-                  </div>
-                </Link>
+                      <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
+                      {m.aiSummary && m.folder === "INBOX" ? (
+                        <p className="line-clamp-2 text-xs text-foreground/75" title={m.snippet ?? undefined}>
+                          <Sparkles className="mr-0.5 inline size-3 -translate-y-px text-brand" />
+                          {m.aiSummary}
+                        </p>
+                      ) : (
+                        <p className="truncate text-xs text-muted-foreground">{m.snippet}</p>
+                      )}
+                      {m.folder === "SENT" && m.trackId && <TrackChip opens={m.openCount} clicks={m.clickCount} bounced={!!m.bouncedAt} />}
+                      {(m.customer || m.leadId || intent) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {m.customer && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[11px] text-muted-foreground">
+                              <UserRound className="size-3" />
+                              {m.customer.name}
+                            </span>
+                          )}
+                          {!m.customer && m.leadId && <span className="rounded-full bg-brand-soft px-1.5 text-[11px] text-brand-ink">线索</span>}
+                          {intent && (
+                            <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                </MailSwipe>
               </li>
             );
           })}

@@ -12,6 +12,7 @@ import { snoozeTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions
 import { setMailDoneAction } from "@/app/(app)/mail/actions";
 import { markChatReadAction } from "@/app/(app)/whatsapp/actions";
 import { snoozeTodoAction } from "./actions";
+import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
 import { MAIL_INTENT_LABELS } from "@/lib/mail";
 import { SNOOZE_PRESETS, TIME_PRESETS, type TimePreset } from "@/lib/reminders";
 import { formatDateTime } from "@/lib/crm";
@@ -152,77 +153,96 @@ function Row({
   const k = KINDS.find((x) => x.key === i.kind)!;
   const intent = i.kind === "mail" && i.tag ? MAIL_INTENT_LABELS[i.tag] : undefined;
   const doneLabel = i.kind === "task" ? "完成" : i.kind === "mail" ? "不用回，已处理" : "标为已读";
+  const [sheet, setSheet] = useState(false);
   return (
-    <li className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/30">
-      <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full", k.tone)} aria-label={k.label}>
-        <k.icon className="size-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {i.high && <span className="rounded-full bg-brand px-1.5 py-px text-[11px] leading-4 text-brand-foreground">高优先</span>}
-          {i.kind === "task" && <KindTag kind={i.tag} />}
-          {intent && <span className={cn("rounded-full border px-1.5 py-px text-[11px] leading-4 font-medium", intent.cls)}>{intent.label}</span>}
-          {i.href ? (
-            <Link href={i.href} className={cn("min-w-0 truncate text-sm hover:text-primary", i.unread && "font-medium")}>
-              {i.title}
-            </Link>
-          ) : (
-            <span className="min-w-0 truncate text-sm">{i.title}</span>
-          )}
-          {!!i.count && (
-            <span className="rounded-full bg-destructive px-1.5 text-[11px] leading-4 font-medium text-white tabular-nums">{i.count}</span>
-          )}
-        </p>
-        {(i.who || i.detail) && (
-          <p className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
-            {i.who && <span className="text-foreground/80">{i.who}：</span>}
-            {i.detail}
-          </p>
-        )}
-        <p className={cn("mt-1 text-xs text-muted-foreground tabular-nums", i.overdue && "font-medium text-destructive")}>
-          {i.kind === "task" ? `${formatDateTime(i.at, tz)}${i.overdue ? " 已到期" : ""}` : ago(i.at, now)}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {i.reply ? (
-          <Button asChild size="sm" className="rounded-full">
-            <Link href={i.reply}>
-              <Reply /> <span className="max-sm:hidden">回复</span>
-            </Link>
-          </Button>
-        ) : (
-          i.href && (
-            <Button asChild size="sm" variant="outline" className="rounded-full">
-              <Link href={i.href}>打开</Link>
+    <li>
+      <SwipeRow
+        contentClassName="bg-card"
+        left={[{ label: i.kind === "task" ? "完成" : i.kind === "mail" ? "已处理" : "已读", icon: Check, tone: "emerald", onAction: onDone }]}
+        right={[{ label: "延后", icon: Clock, tone: "amber", onAction: () => setSheet(true) }]}
+      >
+        <div className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/30 max-md:active:bg-muted/50">
+          <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full", k.tone)} aria-label={k.label}>
+            <k.icon className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {i.high && <span className="rounded-full bg-brand px-1.5 py-px text-[11px] leading-4 text-brand-foreground">高优先</span>}
+              {i.kind === "task" && <KindTag kind={i.tag} />}
+              {intent && <span className={cn("rounded-full border px-1.5 py-px text-[11px] leading-4 font-medium", intent.cls)}>{intent.label}</span>}
+              {i.href ? (
+                <Link
+                  href={i.href}
+                  className={cn("min-w-0 truncate text-sm hover:text-primary max-md:after:absolute max-md:after:inset-0", i.unread && "font-medium")}
+                >
+                  {i.title}
+                </Link>
+              ) : (
+                <span className="min-w-0 truncate text-sm">{i.title}</span>
+              )}
+              {!!i.count && (
+                <span className="rounded-full bg-destructive px-1.5 text-[11px] leading-4 font-medium text-white tabular-nums">{i.count}</span>
+              )}
+            </p>
+            {(i.who || i.detail) && (
+              <p className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
+                {i.who && <span className="text-foreground/80">{i.who}：</span>}
+                {i.detail}
+              </p>
+            )}
+            <p className={cn("mt-1 text-xs text-muted-foreground tabular-nums", i.overdue && "font-medium text-destructive")}>
+              {i.kind === "task" ? `${formatDateTime(i.at, tz)}${i.overdue ? " 已到期" : ""}` : ago(i.at, now)}
+            </p>
+          </div>
+          <div className="relative z-10 flex shrink-0 items-center gap-1">
+            {i.reply ? (
+              <Button asChild size="sm" className="rounded-full">
+                <Link href={i.reply}>
+                  <Reply /> <span className="max-sm:hidden">回复</span>
+                </Link>
+              </Button>
+            ) : (
+              i.href && (
+                <Button asChild size="sm" variant="outline" className="rounded-full">
+                  <Link href={i.href}>打开</Link>
+                </Button>
+              )
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                {/* 手机上左滑「延后」 */}
+                <Button variant="ghost" size="icon-sm" aria-label="延后" title="延后，到点再提醒我" className="max-md:hidden">
+                  <Clock />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="text-xs">延后到</DropdownMenuLabel>
+                {SNOOZE_PRESETS.map((p) => (
+                  <DropdownMenuItem key={p} onSelect={() => onSnooze(p)}>
+                    {TIME_PRESETS.find((x) => x.key === p)!.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onDone}
+              aria-label={doneLabel}
+              title={doneLabel}
+              className="hover:bg-primary hover:text-primary-foreground"
+            >
+              <Check />
             </Button>
-          )
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="延后" title="延后，到点再提醒我">
-              <Clock />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel className="text-xs">延后到</DropdownMenuLabel>
-            {SNOOZE_PRESETS.map((p) => (
-              <DropdownMenuItem key={p} onSelect={() => onSnooze(p)}>
-                {TIME_PRESETS.find((x) => x.key === p)!.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onDone}
-          aria-label={doneLabel}
-          title={doneLabel}
-          className="hover:bg-primary hover:text-primary-foreground"
-        >
-          <Check />
-        </Button>
-      </div>
+          </div>
+        </div>
+      </SwipeRow>
+      <ActionSheet
+        open={sheet}
+        onOpenChange={setSheet}
+        title="延后到"
+        items={SNOOZE_PRESETS.map((p) => ({ label: TIME_PRESETS.find((x) => x.key === p)!.label, icon: Clock, onSelect: () => onSnooze(p) }))}
+      />
     </li>
   );
 }

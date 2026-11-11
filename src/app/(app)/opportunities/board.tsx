@@ -3,7 +3,8 @@
 import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, CalendarDays, MoreHorizontal, Plus, UserRound } from "lucide-react";
+import { Building2, CalendarDays, ChevronsRight, MoreHorizontal, Pencil, Plus, Trash2, UserRound } from "lucide-react";
+import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
@@ -96,6 +97,7 @@ export function OpportunityBoard({
   const wonOpps = opps.filter((o) => kindOf(o) === "WON");
   const openStages = stages.filter((s) => s.kind === "OPEN").map((s) => s.id);
   const [pickedStage, setPickedStage] = useState<string | null>(null);
+  const [sheetOpp, setSheetOpp] = useState<Opp | null>(null);
   const mobileStage = pickedStage ?? (stages.find((s) => opps.some((o) => o.stageId === s.id)) ?? stages[0])?.id;
   const mobileItems = opps.filter((o) => o.stageId === mobileStage);
 
@@ -172,7 +174,7 @@ export function OpportunityBoard({
         {(perms.edit || perms.delete) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-xs" aria-label="操作" className="-mt-0.5 -mr-1">
+              <Button variant="ghost" size="icon-xs" aria-label="操作" className={cn("-mt-0.5 -mr-1", !drag && "max-md:hidden")}>
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
@@ -323,9 +325,61 @@ export function OpportunityBoard({
           </nav>
           <p className="px-4 pt-2.5 text-xs text-muted-foreground tabular-nums">合计 {mobileItems.length ? yuan(sum(mobileItems)) : "—"}</p>
           <div className="flex flex-col gap-2 p-3">
-            {mobileItems.length === 0 ? <EmptyState className="py-12">这个阶段暂无商机</EmptyState> : mobileItems.map((o) => card(o, false))}
+            {mobileItems.length === 0 ? (
+              <EmptyState className="py-12">这个阶段暂无商机</EmptyState>
+            ) : (
+              mobileItems.map((o) => {
+                const i = stages.findIndex((x) => x.id === o.stageId);
+                const next = stages[i + 1];
+                return (
+                  <SwipeRow
+                    key={o.id}
+                    className="rounded-xl"
+                    left={[
+                      {
+                        label: "推进",
+                        icon: ChevronsRight,
+                        tone: "primary",
+                        hidden: !perms.edit || !next,
+                        onAction: () => next && move(o.id, next.id),
+                      },
+                    ]}
+                    right={[
+                      { label: "更多", icon: MoreHorizontal, tone: "neutral", hidden: !(perms.edit || perms.delete), onAction: () => setSheetOpp(o) },
+                    ]}
+                  >
+                    {card(o, false)}
+                  </SwipeRow>
+                );
+              })
+            )}
           </div>
         </div>
+
+        <ActionSheet
+          open={!!sheetOpp}
+          onOpenChange={(v) => !v && setSheetOpp(null)}
+          title={sheetOpp?.name}
+          items={
+            sheetOpp
+              ? [
+                  { label: "编辑", icon: Pencil, hidden: !perms.edit, onSelect: () => setEditing(sheetOpp) },
+                  "sep",
+                  ...stages
+                    .filter((x) => x.id !== sheetOpp.stageId)
+                    .map((x) => ({ label: `移到「${x.name}」`, hidden: !perms.edit, onSelect: () => move(sheetOpp.id, x.id) })),
+                  "sep",
+                  {
+                    label: "删除",
+                    icon: Trash2,
+                    destructive: true,
+                    hidden: !perms.delete,
+                    onSelect: () => void runAction(deleteOpportunityAction(sheetOpp.id)),
+                  },
+                ]
+              : []
+          }
+        />
 
         <div className="hidden overflow-x-auto p-4 md:block">
           <div className="flex gap-3">
