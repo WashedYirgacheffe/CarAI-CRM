@@ -161,7 +161,7 @@ export function AppShell({
           </aside>
         )}
 
-        <main className="min-w-0 flex-1 px-3 pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6">
+        <main data-page-root className="min-w-0 flex-1 px-3 pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6">
           {menu && <SubTabs groups={menu} activeLeaf={active.leaf} />}
           {children}
         </main>

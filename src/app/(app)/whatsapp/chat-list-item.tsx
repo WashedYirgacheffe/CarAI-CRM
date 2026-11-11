@@ -77,7 +77,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
         <Link
           href={c.href}
           className={cn(
-            "flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition-colors",
+            "flex items-center gap-3 px-4 py-2.5 transition-colors md:rounded-xl md:px-2.5",
             c.active ? "bg-accent" : "hover:bg-muted/60",
             menuOpen && !c.active && "bg-muted/60",
           )}

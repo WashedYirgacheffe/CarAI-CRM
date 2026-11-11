@@ -83,7 +83,8 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
   const canAi = can(user, "ai.use") && aiConfigured();
 
   return (
-    <div className="flex h-[calc(100svh-8.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface md:h-[calc(100svh-6.5rem)] md:min-h-[34rem]">
+    // 手机上像微信一样贴边铺满：抵消 main 的内边距，上贴顶栏、下贴标签栏（3.75rem），去掉圆角和阴影；桌面仍是白卡片
+    <div className="-mx-3 -mt-3 -mb-4 flex h-[calc(100svh-6.75rem-1px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface rounded-none shadow-none md:m-0 md:h-[calc(100svh-6.5rem)] md:min-h-[34rem] md:rounded-2xl md:shadow-[var(--card-shadow)]">
       {s("phone") && <StartFromParams phone={s("phone")} customerId={s("customerId") || undefined} />}
       {/* 会话页自己每 4 秒刷新；只看列表时，同步中刷得快一些 */}
       {!chat && <LiveRefresh ms={syncing ? 3000 : 10_000} />}
@@ -168,12 +169,12 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
           </nav>
         </div>
 
-        <ul className="flex-1 overflow-y-auto px-2 pb-2">
+        <ul className="flex-1 overflow-y-auto pb-2 md:px-2">
           {f === "archived" ? (
-            <li className="mb-1 px-2">
+            <li className="mb-1 md:px-2">
               <Link
                 href={href({ f: "" })}
-                className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground md:rounded-xl md:px-2.5"
               >
                 <ChevronLeft className="size-4" /> 已归档的聊天
               </Link>
@@ -182,7 +183,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
             archivedCount > 0 &&
             !q && (
               <li className="mb-1">
-                <Link href={href({ f: "archived" })} className="flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm hover:bg-muted/60">
+                <Link href={href({ f: "archived" })} className="flex items-center gap-3 px-4 py-2 text-sm hover:bg-muted/60 md:rounded-xl md:px-2.5">
                   <span className="flex size-12 shrink-0 items-center justify-center text-emerald-600">
                     <Archive className="size-5" />
                   </span>
