@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Bot, Languages, MailCheck, MessageCircle, RefreshCcw } from "lucide-react";
+import { Bot, Languages, MailCheck, MessageCircle, RefreshCcw } from "@/components/icons";
 import { Brand } from "@/components/brand";
 import { AuthBackdrop } from "@/components/auth-backdrop";
 import { getCurrentUser } from "@/server/auth";
@@ -24,13 +24,13 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
           <Brand onDark className="h-7 lg:h-8" />
           <div className="space-y-4">
             <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs text-white/85 ring-1 ring-white/15 backdrop-blur">
-              <span className="size-1.5 rounded-full bg-[#f2b27e] shadow-[0_0_8px_#f2b27e]" />
+              <span className="size-1.5 rounded-full bg-[#78b4ff] shadow-[0_0_8px_#78b4ff]" />
               为中小外贸团队打造的 AI 客户跟进系统
             </p>
             <h1 className="max-w-xl text-[2rem] leading-[1.15] font-semibold tracking-tight text-balance lg:text-[3.25rem]">
               让 AI 替你盯住
               <br />
-              <span className="bg-gradient-to-r from-[#ffd2ad] to-[#f2a36b] bg-clip-text text-transparent">每一个海外询盘</span>
+              <span className="bg-gradient-to-r from-[#cfe6ff] to-[#78b4ff] bg-clip-text text-transparent">每一个海外询盘</span>
             </h1>
             <p className="max-w-lg text-[15px] leading-relaxed text-white/75 lg:text-base">
               邮件、WhatsApp、报价、订单在一处跟进；外文自动翻译，该回的提醒你回，没人跟的自动回公海。
@@ -43,7 +43,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
                 key={p.title}
                 className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/90 ring-1 ring-white/15 backdrop-blur"
               >
-                <p.icon className="size-3.5 text-[#f6bf93]" />
+                <p.icon className="size-3.5 text-[#a6cfff]" />
                 {p.title.split("，")[0]}
               </li>
             ))}
@@ -55,7 +55,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
                 className={`rounded-2xl bg-white/[0.07] p-4 ring-1 ring-white/12 backdrop-blur-md transition-colors hover:bg-white/[0.11] ${i === 0 ? "col-span-2" : ""}`}
               >
                 <p className="flex items-center gap-2 text-sm font-medium">
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-[#f2a36b]/20 text-[#ffc89e]">
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-[#4b93ff]/20 text-[#cfe6ff]">
                     <p.icon className="size-4" />
                   </span>
                   {p.title}

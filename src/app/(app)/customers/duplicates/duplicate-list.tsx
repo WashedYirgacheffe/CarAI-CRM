@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Merge } from "lucide-react";
+import { Merge } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,

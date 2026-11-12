@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Mail, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
+import { Mail, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -207,7 +207,12 @@ function AccountForm({ account, presets, onDone }: { account: Partial<Account>; 
           </Field>
           <Field>
             <FieldLabel htmlFor="mb-user">登录名</FieldLabel>
-            <Input id="mb-user" name="username" defaultValue={account.username !== account.email ? account.username : ""} placeholder="默认同邮箱地址" />
+            <Input
+              id="mb-user"
+              name="username"
+              defaultValue={account.username !== account.email ? account.username : ""}
+              placeholder="默认同邮箱地址"
+            />
           </Field>
         </div>
         {hint && <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">{hint}</p>}
@@ -219,7 +224,13 @@ function AccountForm({ account, presets, onDone }: { account: Partial<Account>; 
           </Field>
           <Field>
             <FieldLabel htmlFor="mb-imap-port">端口</FieldLabel>
-            <Input id="mb-imap-port" name="imapPort" inputMode="numeric" value={v.imapPort} onChange={(e) => setV({ ...v, imapPort: e.target.value })} />
+            <Input
+              id="mb-imap-port"
+              name="imapPort"
+              inputMode="numeric"
+              value={v.imapPort}
+              onChange={(e) => setV({ ...v, imapPort: e.target.value })}
+            />
           </Field>
           <label className="flex h-9 items-center gap-1.5 text-sm">
             <Checkbox name="imapSecure" checked={v.imapSecure} onCheckedChange={(c) => setV({ ...v, imapSecure: c === true })} /> SSL
@@ -231,7 +242,13 @@ function AccountForm({ account, presets, onDone }: { account: Partial<Account>; 
           </Field>
           <Field>
             <FieldLabel htmlFor="mb-smtp-port">端口</FieldLabel>
-            <Input id="mb-smtp-port" name="smtpPort" inputMode="numeric" value={v.smtpPort} onChange={(e) => setV({ ...v, smtpPort: e.target.value })} />
+            <Input
+              id="mb-smtp-port"
+              name="smtpPort"
+              inputMode="numeric"
+              value={v.smtpPort}
+              onChange={(e) => setV({ ...v, smtpPort: e.target.value })}
+            />
           </Field>
           <label className="flex h-9 items-center gap-1.5 text-sm">
             <Checkbox name="smtpSecure" checked={v.smtpSecure} onCheckedChange={(c) => setV({ ...v, smtpSecure: c === true })} /> SSL
@@ -243,7 +260,13 @@ function AccountForm({ account, presets, onDone }: { account: Partial<Account>; 
         </Field>
         <Field>
           <FieldLabel htmlFor="mb-sign">签名</FieldLabel>
-          <Textarea id="mb-sign" name="signature" rows={3} defaultValue={account.signature ?? ""} placeholder={"Best regards,\nTom Zhang\nSales Manager | ABC Co., Ltd."} />
+          <Textarea
+            id="mb-sign"
+            name="signature"
+            rows={3}
+            defaultValue={account.signature ?? ""}
+            placeholder={"Best regards,\nTom Zhang\nSales Manager | ABC Co., Ltd."}
+          />
         </Field>
         <Field orientation="horizontal">
           <Checkbox id="mb-lead" name="autoLead" defaultChecked={account.autoLead ?? true} />

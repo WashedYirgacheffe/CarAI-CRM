@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Lock, Plus, Trash2 } from "lucide-react";
+import { Lock, Plus, Trash2 } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,9 +27,15 @@ const NEW = "__new__";
 
 export function RoleEditor({ roles }: { roles: RoleRow[] }) {
   const [selectedId, setSelectedId] = useState(roles[0]?.id ?? NEW);
-  const selected: RoleRow =
-    roles.find((r) => r.id === selectedId) ??
-    { id: "", name: "", description: "", systemKey: null, dataScope: "SELF", permissions: [], members: 0 };
+  const selected: RoleRow = roles.find((r) => r.id === selectedId) ?? {
+    id: "",
+    name: "",
+    description: "",
+    systemKey: null,
+    dataScope: "SELF",
+    permissions: [],
+    members: 0,
+  };
 
   return (
     <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -130,10 +136,7 @@ function RoleForm({ role, onCreated }: { role: RoleRow; onCreated: () => void })
               return (
                 <div key={g.key} className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
                   <label className="flex items-center gap-2 text-sm font-medium">
-                    <Checkbox
-                      checked={all}
-                      onCheckedChange={(v) => g.items.forEach((i) => toggle(i.key, v === true))}
-                    />
+                    <Checkbox checked={all} onCheckedChange={(v) => g.items.forEach((i) => toggle(i.key, v === true))} />
                     {g.label}
                   </label>
                   <div className="flex flex-wrap gap-x-5 gap-y-2">

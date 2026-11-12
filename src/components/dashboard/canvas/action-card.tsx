@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, CircleAlert, LoaderCircle, Send } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, LoaderCircle, Send } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,15 @@ export const cardSummary = (c: CardState) =>
   }）`;
 
 /** AI 起草的操作：先给用户看、可以改，确认后才执行 */
-export function ActionCardView({ value, onChange }: { value: CardState; onChange: (patch: Partial<CardState>) => void }) {
+export function ActionCardView({
+  value,
+  onChange,
+  agentName = "AI 助手",
+}: {
+  value: CardState;
+  onChange: (patch: Partial<CardState>) => void;
+  agentName?: string;
+}) {
   const { card, params, state, result } = value;
   const [confirmOutward, setConfirmOutward] = useState(false);
   const locked = state !== "pending" && state !== "failed";
@@ -46,28 +54,44 @@ export function ActionCardView({ value, onChange }: { value: CardState; onChange
     }
   };
 
+  const chip =
+    state === "done"
+      ? { label: "已执行", cls: "bg-ok/12 text-ok" }
+      : state === "cancelled"
+        ? { label: "已取消", cls: "bg-muted text-muted-foreground" }
+        : state === "failed"
+          ? { label: "没成功", cls: "bg-destructive/10 text-destructive" }
+          : state === "running"
+            ? { label: "执行中", cls: "bg-brand-soft text-brand-ink" }
+            : card.outward
+              ? { label: "等你确认 · 会发给对方", cls: "bg-warn-soft text-warn" }
+              : { label: "等你确认", cls: "bg-brand-soft text-brand-ink" };
+
   return (
     <div
+      data-state={state}
       className={cn(
-        "max-w-2xl rounded-xl border bg-card p-3.5 shadow-xs",
-        state === "done" && "border-emerald-500/40",
+        "relative max-w-[40rem] overflow-hidden rounded-[10px] rounded-bl-[2px] border border-line bg-card p-4 shadow-e1",
         state === "cancelled" && "opacity-60",
       )}
     >
-      <div className="mb-2 flex items-center gap-2">
+      {/* 顶部一条淡淡的天色：等你拍板的事和普通消息区分开 */}
+      {(state === "pending" || state === "running") && (
         <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[11px] font-medium",
-            card.outward ? "bg-amber-500/15 text-amber-700" : "bg-primary/10 text-primary",
-          )}
-        >
-          {card.outward ? "待确认 · 会对外发出" : "待确认"}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--agent)_9%,transparent),transparent)]"
+        />
+      )}
+      <div className="relative mb-2.5 flex items-center gap-2">
+        <span className="text-[13px] text-muted-foreground">
+          <b className="font-semibold text-foreground">{agentName}</b> {state === "done" ? "已经做好" : "想要"}
         </span>
-        <h4 className="min-w-0 flex-1 truncate text-sm font-medium">{card.title}</h4>
+        <span className={cn("ml-auto shrink-0 rounded-md px-2 py-0.5 text-[11.5px] font-medium", chip.cls)}>{chip.label}</span>
       </div>
+      <h4 className="relative mb-2.5 text-[15px] leading-snug font-semibold tracking-[-0.005em]">{card.title}</h4>
 
       {card.fields.length > 0 && (
-        <dl className="mb-2 grid grid-cols-[minmax(4rem,auto)_1fr] gap-x-3 gap-y-1 text-sm">
+        <dl className="relative mb-3 grid grid-cols-[minmax(4rem,auto)_1fr] gap-x-3 gap-y-1 text-sm">
           {card.fields.map((f, i) => (
             <div key={i} className="contents">
               <dt className="truncate text-muted-foreground">{f.label}</dt>
@@ -95,13 +119,13 @@ export function ActionCardView({ value, onChange }: { value: CardState; onChange
       ))}
 
       {result && (
-        <p className={cn("mb-2 flex items-start gap-1.5 text-sm", result.ok ? "text-emerald-700" : "text-destructive")}>
+        <p className={cn("mb-2 flex items-start gap-1.5 text-sm", result.ok ? "text-ok" : "text-destructive")}>
           {result.ok ? <Check className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}
           {result.message}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="relative flex flex-wrap items-center gap-2">
         {state === "done" ? (
           result?.href && (
             <Button asChild size="xs" variant="outline">
@@ -110,23 +134,21 @@ export function ActionCardView({ value, onChange }: { value: CardState; onChange
               </Link>
             </Button>
           )
-        ) : state === "cancelled" ? (
-          <span className="text-xs text-muted-foreground">已取消</span>
-        ) : card.outward && !confirmOutward ? (
-          <Button size="xs" disabled={state === "running"} onClick={() => setConfirmOutward(true)}>
+        ) : state === "cancelled" ? null : card.outward && !confirmOutward ? (
+          <Button size="sm" disabled={state === "running"} onClick={() => setConfirmOutward(true)}>
             <Send /> {card.confirm}
           </Button>
         ) : (
           <>
-            {card.outward && <span className="text-xs text-amber-700">确认后会立即发给对方，无法撤回</span>}
-            <Button size="xs" disabled={state === "running"} onClick={run}>
-              {state === "running" ? <LoaderCircle className="animate-spin" /> : <Check />}
+            {card.outward && <span className="text-xs text-warn">确认后会立即发给对方，无法撤回</span>}
+            <Button size="sm" disabled={state === "running"} onClick={run}>
+              {state === "running" ? <LoaderCircle /> : <Check />}
               {card.outward ? `确认${card.confirm}` : card.confirm}
             </Button>
           </>
         )}
         {(state === "pending" || state === "failed") && (
-          <Button size="xs" variant="ghost" onClick={() => onChange({ state: "cancelled" })}>
+          <Button size="sm" variant="ghost" onClick={() => onChange({ state: "cancelled" })}>
             取消
           </Button>
         )}

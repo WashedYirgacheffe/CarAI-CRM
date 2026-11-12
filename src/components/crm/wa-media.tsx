@@ -1,8 +1,9 @@
-import { FileText } from "lucide-react";
+import { FileText } from "@/components/icons";
 
 export type WaMediaInfo = { type: string; mime: string; name: string | null; size: number | null } | null;
 
-const sizeText = (n: number | null) => (n == null ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+const sizeText = (n: number | null) =>
+  n == null ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 /** WhatsApp 消息里的图片 / 视频 / 语音 / 文件（走 /api/whatsapp/media 鉴权后跳转到 OSS） */
 export function WaMedia({ id, media, onOpen }: { id: string; media: WaMediaInfo; onOpen?: () => void }) {

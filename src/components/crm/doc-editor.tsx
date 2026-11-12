@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, PackagePlus, Plus, Search, Trash2 } from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

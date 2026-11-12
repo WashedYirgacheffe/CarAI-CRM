@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Languages, LoaderCircle, Mail, MessageCircle, PenLine, Replace, Sparkles, WandSparkles, X } from "lucide-react";
+import { Copy, Languages, LoaderCircle, Mail, MessageCircle, PenLine, Replace, Sparkles, WandSparkles, X } from "@/components/icons";
 import { toast } from "sonner";
 import { translateTextsAction } from "@/app/(app)/translate-actions";
 import { cn } from "@/lib/utils";

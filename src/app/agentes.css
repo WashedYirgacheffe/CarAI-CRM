@@ -1,0 +1,225 @@
+/*
+ * agentes 设计系统的组件样式（经作者授权复用）：图标、活的助手形象、像素轨道、工作记录、审批卡、
+ * 对话气泡和流式光标。放在 components 层，Tailwind 的工具类仍能覆盖尺寸等。
+ */
+@layer components {
+  .ac-icon {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  svg.lucide:not(.ac-icon) {
+    stroke-width: 1.75;
+  }
+
+  /* ---- 助手形象 ---- */
+  .ac-avatar {
+    display: inline-grid;
+    grid-template-rows: 100%;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    position: relative;
+    box-sizing: border-box;
+    border-radius: 30% 30% 30% 9%;
+  }
+  .ac-avatar--agent {
+    contain: layout;
+  }
+  .ac-avatar--xs {
+    width: 18px;
+    height: 18px;
+  }
+  .ac-avatar--sm {
+    width: 24px;
+    height: 24px;
+  }
+  .ac-avatar--lg {
+    width: 56px;
+    height: 56px;
+  }
+  .ac-avatar--xl {
+    width: 112px;
+    height: 112px;
+  }
+  /* 配饰会伸出身体：画布比盒子大，只画不占位 */
+  .ac-avatar__canvas {
+    position: absolute;
+    left: -6.25%;
+    top: -56.25%;
+    width: 118.75%;
+    height: 200%;
+    pointer-events: none;
+  }
+  .ac-avatar.ac-avatar--framed {
+    border-radius: 30%;
+    background: color-mix(in srgb, var(--av-top, var(--agent)) 14%, var(--raised));
+  }
+  .ac-avatar--framed::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow:
+      inset 0 0 0 1px var(--line),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .ac-avatar--framed .ac-avatar__canvas {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+  }
+  .ac-avatar--running:not(.ac-avatar--framed)::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border: 2px solid color-mix(in srgb, var(--av-top, var(--agent)) 45%, transparent);
+    border-radius: inherit;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ac-avatar--running::after {
+      animation: ac-halo 1.6s var(--ease-out) infinite;
+    }
+  }
+
+  /* ---- 像素轨道（工作中） ---- */
+  .ac-pixspin {
+    display: inline-block;
+    flex: none;
+  }
+  .ac-pixspin rect {
+    opacity: 0.16;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ac-pixspin rect {
+      animation: ac-orbit 880ms steps(1, end) infinite;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ac-pixspin rect:nth-child(-n + 3) {
+      opacity: 0.62;
+    }
+  }
+  /* 完成：中间一格绿色像素弹出来 */
+  .ac-pixdone {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+  }
+  .ac-pixdone::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    background: var(--ok);
+    animation: ac-pop 240ms var(--ease-spring) both;
+  }
+
+  /* ---- 流式输出时的光标 ---- */
+  .ac-caret > div > :not(ul, ol):last-child::after,
+  .ac-caret > div > :is(ul, ol):last-child > li:last-child::after {
+    content: "";
+    display: inline-block;
+    width: 2px;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    background: var(--agent);
+    border-radius: 1px;
+    animation: ac-blink 1s steps(2, start) infinite;
+  }
+
+  /* ---- 新出现的一行 ---- */
+  .ac-rise {
+    animation: ac-rise 240ms var(--ease-out) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ac-rise,
+    .ac-pixdone::before,
+    .ac-caret > div > :not(ul, ol):last-child::after,
+    .ac-caret > div > :is(ul, ol):last-child > li:last-child::after {
+      animation: none;
+    }
+  }
+}
+
+@keyframes ac-halo {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+/* 8 格轮流点亮：亮 1 → 0.62 → 0.38 → 暗 */
+@keyframes ac-orbit {
+  0% {
+    opacity: 1;
+  }
+  12.5% {
+    opacity: 0.62;
+  }
+  25% {
+    opacity: 0.38;
+  }
+  37.5%,
+  100% {
+    opacity: 0.16;
+  }
+}
+@keyframes ac-pop {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes ac-blink {
+  to {
+    visibility: hidden;
+  }
+}
+@keyframes ac-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 正在做的那一步：文字上缓缓扫过一道光 */
+@layer components {
+  .ai-shimmer {
+    background: linear-gradient(90deg, currentColor 0%, currentColor 40%, var(--ink) 50%, currentColor 60%, currentColor 100%);
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: ai-shimmer 2.2s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ai-shimmer {
+      animation: none;
+      -webkit-text-fill-color: currentColor;
+    }
+  }
+}
+@keyframes ai-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}

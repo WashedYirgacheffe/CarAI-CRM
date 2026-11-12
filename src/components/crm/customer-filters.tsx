@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Form from "next/form";
 import Link from "next/link";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Search, SlidersHorizontal } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/native-select";
@@ -45,22 +45,12 @@ export function CustomerFilters({
     // key：点左侧客群 / 快捷筛选是客户端跳转，非受控输入框要随 URL 重置，否则会带着旧值再提交
     <Form key={CUSTOMER_FILTER_KEYS.map(v).join("|")} action={action} className="contents">
       <div className="relative ml-auto w-full sm:w-60">
-        <button
-          type="submit"
-          className="absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          aria-label="搜索"
-        >
+        <button type="submit" className="absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="搜索">
           <Search className="size-4" />
         </button>
         <Input name="q" defaultValue={v("q")} placeholder="公司名 / 联系人 / 邮箱 / 电话" className="h-8 pl-8 text-[13px]" />
       </div>
-      <Button
-        type="button"
-        size="sm"
-        variant={open ? "secondary" : "outline"}
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
+      <Button type="button" size="sm" variant={open ? "secondary" : "outline"} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <SlidersHorizontal />
         筛选
         {panelCount > 0 && <span className="tabular-nums text-primary">{panelCount}</span>}

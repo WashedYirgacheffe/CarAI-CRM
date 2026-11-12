@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, X } from "lucide-react";
+import { ArrowRight, Check, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { runAction } from "@/hooks/use-action-form";
 import { dismissOnboardingAction } from "@/app/(app)/dashboard/actions";

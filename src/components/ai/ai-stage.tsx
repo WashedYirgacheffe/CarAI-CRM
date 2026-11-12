@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { LayoutGrid, MessageCircle } from "lucide-react";
+import { LayoutGrid, MessageCircle } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 /*
@@ -86,7 +86,7 @@ export function AiStage({ greeting, sub, children }: { greeting: string; sub: st
       )}
     >
       {tabs && (
-        <div role="tablist" aria-label="切换视图" className="mx-auto inline-flex shrink-0 rounded-full bg-muted/70 p-1">
+        <div role="tablist" aria-label="切换视图" className="mx-auto inline-flex shrink-0 rounded-[12px] bg-muted p-1">
           {(
             [
               { key: "chat", label: "对话", icon: MessageCircle },
@@ -100,8 +100,8 @@ export function AiStage({ greeting, sub, children }: { greeting: string; sub: st
               aria-selected={pane === t.key}
               onClick={() => go(t.key)}
               className={cn(
-                "relative inline-flex h-8 items-center gap-1.5 rounded-full px-4 text-[13px] font-medium transition-colors",
-                pane === t.key ? "bg-card text-foreground shadow-card" : "text-foreground/65",
+                "relative inline-flex h-8 items-center gap-1.5 rounded-[9px] px-4 text-[13px] font-medium transition-colors",
+                pane === t.key ? "bg-card text-foreground shadow-e1" : "text-foreground/65",
               )}
             >
               <t.icon className="size-4" />

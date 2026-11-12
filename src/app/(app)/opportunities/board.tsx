@@ -3,7 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, CalendarDays, ChevronsRight, MoreHorizontal, Pencil, Plus, Trash2, UserRound } from "lucide-react";
+import { Building2, CalendarDays, ChevronsRight, MoreHorizontal, Pencil, Plus, Trash2, UserRound } from "@/components/icons";
 import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";

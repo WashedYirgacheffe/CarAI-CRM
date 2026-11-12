@@ -4,13 +4,17 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowRight, ArrowUp, LoaderCircle, Settings2, SquarePen, Square, Trash2, X } from "lucide-react";
+import { ArrowRight, History, Send, Settings2, Square, SquarePen, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
 import type { ActionCard } from "@/lib/ai-actions";
 import { ActionCardView, cardSummary, type CardState } from "@/components/dashboard/canvas/action-card";
 import { applyLayout, applyWorkspace, canvasOnPage, canvasSnapshot, type WorkspaceEvent } from "./canvas-bridge";
-import { AiMascot } from "./ai-mascot";
+import { AgentAvatar, type AgentState } from "@/components/agentes/agent-avatar";
+import { PixelSpinner } from "@/components/agentes/pixel-spinner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { normalizeAppearance } from "@/lib/agentes/tokens/look";
+import { AgentProfile, DEFAULT_PREFS, Feedback, SIZES, ThreadList, WorkLine, WorkSummary, type Prefs, type ThreadMeta } from "./agent-bits";
 import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { RichText, VisualView } from "./ai-visual";
 import { isStageTabs, setStageMode, setStagePane, useStage, withStageTransition } from "./ai-stage";
@@ -21,6 +25,8 @@ import { noAutofill } from "@/lib/no-autofill";
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
 type AssistantTurn = {
   role: "assistant";
+  /** 用来让这条回复旁边的助手做表情（旧记录没有，读回时补上） */
+  id: string;
   text: string;
   status: string | null;
   choice: Choice | null;
@@ -34,8 +40,21 @@ type AssistantTurn = {
   canvas?: boolean;
   /** 本步开始时的文字长度，丢弃过渡话时截回这里 */
   mark: number;
+  /** 做事过程：每一步的说明，开始 / 结束时间 */
+  steps?: string[];
+  startedAt?: number;
+  endedAt?: number;
+  feedback?: "up" | "down";
 };
 type Turn = { role: "user"; text: string } | AssistantTurn;
+type Thread = { id: string; turns: Turn[]; at: number };
+const MAX_THREADS = 20;
+const newId = () => Math.random().toString(36).slice(2, 10);
+const titleOf = (turns: Turn[]) =>
+  turns
+    .find((t) => t.role === "user")
+    ?.text.replace(/\s+/g, " ")
+    .slice(0, 40) || "新对话";
 
 type StreamEvent =
   | { t: "status"; text: string }
@@ -52,16 +71,6 @@ type StreamEvent =
   | { t: "done" };
 
 const MAX_TURNS = 30;
-
-/** 用户自定义：助手名字、对话字号 */
-type Prefs = { name: string; size: number };
-const DEFAULT_PREFS: Prefs = { name: "AI 助手", size: 14 };
-const SIZES = [
-  { px: 13, label: "小" },
-  { px: 14, label: "标准" },
-  { px: 15.5, label: "大" },
-  { px: 17, label: "特大" },
-];
 
 function suggestionsFor(path: string, sp: URLSearchParams) {
   if (/^\/customers\/[^/]+$/.test(path)) return ["总结这个客户的近况", "给这个客户起草一封跟进邮件", "明天上午提醒我跟进这个客户"];
@@ -87,13 +96,17 @@ function historyOf(turns: Turn[]) {
 /** 刷新页面后恢复：没跑完的一轮标成结束，执行中的卡片回到待确认 */
 function revive(raw: unknown): Turn[] {
   if (!Array.isArray(raw)) return [];
-  return (raw as Turn[])
-    .slice(-MAX_TURNS)
-    .map((t) =>
-      t.role === "assistant"
-        ? { ...t, status: null, done: true, cards: (t.cards ?? []).map((c) => (c.state === "running" ? { ...c, state: "pending" } : c)) }
-        : t,
-    );
+  return (raw as Turn[]).slice(-MAX_TURNS).map((t) =>
+    t.role === "assistant"
+      ? {
+          ...t,
+          id: t.id || newId(),
+          status: null,
+          done: true,
+          cards: (t.cards ?? []).map((c) => (c.state === "running" ? { ...c, state: "pending" } : c)),
+        }
+      : t,
+  );
 }
 
 /** 全局 AI 浮窗：右下角的小角色，点开向左推出对话条；切页面不丢对话 */
@@ -140,6 +153,11 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const [compose, setCompose] = useState<{ text: string; kind: ComposeKind } | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [editing, setEditing] = useState(false);
+  // 多段对话：当前这段 + 之前的（最新在前）
+  const [threadId, setThreadId] = useState(newId);
+  const [archive, setArchive] = useState<Thread[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [ready, setReady] = useState(false);
   // 电脑端（≥768px）角色常驻右下角；手机端只在工作台常驻
   const [desktop, setDesktop] = useState(false);
   useEffect(() => {
@@ -167,9 +185,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   };
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const openRef = useRef(open);
-  const loaded = useRef(false);
   useEffect(() => {
     openRef.current = open;
   }, [open]);
@@ -177,22 +194,41 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   // 读回上次的对话（只在浏览器里，避免和服务端渲染不一致）
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as { turns?: unknown; open?: boolean } | null;
+      const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as {
+        turns?: unknown;
+        id?: string;
+        archive?: { id?: string; turns?: unknown; at?: number }[];
+        open?: boolean;
+      } | null;
       if (saved) {
         setTurns(revive(saved.turns));
+        if (saved.id) setThreadId(saved.id);
+        if (Array.isArray(saved.archive))
+          setArchive(
+            saved.archive
+              .map((t) => ({ id: t.id || newId(), turns: revive(t.turns), at: t.at ?? Date.now() }))
+              .filter((t) => t.turns.length)
+              .slice(0, MAX_THREADS),
+          );
         if (saved.open && (window.location.pathname === "/dashboard" || window.matchMedia("(min-width: 768px)").matches)) setOpen(true);
       }
       const p = JSON.parse(localStorage.getItem(`${storageKey}:prefs`) ?? "null") as Partial<Prefs> | null;
-      if (p) setPrefs({ name: p.name?.trim() || DEFAULT_PREFS.name, size: SIZES.some((x) => x.px === p.size) ? p.size! : DEFAULT_PREFS.size });
+      if (p)
+        setPrefs({
+          name: p.name?.trim() || DEFAULT_PREFS.name,
+          size: SIZES.some((x) => x.px === p.size) ? p.size! : DEFAULT_PREFS.size,
+          look: normalizeAppearance(p.look),
+        });
     } catch {}
-    loaded.current = true;
+    setReady(true);
   }, [storageKey]);
+  // 读回存档之后才开始写，免得初始的空状态先把存档覆盖掉
   useEffect(() => {
-    if (!loaded.current || busy) return;
+    if (!ready || busy) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ turns: turns.slice(-MAX_TURNS), open }));
+      localStorage.setItem(storageKey, JSON.stringify({ id: threadId, turns: turns.slice(-MAX_TURNS), archive, open }));
     } catch {}
-  }, [turns, open, busy, storageKey]);
+  }, [ready, turns, threadId, archive, open, busy, storageKey]);
 
   const savePrefs = (next: Prefs) => {
     setPrefs(next);
@@ -255,7 +291,21 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       setTurns((ts) => [
         ...ts.slice(-(MAX_TURNS - 2)),
         { role: "user", text: message },
-        { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [], visuals: [] },
+        {
+          role: "assistant",
+          id: newId(),
+          text: "",
+          status: "正在思考…",
+          choice: null,
+          links: [],
+          error: null,
+          done: false,
+          mark: 0,
+          cards: [],
+          visuals: [],
+          steps: [],
+          startedAt: Date.now(),
+        },
       ]);
       if (first) setStageMode("split");
       if (stagedRef.current) setStagePane("chat");
@@ -297,7 +347,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           const e = JSON.parse(line) as StreamEvent;
           if (e.t === "step") patchLast((t) => ({ mark: t.text.length }));
           else if (e.t === "drop") patchLast((t) => ({ text: t.text.slice(0, t.mark) }));
-          else if (e.t === "status") patchLast(() => ({ status: e.text }));
+          else if (e.t === "status")
+            patchLast((t) => ({ status: e.text, steps: t.steps?.at(-1) === e.text ? t.steps : [...(t.steps ?? []), e.text] }));
           else if (e.t === "text") patchLast((t) => ({ text: t.text + e.text, status: null }));
           else if (e.t === "layout") {
             const here = canvasOnPage();
@@ -322,7 +373,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     } catch (e) {
       if (!ac.signal.aborted) patchLast(() => ({ error: e instanceof Error ? e.message : "AI 出错了，请重试" }));
     } finally {
-      patchLast(() => ({ status: null, done: true }));
+      patchLast(() => ({ status: null, done: true, endedAt: Date.now() }));
       setBusy(false);
       abortRef.current = null;
       if (!openRef.current && !stagedRef.current) setUnread(true);
@@ -334,15 +385,53 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       ts.map((t, i) => (i === ti && t.role === "assistant" ? { ...t, cards: t.cards.map((c, j) => (j === ci ? { ...c, ...patch } : c)) } : t)),
     );
 
+  /** 当前这段收进「之前的对话」 */
+  const shelve = (rest: Thread[]) => (turns.length ? [{ id: threadId, turns, at: Date.now() }, ...rest] : rest).slice(0, MAX_THREADS);
   const clear = () =>
     morph(() => {
+      setArchive((a) => shelve(a));
       setTurns([]);
+      setThreadId(newId());
       setStageMode("hero");
     });
+  const openThread = (id: string) => {
+    const t = archive.find((x) => x.id === id);
+    if (!t || busy) return;
+    setHistoryOpen(false);
+    morph(() => {
+      setArchive((a) => shelve(a.filter((x) => x.id !== id)));
+      setTurns(t.turns);
+      setThreadId(t.id);
+      setStageMode("split");
+    });
+  };
+  const deleteThread = (id: string) => setArchive((a) => a.filter((x) => x.id !== id));
+  const threadMetas: ThreadMeta[] = archive.map((t) => ({ id: t.id, title: titleOf(t.turns), at: t.at, count: t.turns.length }));
+  const setFeedback = (ti: number, v: "up" | "down" | undefined) =>
+    setTurns((ts) => ts.map((t, i) => (i === ti && t.role === "assistant" ? { ...t, feedback: v } : t)));
+
+  // 助手此刻的状态：想 → 写 → 等你确认 → 待命
+  const lastTurn = turns.at(-1);
+  const pending = turns.reduce((n, t) => n + (t.role === "assistant" ? t.cards.filter((c) => c.state === "pending").length : 0), 0);
+  const agentState: AgentState = busy
+    ? lastTurn?.role === "assistant" && lastTurn.text.trim() && !lastTurn.status
+      ? "writing"
+      : "thinking"
+    : pending
+      ? "waiting"
+      : "idle";
+  const stateText =
+    agentState === "thinking"
+      ? "正在处理…"
+      : agentState === "writing"
+        ? "正在回复…"
+        : agentState === "waiting"
+          ? `有 ${pending} 件事等你确认`
+          : "能查数据、摆工作台、起草消息和单据，确认后才执行";
 
   const stop = () => {
     abortRef.current?.abort();
-    patchLast((t) => ({ text: t.text || "已停止", status: null, done: true }));
+    patchLast((t) => ({ text: t.text || "已停止", status: null, done: true, endedAt: Date.now() }));
   };
 
   // 页面上的「让 AI …」按钮：打开浮窗并直接发出
@@ -374,12 +463,9 @@ export function AiDock({ storageKey }: { storageKey: string }) {
 
   // 电脑端每个页面都常驻；手机端只在工作台常驻，其他页面由「让 AI …」按钮唤起，换页就收起
   const home = pathname === "/dashboard";
-  const desktopRef = useRef(desktop);
   useEffect(() => {
-    desktopRef.current = desktop;
-  }, [desktop]);
-  useEffect(() => {
-    if (pathname !== "/dashboard" && !desktopRef.current) setOpen(false);
+    // 直接问浏览器宽度：刚加载时 desktop 状态还没同步，用它会把电脑上本该开着的浮窗关掉
+    if (pathname !== "/dashboard" && !window.matchMedia("(min-width: 768px)").matches) setOpen(false);
   }, [pathname]);
 
   const suggestions = suggestionsFor(pathname, sp);
@@ -395,24 +481,38 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const liftMobile = /^\/customers\/(?!new)[^/]+$/.test(pathname);
 
   const live = open || staged;
+  const iconBtn =
+    "inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
   const settingsButton = (
-    <Button
-      size="icon-xs"
-      variant="ghost"
+    <button
+      type="button"
       onClick={() => setEditing((v) => !v)}
-      aria-label="助手设置"
+      aria-label="助手档案"
       aria-expanded={editing}
-      title="助手设置"
-      className={cn(editing && "bg-muted")}
+      title="助手档案：名字、形象、字号"
+      className={cn(iconBtn, editing && "bg-muted text-foreground")}
     >
-      <Settings2 />
-    </Button>
+      <Settings2 className="size-[18px]" />
+    </button>
   );
-  const prefsPanel = editing && <PrefsPanel value={prefs} onChange={savePrefs} onClose={() => setEditing(false)} />;
+  const historyButton = (
+    <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label="之前的对话" title="之前的对话" className={cn(iconBtn, historyOpen && "bg-muted text-foreground")}>
+          <History className="size-[18px]" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 gap-1 p-1.5">
+        <p className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-muted-foreground">之前的对话</p>
+        <ThreadList threads={threadMetas} onOpen={openThread} onDelete={deleteThread} />
+      </PopoverContent>
+    </Popover>
+  );
+  const prefsPanel = editing && <AgentProfile value={prefs} onChange={savePrefs} onClose={() => setEditing(false)} />;
   const composeBox = compose && (
-    <div className="border-b bg-brand-soft/40 px-4 py-3">
+    <div className="ac-rise border-b bg-brand-soft/40 px-4 py-3 text-left">
       <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium">{COMPOSE[compose.kind].title}</span>
+        <span className="font-semibold">{COMPOSE[compose.kind].title}</span>
         <span className="text-muted-foreground">想要什么效果？点一个，或在下面直接说</span>
         <button
           type="button"
@@ -423,7 +523,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           <X className="size-3.5" />
         </button>
       </div>
-      <blockquote className="mt-2 line-clamp-3 border-l-2 border-brand/60 pl-2.5 text-[13px] text-foreground/75 whitespace-pre-wrap">
+      <blockquote className="mt-2 line-clamp-3 border-l-2 border-brand/60 pl-2.5 text-[13px] whitespace-pre-wrap text-foreground/75">
         {compose.text}
       </blockquote>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -433,7 +533,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             type="button"
             disabled={busy}
             onClick={() => runCompose(o.prompt)}
-            className="rounded-full border border-brand/30 bg-card px-3 py-1 text-xs font-medium text-brand-ink transition-colors hover:bg-brand-soft disabled:opacity-50"
+            className="h-8 rounded-md border border-brand/25 bg-card px-3 text-[12.5px] font-medium text-brand-ink transition-colors hover:bg-brand-soft disabled:opacity-50"
           >
             {o.label}
           </button>
@@ -448,7 +548,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           key={s}
           type="button"
           onClick={() => void send(s)}
-          className="shrink-0 rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
+          className="h-8 shrink-0 rounded-[10px] border border-line bg-card px-3 text-[12.5px] text-foreground/80 shadow-e1 transition-[color,background-color,transform] hover:bg-muted hover:text-foreground active:scale-[0.97]"
         >
           {s}
         </button>
@@ -456,23 +556,27 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     </div>
   );
   const log = (
-    <div ref={logRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" style={{ fontSize: prefs.size }} aria-live="polite">
+    <div ref={logRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pt-4 pb-3" style={{ fontSize: prefs.size }} aria-live="polite">
       {turns.map((t, i) =>
         t.role === "user" ? (
           <p
             key={i}
-            className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-brand-soft px-3 py-2 whitespace-pre-wrap text-foreground line-clamp-[12]"
+            className="ac-rise ml-auto line-clamp-[12] w-fit max-w-[85%] rounded-[18px] bg-[var(--own-bubble)] px-3.5 py-[7px] whitespace-pre-wrap text-foreground"
           >
             {t.text}
           </p>
         ) : (
           <AssistantView
-            key={i}
+            key={t.id ?? i}
             turn={t}
+            name={prefs.name}
+            look={prefs.look}
+            state={i === turns.length - 1 ? agentState : "idle"}
             last={i === turns.length - 1}
             busy={busy}
             onReply={send}
             onCard={(ci, patch) => patchCard(i, ci, patch)}
+            onFeedback={(v) => setFeedback(i, v)}
             onNavigate={() => setOpen(false)}
             onShowCanvas={staged ? () => withStageTransition(() => setStagePane("canvas")) : undefined}
           />
@@ -480,57 +584,108 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       )}
     </div>
   );
-  const form = (className: string, big = false) => (
-    <form
-      aria-hidden={!live}
-      className={className}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (compose && input.trim()) {
-          const v = input.trim();
-          setInput("");
-          runCompose(`${COMPOSE[compose.kind].title}：${v}`);
-        } else void send(input);
+  const submit = () => {
+    if (compose && input.trim()) {
+      const v = input.trim();
+      setInput("");
+      runCompose(`${COMPOSE[compose.kind].title}：${v}`);
+    } else void send(input);
+  };
+  /** 输入框：回车发送，Shift+回车换行，输入法选词时的回车不算 */
+  const field = (big: boolean) => (
+    <textarea
+      {...noAutofill}
+      ref={inputRef}
+      value={input}
+      rows={1}
+      tabIndex={live ? 0 : -1}
+      onChange={(e) => setInput(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          submit();
+        }
       }}
-    >
-      <input
-        {...noAutofill}
-        ref={inputRef}
-        value={input}
-        tabIndex={live ? 0 : -1}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder={compose ? "说说想要的效果，比如：更正式、写成西班牙语…" : "说一句话：查数据、摆工作台、起草邮件或报价单…"}
-        aria-label="对 AI 说"
-        maxLength={2000}
-        style={{ fontSize: big ? Math.max(prefs.size + 1, desktop ? 15 : 16) : Math.max(prefs.size, desktop ? 13 : 16) }}
-        className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-      />
-      {busy ? (
-        <Button
-          type="button"
-          size={big ? "icon" : "icon-sm"}
-          variant="outline"
-          className="rounded-full"
-          onClick={stop}
-          aria-label="停止"
-          title="停止"
-        >
-          <Square className="fill-current" />
-        </Button>
-      ) : (
-        <Button
-          type="submit"
-          size={big ? "icon" : "icon-sm"}
-          className="rounded-full"
-          disabled={!input.trim()}
-          aria-label="发送"
-          title="发送（回车）"
-          tabIndex={live ? 0 : -1}
-        >
-          <ArrowUp />
-        </Button>
+      placeholder={
+        compose
+          ? "说说想要的效果，比如：更正式、写成西班牙语…"
+          : big || !hasTurns
+            ? "说一句话：查数据、摆工作台、起草邮件或报价单…"
+            : "接着说，或让我做点别的…"
+      }
+      aria-label={`对${prefs.name}说`}
+      maxLength={2000}
+      style={{ fontSize: big ? Math.max(prefs.size + 1, desktop ? 15 : 16) : Math.max(prefs.size, desktop ? 13.5 : 16) }}
+      className={cn(
+        "field-sizing-content min-w-0 flex-1 resize-none bg-transparent leading-6 outline-none placeholder:text-muted-foreground",
+        big ? "max-h-40 min-h-12 py-1" : "max-h-32 py-2",
       )}
+    />
+  );
+  const sendButton = (big: boolean) =>
+    busy ? (
+      <Button type="button" size={big ? "icon" : "icon-sm"} variant="outline" onClick={stop} aria-label="停止" title="停止">
+        <Square className="size-4 [&_rect]:fill-current" />
+      </Button>
+    ) : (
+      <Button
+        type="submit"
+        size={big ? "icon" : "icon-sm"}
+        variant="brand"
+        disabled={!input.trim()}
+        aria-label="发送"
+        title="发送（回车）"
+        tabIndex={live ? 0 : -1}
+      >
+        <Send className="size-[18px]" />
+      </Button>
+    );
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submit();
+  };
+  /** 对话里的输入框（贴底） */
+  const form = (className: string) => (
+    <form aria-hidden={!live} className={className} onSubmit={onSubmit}>
+      {field(false)}
+      <span className="flex shrink-0 items-center self-end pb-1">{sendButton(false)}</span>
     </form>
+  );
+  const header = (
+    <header className="flex items-center gap-2.5 border-b px-3.5 py-2.5">
+      <span className="[view-transition-name:ai-mascot]">
+        <AgentAvatar name={prefs.name} size="md" state={agentState} appearance={prefs.look} />
+      </span>
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="block truncate text-[15px] font-semibold tracking-[-0.005em]">{prefs.name}</span>
+        <span
+          className={cn("flex items-center gap-1.5 truncate text-xs", agentState === "waiting" ? "text-warn" : "text-muted-foreground")}
+          aria-live="polite"
+        >
+          {busy && <PixelSpinner size={10} className="text-brand" />}
+          <span className="truncate">{stateText}</span>
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={clear}
+          title="新对话（当前这段会留在「之前的对话」里）"
+          aria-label="新对话"
+          className={cn(iconBtn, "disabled:opacity-40")}
+        >
+          <SquarePen className="size-[18px]" />
+        </button>
+        {historyButton}
+        {settingsButton}
+        {!staged && (
+          <button type="button" onClick={() => toggle(false)} aria-label="收起" title="收起（Esc）" className={iconBtn}>
+            <X className="size-[18px]" />
+          </button>
+        )}
+      </span>
+    </header>
   );
 
   // 工作台：对话界面就是页面主角（电脑左右分栏，手机分「对话 / 工作台」两页）
@@ -539,56 +694,60 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       hasTurns ? (
         <section
           aria-label={prefs.name}
-          className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl bg-card shadow-card [view-transition-name:ai-panel]"
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20px] bg-card shadow-e2 [view-transition-name:ai-panel]"
         >
-          <header className="flex items-center gap-2.5 border-b px-4 py-2.5">
-            <span className="size-8 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 [view-transition-name:ai-mascot]">
-              <AiMascot thinking={busy} className="size-full" />
-            </span>
-            <span className="max-w-[12rem] shrink-0 truncate text-base">{prefs.name}</span>
-            <span className="truncate text-xs text-muted-foreground max-xl:hidden">能查数据、摆工作台、起草消息和单据，确认后才执行</span>
-            <span className="ml-auto flex items-center gap-0.5">
-              <Button size="xs" variant="ghost" disabled={busy} onClick={clear} title="清空对话，回到开始">
-                <SquarePen /> 新对话
-              </Button>
-              {settingsButton}
-            </span>
-          </header>
+          {header}
           {prefsPanel}
           {composeBox}
           {log}
           <div className="p-3 pt-1">
             {form(
-              "flex h-12 items-center gap-2 rounded-full border bg-background pr-1.5 pl-4 transition-shadow focus-within:shadow-md [view-transition-name:ai-input]",
+              "flex items-end gap-2 rounded-xl border border-[var(--line-strong)] bg-background py-1 pr-1.5 pl-3.5 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25 [view-transition-name:ai-input]",
             )}
           </div>
         </section>
       ) : (
         <section
           aria-label={prefs.name}
-          className="relative mx-auto flex max-w-2xl flex-col items-center pt-[max(1.5rem,calc(33svh-11rem))] pb-8 text-center lg:pt-[max(0.5rem,calc(33svh-16rem))] lg:pb-10"
+          className="relative mx-auto flex max-w-2xl flex-col items-center pt-[max(3.5rem,calc(33svh-11rem))] pb-8 text-center lg:pt-[max(3.75rem,calc(33svh-16rem))] lg:pb-10"
         >
-          <span className="absolute top-0 right-0">{settingsButton}</span>
-          <span className="size-16 overflow-hidden rounded-full shadow-xl ring-1 ring-black/5 [view-transition-name:ai-mascot]">
-            <AiMascot thinking={busy} className="size-full" />
+          <span className="absolute top-0 right-0 flex items-center gap-0.5">
+            {archive.length > 0 && historyButton}
+            {settingsButton}
           </span>
-          <h1 className="mt-3 text-[1.4rem] leading-8 tracking-[-0.01em] md:text-[1.65rem]">{stage.greeting}</h1>
+          {/* 助手站在一小片自己的天光里 */}
+          <span className="relative grid place-items-center [view-transition-name:ai-mascot]">
+            <span
+              aria-hidden
+              className="absolute -inset-10 rounded-full opacity-70 blur-2xl"
+              style={{ background: "radial-gradient(closest-side, color-mix(in srgb, var(--agent) 16%, transparent), transparent)" }}
+            />
+            <AgentAvatar name={prefs.name} size="xl" state={agentState} appearance={prefs.look} labelled />
+          </span>
+          <h1 className="mt-2 font-brand text-[1.5rem] leading-8 font-medium tracking-[-0.02em] md:text-[1.8rem] md:leading-10">{stage.greeting}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {stage.sub ? `${stage.sub} · ` : ""}今天想让{prefs.name}帮你做什么？
+            {stage.sub ? `${stage.sub} · ` : ""}今天想让<b className="font-medium text-foreground">{prefs.name}</b>帮你做什么？
           </p>
           {(prefsPanel || composeBox) && (
-            <div className="mt-4 w-full overflow-hidden rounded-2xl bg-card shadow-card">
+            <div className="mt-4 w-full overflow-hidden rounded-[14px] bg-card shadow-e2">
               {prefsPanel}
               {composeBox}
             </div>
           )}
-          {form(
-            "mt-5 flex h-14 w-full items-center gap-2 rounded-full border bg-card pr-2 pl-5 shadow-lg ring-1 ring-black/[0.03] transition-shadow focus-within:shadow-xl [view-transition-name:ai-input]",
-            true,
-          )}
+          <form
+            aria-hidden={!live}
+            onSubmit={onSubmit}
+            className="mt-5 w-full rounded-[14px] border border-[var(--line-strong)] bg-card px-4 pt-3 pb-2.5 text-left shadow-e3 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/20 [view-transition-name:ai-input]"
+          >
+            <div className="flex">{field(true)}</div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-xs text-muted-foreground max-md:hidden">回车发送 · Shift+回车换行 · ⌘J 随时叫我</span>
+              <span className="ml-auto">{sendButton(true)}</span>
+            </div>
+          </form>
           {!compose &&
             chips(
-              "mt-3 justify-center max-md:-mx-3 max-md:w-[calc(100%+1.5rem)] max-md:flex-nowrap max-md:justify-start max-md:overflow-x-auto max-md:px-3 max-md:[scrollbar-width:none]",
+              "mt-3.5 justify-center max-md:-mx-3 max-md:w-[calc(100%+1.5rem)] max-md:flex-nowrap max-md:justify-start max-md:overflow-x-auto max-md:px-3 max-md:py-1 max-md:[scrollbar-width:none]",
             )}
         </section>
       ),
@@ -609,34 +768,20 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             : "bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-6",
       )}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && open) toggle(false);
+        if (e.key === "Escape" && open && !historyOpen) toggle(false);
       }}
     >
       {/* 对话记录：在对话条上方 */}
       {open && (
         <section
           aria-label={prefs.name}
-          className="pointer-events-auto flex max-h-[min(34rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-3xl bg-popover shadow-2xl ring-1 ring-black/[0.06] duration-200 fade-in-0 slide-in-from-bottom-2"
+          className="pointer-events-auto flex max-h-[min(36rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-[18px] bg-popover shadow-e3 duration-200 fade-in-0 slide-in-from-bottom-2"
         >
-          <header className="flex items-center gap-2 border-b px-4 py-2.5">
-            <span className="max-w-[12rem] shrink-0 truncate text-base">{prefs.name}</span>
-            <span className="truncate text-xs text-muted-foreground max-sm:hidden">能查数据、摆工作台、起草消息和单据，确认后才执行</span>
-            <span className="ml-auto flex items-center gap-0.5">
-              {turns.length > 0 && (
-                <Button size="icon-xs" variant="ghost" disabled={busy} onClick={clear} aria-label="清空对话" title="清空对话">
-                  <Trash2 />
-                </Button>
-              )}
-              {settingsButton}
-              <Button size="icon-xs" variant="ghost" onClick={() => toggle(false)} aria-label="收起" title="收起（Esc）">
-                <X />
-              </Button>
-            </span>
-          </header>
+          {header}
           {prefsPanel}
           {composeBox}
           {compose && turns.length === 0 ? null : turns.length === 0 ? (
-            <div className="space-y-2 px-4 py-3">
+            <div className="space-y-2.5 px-4 py-3.5">
               <p className="text-sm text-muted-foreground">可以这样问我：</p>
               {chips()}
             </div>
@@ -646,11 +791,11 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         </section>
       )}
 
-      <div className="flex w-full items-center justify-end gap-2">
-        {/* 对话条：从角色左边推出来 */}
+      <div className="flex w-full items-end justify-end gap-2">
+        {/* 对话条：从助手左边推出来 */}
         {form(
           cn(
-            "flex h-12 min-w-0 origin-right items-center gap-2 overflow-hidden rounded-full border bg-popover pr-1.5 pl-4 shadow-xl ring-1 ring-black/5 transition-[max-width,opacity,transform] duration-300 ease-out",
+            "flex min-h-12 min-w-0 origin-right items-end gap-2 overflow-hidden rounded-[14px] border border-[var(--line-strong)] bg-popover py-1 pr-1.5 pl-4 shadow-e3 transition-[max-width,opacity,transform,border-color,box-shadow] duration-300 ease-out focus-within:border-ring",
             open ? "pointer-events-auto max-w-full flex-1 opacity-100" : "max-w-0 flex-none scale-x-90 border-transparent opacity-0",
           ),
         )}
@@ -663,14 +808,21 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           aria-expanded={open}
           title={open ? "收起（⌘J）" : `${prefs.name}（⌘J）`}
           className={cn(
-            "pointer-events-auto relative size-14 shrink-0 rounded-full shadow-xl ring-1 ring-black/5 dark:ring-white/15 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+            "pointer-events-auto relative shrink-0 rounded-[30%] shadow-e3 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             push > 0 && "ai-push",
           )}
         >
-          <AiMascot thinking={busy} className="size-full" />
-          {busy && !open && <LoaderCircle className="absolute -top-1 -left-1 size-4 animate-spin rounded-full bg-popover text-brand" />}
-          {unread && !open && (
-            <span className="absolute top-0.5 right-0.5 size-3 rounded-full bg-destructive ring-2 ring-popover" aria-label="有新回复" />
+          <AgentAvatar name={prefs.name} size="lg" state={agentState} appearance={prefs.look} />
+          {busy && !open && (
+            <span className="absolute -top-1 -left-1 grid size-5 place-items-center rounded-md bg-popover shadow-e1">
+              <PixelSpinner size={11} className="text-brand" />
+            </span>
+          )}
+          {(unread || pending > 0) && !open && (
+            <span
+              className={cn("absolute -top-0.5 -right-0.5 size-3 rounded-full ring-2 ring-popover", pending ? "bg-warn" : "bg-destructive")}
+              aria-label={pending ? "有事等你确认" : "有新回复"}
+            />
           )}
         </button>
       </div>
@@ -680,131 +832,97 @@ export function AiDock({ storageKey }: { storageKey: string }) {
 
 function AssistantView({
   turn,
+  name,
+  look,
+  state,
   last,
   busy,
   onReply,
   onCard,
+  onFeedback,
   onNavigate,
   onShowCanvas,
 }: {
   turn: AssistantTurn;
+  name: string;
+  look: Prefs["look"];
+  state: AgentState;
   last: boolean;
   busy: boolean;
   onReply: (s: string) => void;
   onCard: (index: number, patch: Partial<CardState>) => void;
+  onFeedback: (v: "up" | "down" | undefined) => void;
   onNavigate: () => void;
   /** 手机工作台：切到「工作台」标签页，而不是跳转 */
   onShowCanvas?: () => void;
 }) {
+  const writing = !turn.done && !turn.status && !!turn.text.trim();
+  const ms = turn.startedAt && turn.endedAt ? turn.endedAt - turn.startedAt : undefined;
   return (
-    <div className="space-y-2.5">
-      {turn.status && (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3.5 animate-spin" /> {turn.status}
-        </p>
-      )}
-      {turn.text.trim() && <RichText text={turn.text} />}
-      {turn.visuals?.map((v, vi) => (
-        <VisualView key={vi} v={v} onNavigate={onNavigate} />
-      ))}
-      {turn.choice && (
-        <div>
-          <p className="mb-1.5 text-foreground/90">{turn.choice.question}</p>
-          <div className="flex flex-wrap gap-2">
-            {turn.choice.options.map((o) => (
-              <button
-                key={o.reply}
-                type="button"
-                disabled={!last || busy}
-                onClick={() => onReply(o.reply)}
-                className="rounded-xl border px-3 py-1.5 text-left transition-colors enabled:hover:border-foreground/30 enabled:hover:bg-muted disabled:opacity-60"
-              >
-                <span className="block font-medium">{o.label}</span>
-                {o.detail && <span className="block text-xs text-muted-foreground">{o.detail}</span>}
-              </button>
-            ))}
+    <div className="ac-rise grid grid-cols-[24px_minmax(0,1fr)] gap-x-2.5">
+      <AgentAvatar name={name} size="sm" state={state} appearance={look} reactionKey={turn.id} className="mt-px" />
+      <div className="min-w-0 space-y-2.5">
+        <p className="flex h-6 items-center text-[13px] font-semibold">{name}</p>
+        {turn.status && <WorkLine status={turn.status} since={turn.startedAt} />}
+        {turn.done && <WorkSummary name={name} steps={turn.steps ?? []} ms={ms} />}
+        {turn.text.trim() && (
+          <div className={cn(writing && "ac-caret")}>
+            <RichText text={turn.text} />
           </div>
-        </div>
-      )}
-      {turn.cards.map((c, ci) => (
-        <ActionCardView key={ci} value={c} onChange={(patch) => onCard(ci, patch)} />
-      ))}
-      {(turn.links.length > 0 || turn.canvas) && (
-        <div className="flex flex-wrap gap-2">
-          {turn.canvas && onShowCanvas ? (
-            <Button size="xs" onClick={onShowCanvas}>
-              查看工作台 <ArrowRight />
-            </Button>
-          ) : (
-            turn.canvas && (
-              <Button asChild size="xs">
-                <Link href="/dashboard" onClick={onNavigate}>
-                  到工作台查看 <ArrowRight />
+        )}
+        {turn.visuals?.map((v, vi) => (
+          <VisualView key={vi} v={v} onNavigate={onNavigate} />
+        ))}
+        {turn.choice && (
+          <div>
+            <p className="mb-2 text-foreground/90">{turn.choice.question}</p>
+            <div className="flex flex-wrap gap-2">
+              {turn.choice.options.map((o) => (
+                <button
+                  key={o.reply}
+                  type="button"
+                  disabled={!last || busy}
+                  onClick={() => onReply(o.reply)}
+                  className="rounded-[10px] border border-line bg-card px-3 py-2 text-left shadow-e1 transition-[background-color,transform] enabled:hover:bg-muted enabled:active:scale-[0.98] disabled:opacity-60"
+                >
+                  <span className="block font-medium">{o.label}</span>
+                  {o.detail && <span className="block text-xs text-muted-foreground">{o.detail}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {turn.cards.map((c, ci) => (
+          <ActionCardView key={ci} value={c} agentName={name} onChange={(patch) => onCard(ci, patch)} />
+        ))}
+        {(turn.links.length > 0 || turn.canvas) && (
+          <div className="flex flex-wrap gap-2">
+            {turn.canvas && onShowCanvas ? (
+              <Button size="sm" variant="brand" onClick={onShowCanvas}>
+                查看工作台 <ArrowRight />
+              </Button>
+            ) : (
+              turn.canvas && (
+                <Button asChild size="sm" variant="brand">
+                  <Link href="/dashboard" onClick={onNavigate}>
+                    到工作台查看 <ArrowRight />
+                  </Link>
+                </Button>
+              )
+            )}
+            {turn.links.map((l) => (
+              <Button key={l.href} asChild size="sm" variant="outline">
+                <Link href={l.href} onClick={onNavigate}>
+                  {l.label} <ArrowRight />
                 </Link>
               </Button>
-            )
-          )}
-          {turn.links.map((l) => (
-            <Button key={l.href} asChild size="xs" variant="outline">
-              <Link href={l.href} onClick={onNavigate}>
-                {l.label} <ArrowRight />
-              </Link>
-            </Button>
-          ))}
-        </div>
-      )}
-      {turn.error && <p className="text-destructive">{turn.error}</p>}
-    </div>
-  );
-}
-
-function PrefsPanel({ value, onChange, onClose }: { value: Prefs; onChange: (p: Prefs) => void; onClose: () => void }) {
-  const [name, setName] = useState(value.name);
-  const commit = () => onChange({ ...value, name: name.trim().slice(0, 16) || DEFAULT_PREFS.name });
-  return (
-    <div className="space-y-3 border-b bg-muted/40 px-4 py-3 text-sm">
-      <label className="flex items-center gap-3">
-        <span className="w-16 shrink-0 text-muted-foreground">名称</span>
-        <input
-          {...noAutofill}
-          value={name}
-          maxLength={16}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              commit();
-              onClose();
-            }
-          }}
-          placeholder={DEFAULT_PREFS.name}
-          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-card px-2.5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 max-md:text-base"
-        />
-      </label>
-      <div className="flex items-center gap-3">
-        <span className="w-16 shrink-0 text-muted-foreground">字号</span>
-        <div role="radiogroup" aria-label="字号" className="inline-flex rounded-full bg-card p-0.5 shadow-card">
-          {SIZES.map((s) => (
-            <button
-              key={s.px}
-              type="button"
-              role="radio"
-              aria-checked={value.size === s.px}
-              onClick={() => onChange({ ...value, name: name.trim().slice(0, 16) || DEFAULT_PREFS.name, size: s.px })}
-              className={cn(
-                "h-7 rounded-full px-3 transition-colors",
-                value.size === s.px ? "bg-brand-soft font-medium text-brand-ink" : "text-foreground/70 hover:text-foreground",
-              )}
-              style={{ fontSize: s.px - 1 }}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <button type="button" onClick={onClose} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
-          完成
-        </button>
+            ))}
+          </div>
+        )}
+        {turn.error && <p className="text-destructive">{turn.error}</p>}
+        {turn.done && !turn.error && (turn.text.trim() || turn.visuals?.length) ? (
+          <Feedback id={turn.id} value={turn.feedback} text={turn.text} onChange={onFeedback} />
+        ) : null}
       </div>
     </div>
   );

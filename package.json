@@ -18,6 +18,8 @@
     "worker": "tsx --conditions=react-server scripts/worker.mts"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/onest": "^5.3.1",
     "@node-rs/argon2": "^2.2.2",
     "@paper-design/shaders-react": "^0.0.82",
     "@prisma/adapter-pg": "^7.10.1",

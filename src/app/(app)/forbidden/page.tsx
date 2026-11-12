@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ShieldOff } from "lucide-react";
+import { ShieldOff } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "无权限" };

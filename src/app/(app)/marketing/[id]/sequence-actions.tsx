@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ClipboardPaste, Inbox, MoreHorizontal, Pause, Pencil, Play, Search, Trash2, UserPlus } from "lucide-react";
+import { Building2, ClipboardPaste, Inbox, MoreHorizontal, Pause, Pencil, Play, Search, Trash2, UserPlus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

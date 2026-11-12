@@ -1,23 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -73,10 +62,7 @@ export function MemberTable({
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => setEditing(m)}>编辑</DropdownMenuItem>
         {!m.isOwner && m.id !== currentUserId && (
-          <DropdownMenuItem
-            variant={m.active ? "destructive" : "default"}
-            onSelect={() => runAction(setMemberStatusAction(m.id, !m.active))}
-          >
+          <DropdownMenuItem variant={m.active ? "destructive" : "default"} onSelect={() => runAction(setMemberStatusAction(m.id, !m.active))}>
             {m.active ? "停用账号" : "启用账号"}
           </DropdownMenuItem>
         )}
@@ -108,7 +94,12 @@ export function MemberTable({
                 </>
               }
               sub={m.email}
-              aside={<span className="flex items-center gap-1">{status(m)}{menu(m)}</span>}
+              aside={
+                <span className="flex items-center gap-1">
+                  {status(m)}
+                  {menu(m)}
+                </span>
+              }
             >
               <MobileMeta
                 items={[
@@ -121,61 +112,53 @@ export function MemberTable({
           ))}
         </MobileList>
         <DesktopOnly>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="pl-4">姓名</TableHead>
-              <TableHead>邮箱</TableHead>
-              <TableHead>部门</TableHead>
-              <TableHead>角色</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>最近登录</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {members.map((m) => (
-              <TableRow key={m.id} className={m.active ? "" : "text-muted-foreground"}>
-                <TableCell className="pl-4 font-medium">
-                  {m.name}
-                  {m.isOwner && (
-                    <Badge variant="secondary" className="ml-2">
-                      主账号
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell>{m.email}</TableCell>
-                <TableCell>{m.departmentName ?? "—"}</TableCell>
-                <TableCell>{m.roleName}</TableCell>
-                <TableCell>
-                  {m.active ? (
-                    <Badge variant="outline" className="border-emerald-600/30 text-emerald-700">
-                      在用
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">已停用</Badge>
-                  )}
-                </TableCell>
-                <TableCell className="tabular-nums">{m.lastLoginAt ? fmt.format(new Date(m.lastLoginAt)) : "从未登录"}</TableCell>
-                <TableCell>
-                  {menu(m)}
-                </TableCell>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">姓名</TableHead>
+                <TableHead>邮箱</TableHead>
+                <TableHead>部门</TableHead>
+                <TableHead>角色</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>最近登录</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {members.map((m) => (
+                <TableRow key={m.id} className={m.active ? "" : "text-muted-foreground"}>
+                  <TableCell className="pl-4 font-medium">
+                    {m.name}
+                    {m.isOwner && (
+                      <Badge variant="secondary" className="ml-2">
+                        主账号
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>{m.email}</TableCell>
+                  <TableCell>{m.departmentName ?? "—"}</TableCell>
+                  <TableCell>{m.roleName}</TableCell>
+                  <TableCell>
+                    {m.active ? (
+                      <Badge variant="outline" className="border-emerald-600/30 text-emerald-700">
+                        在用
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">已停用</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="tabular-nums">{m.lastLoginAt ? fmt.format(new Date(m.lastLoginAt)) : "从未登录"}</TableCell>
+                  <TableCell>{menu(m)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </DesktopOnly>
       </div>
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           {editing && (
-            <MemberForm
-              key={editing.id ?? "new"}
-              member={editing}
-              departments={departments}
-              roles={roles}
-              onDone={() => setEditing(null)}
-            />
+            <MemberForm key={editing.id ?? "new"} member={editing} departments={departments} roles={roles} onDone={() => setEditing(null)} />
           )}
         </DialogContent>
       </Dialog>

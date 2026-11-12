@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "@/components/icons";
 import { can, requirePermission } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { aiConfigured } from "@/server/ai";

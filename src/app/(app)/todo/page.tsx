@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarDays, Inbox, ListChecks, type LucideIcon } from "lucide-react";
+import { CalendarDays, Inbox, ListChecks, type LucideIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import type { TaskItem } from "@/components/crm/tasks";
 import { can, requireUser, type CurrentUser } from "@/server/auth";

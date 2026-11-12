@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,12 +13,7 @@ import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { useActionForm } from "@/hooks/use-action-form";
 import { COUNTRIES, CUSTOMER_SOURCES, CUSTOMER_TYPES } from "@/lib/crm";
-import {
-  checkDuplicateAction,
-  createCustomerAction,
-  updateCustomerAction,
-  type DuplicateHit,
-} from "@/app/(app)/customers/actions";
+import { checkDuplicateAction, createCustomerAction, updateCustomerAction, type DuplicateHit } from "@/app/(app)/customers/actions";
 
 export type CustomerOptionsProp = {
   statuses: { id: string; name: string; color: string }[];
@@ -43,15 +38,7 @@ export type EditableCustomer = {
 };
 
 /** 新建 / 编辑客户表单（放在 DialogContent 里用） */
-export function CustomerForm({
-  customer,
-  options,
-  onDone,
-}: {
-  customer?: EditableCustomer;
-  options: CustomerOptionsProp;
-  onDone: () => void;
-}) {
+export function CustomerForm({ customer, options, onDone }: { customer?: EditableCustomer; options: CustomerOptionsProp; onDone: () => void }) {
   const router = useRouter();
   const isNew = !customer;
   const [state, submit, pending] = useActionForm(isNew ? createCustomerAction : updateCustomerAction, (_f, r) => {

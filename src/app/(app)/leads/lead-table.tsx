@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/crm/empty-state";
 import Form from "next/form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Ban, Hand, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Trash2, UserCheck, UserPlus, X } from "lucide-react";
+import { Ban, Hand, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Trash2, UserCheck, UserPlus, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";

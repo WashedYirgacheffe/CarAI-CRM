@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Copy, FileOutput, MoreHorizontal, Pencil, Printer, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, FileOutput, MoreHorizontal, Pencil, Printer, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,

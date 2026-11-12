@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Form from "next/form";
 import Link from "next/link";
-import { FolderTree, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { FolderTree, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

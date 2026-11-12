@@ -1,4 +1,4 @@
-import { Inbox, type LucideIcon } from "lucide-react";
+import { Inbox, type LucideIcon } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 /** 统一空状态：虚线圆圈 + 图标 + 一句话 */

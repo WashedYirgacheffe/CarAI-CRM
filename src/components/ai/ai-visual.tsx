@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronRight } from "@/components/icons";
 import type { Visual, VisualItem } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 

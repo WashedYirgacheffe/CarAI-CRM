@@ -1,16 +1,8 @@
-import { Construction } from "lucide-react";
+import { Construction } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 
 /** 尚未开发的模块占位页：说明上线阶段和计划能力，避免菜单点进去是 404。 */
-export function PlannedModule({
-  title,
-  phase,
-  features,
-}: {
-  title: string;
-  phase: string;
-  features: string[];
-}) {
+export function PlannedModule({ title, phase, features }: { title: string; phase: string; features: string[] }) {
   return (
     <>
       <PageHeader title={title} />

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlarmClock, Check, Clock, Mail, MessageCircle, Reply, type LucideIcon } from "lucide-react";
+import { AlarmClock, Check, Clock, Mail, MessageCircle, Reply, type LucideIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { KindTag } from "@/components/crm/tasks";

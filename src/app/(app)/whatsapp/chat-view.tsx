@@ -41,7 +41,7 @@ import {
   StarOff,
   Trash2,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 import { TaskForm } from "@/components/crm/tasks";
 import { Button } from "@/components/ui/button";

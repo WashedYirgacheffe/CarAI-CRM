@@ -19,7 +19,7 @@ import {
   Sparkles,
   Star,
   Truck,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";

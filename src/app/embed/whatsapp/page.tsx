@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle } from "@/components/icons";
 import { can, requirePermission } from "@/server/auth";
 import { prisma } from "@/server/db";
 import { aiConfigured } from "@/server/ai";

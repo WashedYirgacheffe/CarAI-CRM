@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BellPlus, Check, ChevronDown, Clock, ExternalLink, Trash2 } from "lucide-react";
+import { BellPlus, Check, ChevronDown, Clock, ExternalLink, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";

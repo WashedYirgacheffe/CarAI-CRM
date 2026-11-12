@@ -1,16 +1,20 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./agentes.css";
 
 @custom-variant dark (&:is(.dark *));
 
 /* 状态色统一降饱和，不和强调橙抢视线（覆盖 Tailwind 默认色板） */
 @theme {
   /* 全站缓动：非线性，起步快、收尾柔（ease-out 工具类和默认 transition 都用它） */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 动效沿用 agentes 设计系统：out 收尾柔，spring 带一点回弹，drawer 是侧板滑入 */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  --default-transition-duration: 180ms;
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --default-transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --default-transition-duration: 140ms;
   --color-red-50: oklch(97.1% 0.010 17.38);
   --color-red-100: oklch(93.6% 0.024 17.717);
   --color-red-200: oklch(88.5% 0.046 18.334);
@@ -192,9 +196,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 拉丁字母和数字用 Onest，中文落到各系统自带的黑体 */
+  --font-sans: "Onest Variable", Onest, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-heading: var(--font-sans);
+  /* 品牌字（Funnel Display）和点阵字（Doto）：只用在 Logo、首屏大数字这些少数时刻 */
+  --font-brand: var(--font-funnel), var(--font-sans);
+  --font-dot: var(--font-doto), var(--font-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -228,94 +236,132 @@
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-soft: var(--brand-soft);
   --color-brand-ink: var(--brand-ink);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-info: var(--info);
+  --color-plate: var(--plate);
+  --color-line: var(--line);
+  --color-side: var(--side);
   --shadow-card: var(--card-shadow);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-e1: var(--e1);
+  --shadow-e2: var(--e2);
+  --shadow-e3: var(--e3);
+  /* 圆角阶梯（agentes）：控件 10/12/14，卡片 14～20；Agent 的头像和卡片留一个「切角」 */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-3xl: 20px;
+  --radius-4xl: 26px;
+  --radius-cut: 2px;
 }
 
 :root {
-  /* 暖调浅底 + 纯白大圆角卡片；主色是柔和的陶土橙（白字对比度 4.6），不再用纯黑做按钮 */
-  --background: oklch(0.965 0.005 75);
-  --foreground: oklch(0.3 0.012 55);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.3 0.012 55);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.3 0.012 55);
-  --primary: oklch(0.575 0.12 45);
-  --primary-foreground: oklch(0.99 0.004 75);
-  --secondary: oklch(0.955 0.008 70);
-  --secondary-foreground: oklch(0.36 0.02 50);
-  --muted: oklch(0.962 0.006 75);
-  --muted-foreground: oklch(0.52 0.012 60);
-  --accent: oklch(0.952 0.012 65);
-  --accent-foreground: oklch(0.3 0.012 55);
-  --destructive: oklch(0.6 0.17 25);
-  --border: oklch(0.925 0.006 70);
-  --input: oklch(0.9 0.008 70);
-  --ring: oklch(0.7 0.11 50);
-  /* 强调橙：重点卡片、关键柱、今天；浅橙做选中态和辅助填充 */
-  --brand: oklch(0.74 0.12 55);
-  --brand-foreground: oklch(0.28 0.03 45);
-  --brand-soft: oklch(0.935 0.035 60);
-  --brand-ink: oklch(0.5 0.12 45);
-  --chart-1: oklch(0.72 0.12 52);
-  --chart-2: oklch(0.55 0.05 50);
-  --chart-3: oklch(0.87 0.06 58);
-  --chart-4: oklch(0.7 0.02 60);
-  --chart-5: oklch(0.89 0.01 70);
-  --radius: 0.85rem;
-  --card-shadow: 0 1px 2px oklch(0.3 0.03 50 / 0.03), 0 6px 18px -10px oklch(0.3 0.03 50 / 0.08);
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.47 0.012 60);
-  --sidebar-primary: oklch(0.575 0.12 45);
-  --sidebar-primary-foreground: oklch(0.99 0.004 75);
-  --sidebar-accent: oklch(0.952 0.012 65);
-  --sidebar-accent-foreground: oklch(0.3 0.012 55);
-  --sidebar-border: oklch(0.93 0.006 70);
-  --sidebar-ring: oklch(0.7 0.11 50);
+  /*
+   * agentes 设计系统（2026-10）：近白的纸面 + 纯白工作区，墨色做主按钮，Agent 蓝是唯一的强调色。
+   * 卡片不用粗边框，靠一圈发丝线 + 很浅的投影（e1/e2/e3）分层。
+   */
+  --bg: #fbfbfa;
+  --raised: #ffffff;
+  --sunken: #f3f3f0;
+  --side: #f6f9fd;
+  --ink: #151514;
+  --ink2: #2a2a28;
+  --line: rgba(23, 23, 22, 0.07);
+  --line2: rgba(23, 23, 22, 0.12);
+  --line-strong: #82827d;
+  --faint: #6f6f6a;
+  --agent: #0063d1;
+  --agent2: #3d8bff;
+  --agent-soft: #e3eefd;
+  --on-agent: #ffffff;
+  --ok: #1f7a45;
+  --warn: #9a5b00;
+  --warn-soft: #fbeed5;
+  --info: #0a6f9e;
+  --plate: rgba(127, 127, 127, 0.1);
+  --plate-soft: rgba(127, 127, 127, 0.06);
+  --e1: 0 1px 1px rgba(23, 23, 22, 0.04), 0 2px 4px -1px rgba(23, 23, 22, 0.05), 0 0 0 1px var(--line);
+  --e2: 0 1px 1px rgba(23, 23, 22, 0.04), 0 6px 16px -4px rgba(23, 23, 22, 0.1), 0 0 0 1px var(--line);
+  --e3: 0 2px 4px rgba(23, 23, 22, 0.04), 0 24px 56px -16px rgba(23, 23, 22, 0.3), 0 0 0 1px var(--line2);
+  --chosen-press: inset 0 2px 5px rgba(0, 0, 0, 0.16), inset 0 1px 1.5px rgba(0, 0, 0, 0.12);
+  --own-bubble: color-mix(in srgb, var(--ink) 6%, var(--bg));
+
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--raised);
+  --card-foreground: var(--ink);
+  --popover: var(--raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--bg);
+  --secondary: var(--sunken);
+  --secondary-foreground: var(--ink2);
+  --muted: var(--sunken);
+  --muted-foreground: #5c5c58;
+  --accent: color-mix(in srgb, var(--ink) 5%, var(--raised));
+  --accent-foreground: var(--ink);
+  --destructive: #b42a20;
+  --border: var(--line2);
+  --input: rgba(23, 23, 22, 0.16);
+  --ring: var(--line-strong);
+  /* 强调色：Agent 蓝。重点卡片、关键柱、今天、AI 相关的一切 */
+  --brand: var(--agent);
+  --brand-foreground: var(--on-agent);
+  --brand-soft: var(--agent-soft);
+  --brand-ink: var(--agent);
+  /* 图表分类色：取自 Agent 的预设色（天蓝、青、琥珀、紫、玫红），已过色盲区分校验 */
+  --chart-1: #0063d1;
+  --chart-2: #00968a;
+  --chart-3: #c07d0b;
+  --chart-4: #6e45d1;
+  --chart-5: #c9406a;
+  --radius: 0.875rem;
+  --card-shadow: var(--e1);
+  --sidebar: var(--side);
+  --sidebar-foreground: #5c5c58;
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--bg);
+  --sidebar-accent: color-mix(in srgb, var(--ink) 10%, var(--side));
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--line-strong);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.72 0.12 52);
-  --primary-foreground: oklch(0.2 0.02 45);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.72 0.12 52);
-  --sidebar-primary-foreground: oklch(0.2 0.02 45);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  --brand: oklch(0.74 0.15 52);
-  --brand-foreground: oklch(0.16 0 0);
-  --brand-soft: oklch(0.36 0.06 50);
-  --brand-ink: oklch(0.82 0.11 55);
+  --bg: #0f0f0e;
+  --raised: #1c1c1b;
+  --sunken: #0a0a09;
+  --side: #0b0d11;
+  --ink: #efefec;
+  --ink2: #d6d6d2;
+  --line: rgba(255, 255, 255, 0.1);
+  --line2: rgba(255, 255, 255, 0.15);
+  --line-strong: #71716c;
+  --faint: #8f8f89;
+  --agent: #5aa8ff;
+  --agent2: #8cc3ff;
+  --agent-soft: #11253f;
+  --on-agent: #00203f;
+  --ok: #5fc48a;
+  --warn: #e0a84a;
+  --warn-soft: #33260e;
+  --info: #5cc4ea;
+  --plate: rgba(127, 127, 127, 0.14);
+  --plate-soft: rgba(127, 127, 127, 0.08);
+  --e1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--line);
+  --e2: 0 8px 20px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--line);
+  --e3: 0 28px 64px -16px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--line2);
+  --chosen-press: inset 0 2px 5px rgba(0, 0, 0, 0.9), inset 0 1px 1.5px rgba(0, 0, 0, 0.7);
+  --muted-foreground: #a3a39e;
+  --accent: color-mix(in srgb, var(--ink) 8%, var(--raised));
+  --destructive: #f08a80;
+  --input: rgba(255, 255, 255, 0.18);
+  --sidebar-foreground: #a3a39e;
+  --sidebar-accent: color-mix(in srgb, var(--ink) 14%, var(--side));
 }
 
 @layer base {
@@ -329,11 +375,11 @@
     @apply font-sans;
   }
   ::selection {
-    background: oklch(0.72 0.12 52 / 0.24);
+    background: color-mix(in srgb, var(--agent) 22%, transparent);
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: oklch(0.85 0.008 70) transparent;
+    scrollbar-color: color-mix(in srgb, var(--ink) 18%, transparent) transparent;
   }
   .tabular-nums,
   td {
@@ -349,8 +395,8 @@
 
 /* 图表里的普通柱：灰色斜纹；重点柱用实心橙 */
 @utility bar-stripes {
-  background-color: oklch(0.93 0 0);
-  background-image: repeating-linear-gradient(135deg, oklch(0.84 0 0) 0 1.5px, transparent 1.5px 6px);
+  background-color: var(--sunken);
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 16%, transparent) 0 1.5px, transparent 1.5px 6px);
 }
 
 /* 单据打印：A4，去掉浏览器默认页边距里的页眉页脚 */
@@ -442,46 +488,6 @@ html {
   100% { transform: translateX(300%); }
 }
 
-/* ── AI 浮窗小角色：深色圆脸 + 两只会动的眼睛 ── */
-.ai-mascot .ai-mascot-eye {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: ai-blink 5.2s infinite;
-}
-.ai-mascot .ai-mascot-eye + .ai-mascot-eye {
-  animation-delay: 0.04s;
-}
-.ai-mascot .ai-mascot-look {
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.ai-mascot .ai-mascot-eyes {
-  animation: ai-glance 9s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-.ai-mascot.is-thinking .ai-mascot-eyes {
-  animation: ai-look 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-.ai-mascot.is-thinking .ai-mascot-eye {
-  animation: ai-squint 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-@keyframes ai-blink {
-  0%, 93%, 100% { transform: scaleY(1); }
-  95.5% { transform: scaleY(0.08); }
-}
-@keyframes ai-glance {
-  0%, 18%, 100% { transform: translate(0, 0); }
-  22%, 34% { transform: translate(-3.5px, -1px); }
-  38%, 52% { transform: translate(0, 0); }
-  56%, 66% { transform: translate(3.5px, 1.5px); }
-  70%, 82% { transform: translate(0, -2px); }
-}
-@keyframes ai-look {
-  0%, 100% { transform: translateX(-3px); }
-  50% { transform: translateX(3px); }
-}
-@keyframes ai-squint {
-  0%, 100% { transform: scaleY(0.55); }
-  50% { transform: scaleY(0.8); }
-}
 /* 展开时小角色往左「推」一下对话条 */
 @keyframes ai-push {
   0% { transform: translateX(0) rotate(0); }
@@ -493,8 +499,6 @@ html {
   animation: ai-push 0.45s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ai-mascot .ai-mascot-eye,
-  .ai-mascot .ai-mascot-eyes,
   .ai-push {
     animation: none;
   }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Minimize2, Redo2, Undo2 } from "lucide-react";
+import { Minimize2, Redo2, Undo2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { runAction } from "@/hooks/use-action-form";
 import { saveWorkspaceAction } from "@/app/(app)/dashboard/actions";

@@ -16,7 +16,7 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
-} from "lucide-react";
+} from "@/components/icons";
 import { WaAvatar } from "@/components/crm/wa-avatar";
 import { ContextActions, DropdownActions, type MenuEntry } from "@/components/crm/action-menu";
 import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
