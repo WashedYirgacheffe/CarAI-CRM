@@ -12,6 +12,8 @@ RUN pnpm install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# 限制 Node 堆内存：超了就构建失败退出，不会拖垮正在运行的网站
+ENV SKIP_TYPECHECK=1 NODE_OPTIONS=--max-old-space-size=1536
 RUN pnpm prisma generate && pnpm build
 
 FROM base AS runner
