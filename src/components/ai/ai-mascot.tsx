@@ -1,37 +1,52 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * 车车 AI 的小角色：圆滚滚的小车脸，车灯当眼睛，头顶一根天线。
- * idle 时偶尔眨眼；thinking 时眼睛左右看、天线闪。
+ * 车车 AI 的小角色：一张深色圆脸，只有两只胶囊形的白眼睛。
+ * 平时自己眨眼、四处张望；有鼠标时眼睛跟着指针看；思考时眯眼左右看。
  */
 export function AiMascot({ thinking, className }: { thinking?: boolean; className?: string }) {
+  const svg = useRef<SVGSVGElement>(null);
+  const look = useRef<SVGGElement>(null);
+
+  useEffect(() => {
+    if (!window.matchMedia("(hover: hover) and (prefers-reduced-motion: no-preference)").matches) return;
+    let raf = 0;
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const onMove = (e: PointerEvent) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const r = svg.current?.getBoundingClientRect();
+        if (!r || !look.current) return;
+        const dx = e.clientX - (r.left + r.width / 2);
+        const dy = e.clientY - (r.top + r.height / 2);
+        const d = Math.hypot(dx, dy) || 1;
+        const k = Math.min(1, d / 260);
+        look.current.style.transform = `translate(${((dx / d) * 4.5 * k).toFixed(2)}px, ${((dy / d) * 3.5 * k).toFixed(2)}px)`;
+      });
+      // 指针停下一会儿，眼睛回正，交给自己的张望动画
+      clearTimeout(idle);
+      idle = setTimeout(() => look.current && (look.current.style.transform = ""), 2500);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      cancelAnimationFrame(raf);
+      clearTimeout(idle);
+    };
+  }, []);
+
   return (
-    <svg viewBox="0 0 64 64" aria-hidden className={cn("ai-mascot", thinking && "is-thinking", className)}>
-      <defs>
-        <linearGradient id="ai-mascot-body" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="oklch(0.78 0.15 58)" />
-          <stop offset="1" stopColor="oklch(0.68 0.17 45)" />
-        </linearGradient>
-      </defs>
-      {/* 天线 */}
-      <path d="M32 13 V6" stroke="oklch(0.28 0 0)" strokeWidth="2.5" strokeLinecap="round" />
-      <circle className="ai-mascot-bulb" cx="32" cy="5.5" r="3.5" fill="oklch(0.28 0 0)" />
-      {/* 身体 */}
-      <rect x="6" y="12" width="52" height="46" rx="23" fill="url(#ai-mascot-body)" />
-      {/* 后视镜一样的小耳朵 */}
-      <rect x="2" y="30" width="7" height="12" rx="3.5" fill="oklch(0.28 0 0)" />
-      <rect x="55" y="30" width="7" height="12" rx="3.5" fill="oklch(0.28 0 0)" />
-      {/* 脸 */}
-      <rect x="13" y="22" width="38" height="27" rx="13.5" fill="oklch(0.99 0.004 60)" />
-      <g className="ai-mascot-eyes">
-        <ellipse className="ai-mascot-eye" cx="25" cy="34" rx="3.6" ry="4.6" fill="oklch(0.22 0 0)" />
-        <ellipse className="ai-mascot-eye" cx="39" cy="34" rx="3.6" ry="4.6" fill="oklch(0.22 0 0)" />
-        <circle cx="26.2" cy="32.4" r="1.2" fill="white" />
-        <circle cx="40.2" cy="32.4" r="1.2" fill="white" />
+    <svg ref={svg} viewBox="0 0 64 64" aria-hidden className={cn("ai-mascot", thinking && "is-thinking", className)}>
+      <circle cx="32" cy="32" r="32" fill="oklch(0.2 0 0)" />
+      <g ref={look} className="ai-mascot-look">
+        <g className="ai-mascot-eyes">
+          <rect className="ai-mascot-eye" x="21.5" y="22" width="7" height="17" rx="3.5" fill="white" />
+          <rect className="ai-mascot-eye" x="35.5" y="22" width="7" height="17" rx="3.5" fill="white" />
+        </g>
       </g>
-      <circle cx="19.5" cy="41" r="2.6" fill="oklch(0.84 0.09 40)" opacity="0.8" />
-      <circle cx="44.5" cy="41" r="2.6" fill="oklch(0.84 0.09 40)" opacity="0.7" />
-      <path d="M28.5 42.5 Q32 45.5 35.5 42.5" stroke="oklch(0.22 0 0)" strokeWidth="2" strokeLinecap="round" fill="none" />
     </svg>
   );
 }

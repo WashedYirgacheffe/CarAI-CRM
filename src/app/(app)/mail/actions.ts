@@ -10,7 +10,8 @@ import { testMailConfig } from "@/server/mail/client";
 import { sendMail } from "@/server/mail/send";
 import { markSeenOnServer, syncMailAccount } from "@/server/mail/sync";
 import { MAX_ATTACHMENT_BYTES, asAttachments, readAttachment, type MailAddress } from "@/server/mail/store";
-import { AiError, aiConfigured, analyzeMail } from "@/server/ai";
+import { AiError, aiConfigured, aiJson, analyzeMail } from "@/server/ai";
+import { googleTranslateMany } from "@/server/translate";
 import { getCustomerForUser, logActivity } from "@/server/customers";
 import { scopeOwnerIds } from "@/server/scope";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
@@ -45,17 +46,35 @@ const port = z.coerce.number().int().min(1).max(65535);
 const accountSchema = z.object({
   id: z.string().optional(),
   email: z.email({ message: "邮箱格式不正确" }).transform((v) => v.trim().toLowerCase()),
-  displayName: z.string().trim().max(100).optional().transform((v) => v || null),
+  displayName: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((v) => v || null),
   username: z.string().trim().max(200).optional(),
   password: z.string().max(500).optional(),
   imapHost: z.string().trim().min(3, "请填写收信服务器").max(200),
   imapPort: port,
-  imapSecure: z.string().optional().transform((v) => v === "on"),
+  imapSecure: z
+    .string()
+    .optional()
+    .transform((v) => v === "on"),
   smtpHost: z.string().trim().min(3, "请填写发信服务器").max(200),
   smtpPort: port,
-  smtpSecure: z.string().optional().transform((v) => v === "on"),
-  signature: z.string().max(3000).optional().transform((v) => v?.trim() || null),
-  autoLead: z.string().optional().transform((v) => v === "on"),
+  smtpSecure: z
+    .string()
+    .optional()
+    .transform((v) => v === "on"),
+  signature: z
+    .string()
+    .max(3000)
+    .optional()
+    .transform((v) => v?.trim() || null),
+  autoLead: z
+    .string()
+    .optional()
+    .transform((v) => v === "on"),
 });
 
 export async function saveMailAccountAction(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -277,7 +296,13 @@ export async function searchCustomersAction(q: string) {
     where: {
       ...(scope ? { ownerId: { in: scope } } : { ownerId: { not: null } }),
       ...(term
-        ? { OR: [{ name: { contains: term, mode: "insensitive" } }, { domain: { contains: term.toLowerCase() } }, { contacts: { some: { email: { contains: term, mode: "insensitive" } } } }] }
+        ? {
+            OR: [
+              { name: { contains: term, mode: "insensitive" } },
+              { domain: { contains: term.toLowerCase() } },
+              { contacts: { some: { email: { contains: term, mode: "insensitive" } } } },
+            ],
+          }
         : {}),
     },
     select: { id: true, name: true, domain: true },
@@ -307,7 +332,13 @@ export async function linkMailAction(id: string, customerId: string): Promise<Ac
       existing?.id ??
       (
         await db.contact.create({
-          data: { tenantId: user.tenantId, customerId, name: other.name?.trim() || other.address.split("@")[0], email: other.address, remark: "从邮件归档时添加" },
+          data: {
+            tenantId: user.tenantId,
+            customerId,
+            name: other.name?.trim() || other.address.split("@")[0],
+            email: other.address,
+            remark: "从邮件归档时添加",
+          },
         })
       ).id;
     if (!found.customer.domain && extractDomain(other.address)) {
@@ -363,4 +394,43 @@ export async function mailToLeadAction(id: string): Promise<ActionState> {
   revalidatePath("/mail", "layout");
   revalidatePath("/leads");
   return { ok: true, message: "已建为线索" };
+}
+
+/** 嵌入式翻译：邮件正文按段落传进来，逐段译成中文（谷歌优先，失败退回 AI） */
+export async function translateMailSegmentsAction(id: string, segments: string[]): Promise<ActionState & { t?: string[] }> {
+  const user = await requireMailUser();
+  if (!user) return denied();
+  if (!can(user, "ai.use")) return denied("没有使用翻译的权限");
+  const m = await ownMessage(user, id);
+  if (!m) return denied("邮件不存在");
+  const segs = segments.slice(0, 220).map((x) => String(x).slice(0, 4800));
+  if (!segs.length) return { ok: true, t: [] };
+  try {
+    return { ok: true, t: await googleTranslateMany(segs, "简体中文") };
+  } catch (e) {
+    console.warn("google translate failed, fallback to AI:", (e as Error).message);
+  }
+  if (!aiConfigured()) return denied("翻译服务暂时不可用");
+  try {
+    const out: string[] = [];
+    for (let i = 0; i < segs.length; i += 40) {
+      const part = segs.slice(i, i + 40);
+      const r = await aiJson<{ t?: unknown }>({
+        system: "你是外贸业务员的翻译助手，把客户邮件逐段译成自然的简体中文。只输出一个 JSON 对象。",
+        messages: [
+          {
+            role: "user",
+            content: `把下面 ${part.length} 段逐段译成简体中文，产品型号、数字、单位、人名保持原样，段内换行用 \\n 保留。输出 {"t": ["译文1", ...]}，数量和顺序必须与原文一致。\n\n${JSON.stringify(part)}`,
+          },
+        ],
+        maxTokens: 4000,
+        timeoutMs: 60_000,
+      });
+      const t = Array.isArray(r.t) ? r.t : [];
+      part.forEach((_, k) => out.push(String(t[k] ?? "")));
+    }
+    return { ok: true, t: out };
+  } catch (e) {
+    return denied(e instanceof AiError ? e.message : "翻译失败，请稍后再试");
+  }
 }

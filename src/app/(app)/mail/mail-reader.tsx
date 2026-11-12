@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
-  ChevronDown,
   Download,
   Forward,
   Languages,
@@ -29,7 +28,7 @@ import { MAIL_INTENT_LABELS, MAIL_PRIORITY_LABELS } from "@/lib/mail";
 import { QuickReminder } from "@/components/crm/tasks";
 import { looksForeign } from "@/lib/lang";
 import { cn } from "@/lib/utils";
-import { streamAiWrite } from "@/components/ai/stream-write";
+import { renderTranslated, segmentsOf, textToHtml, type TrMode } from "./embed-translate";
 import {
   analyzeMailAction,
   linkMailAction,
@@ -38,6 +37,7 @@ import {
   setMailDoneAction,
   setSeenAction,
   setStarredAction,
+  translateMailSegmentsAction,
 } from "./actions";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 
@@ -88,30 +88,40 @@ function bodyText(m: { text: string | null; html: string | null }) {
     .trim();
 }
 
-/** 只翻译对方这次写的：去掉引用的历史邮件 */
-function freshPart(text: string) {
-  const cut = text.search(/^(>|On .{4,200}wrote:|-{2,}\s*Original Message|From: .+\n(Sent|Date): |发件人[:：]|在 .{4,80}写道[:：])/im);
-  return (cut > 40 ? text.slice(0, cut) : text).trim().slice(0, 6000);
-}
-
-const TR_KEY = "crm-mail-tr";
-function cachedTranslation(id: string): string | null {
+const TR_KEY = "crm.mail.tr2";
+const MODE_KEY = "crm.mail.trMode";
+function cachedTranslation(id: string, n: number): string[] | null {
   try {
-    return (JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string>)[id] ?? null;
+    const t = (JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string[]>)[id];
+    return Array.isArray(t) && t.length === n ? t : null;
   } catch {
     return null;
   }
 }
-function cacheTranslation(id: string, text: string) {
+function cacheTranslation(id: string, t: string[]) {
   try {
-    const all = JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string>;
+    const all = JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string[]>;
     delete all[id];
-    all[id] = text;
+    all[id] = t;
     const keys = Object.keys(all);
-    for (const k of keys.slice(0, Math.max(0, keys.length - 60))) delete all[k];
+    for (const k of keys.slice(0, Math.max(0, keys.length - 40))) delete all[k];
     localStorage.setItem(TR_KEY, JSON.stringify(all));
   } catch {}
 }
+function savedMode(): TrMode {
+  try {
+    const v = localStorage.getItem(MODE_KEY);
+    return v === "original" || v === "translated" ? v : "bilingual";
+  } catch {
+    return "bilingual";
+  }
+}
+
+const TR_MODES: { key: TrMode; label: string }[] = [
+  { key: "original", label: "原文" },
+  { key: "bilingual", label: "双语" },
+  { key: "translated", label: "译文" },
+];
 
 function sizeLabel(n: number) {
   if (n < 1024) return `${n} B`;
@@ -135,9 +145,10 @@ export function MailReader({
   const router = useRouter();
   const [starred, setStarred] = useState(m.starred);
   const [analyzing, setAnalyzing] = useState(false);
-  const [translation, setTranslation] = useState<string | null>(null);
+  const [translation, setTranslation] = useState<string[] | null>(null);
   const [translating, setTranslating] = useState(false);
-  const [showTr, setShowTr] = useState(true);
+  const [segments, setSegments] = useState<string[]>([]);
+  const [mode, setModeState] = useState<TrMode>("bilingual");
   const [linking, setLinking] = useState(false);
 
   useEffect(() => {
@@ -171,39 +182,68 @@ export function MailReader({
     if (r.ok) router.refresh();
   }
 
-  async function translate() {
-    const src = freshPart(bodyText(m));
-    if (!src) return;
-    setShowTr(true);
+  // 正文：HTML 去掉追踪像素；纯文本邮件转成简单 HTML，统一走嵌入式翻译
+  const baseHtml = useMemo(
+    () => (m.html ? m.html.replace(/<img[^>]+\/api\/t\/o\/[^>]*>/g, "") : textToHtml(m.text || "（没有正文）")),
+    [m.html, m.text],
+  );
+
+  async function translate(segs = segments) {
+    if (!segs.length || translating) return;
     setTranslating(true);
-    const r = await streamAiWrite({ mode: "translate", draft: src, language: "简体中文", channel: "email" }, setTranslation);
+    const r = await translateMailSegmentsAction(m.id, segs);
     setTranslating(false);
-    if (r.ok) {
-      setTranslation(r.text);
-      cacheTranslation(m.id, r.text);
-    } else {
-      setTranslation(null);
-      toast.error(r.message);
-    }
+    if (r.ok && r.t) {
+      setTranslation(r.t);
+      cacheTranslation(m.id, r.t);
+    } else toast.error(r.message || "翻译失败");
   }
 
-  // 打开收到的邮件：还没分析就分析，外文就直接翻译，不用再点按钮
+  function setMode(next: TrMode) {
+    setModeState(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch {}
+    if (next !== "original" && !translation) void translate();
+  }
+
+  // 打开邮件：切段；还没分析就分析；外文按上次选的模式直接翻译，不用再点按钮
   useEffect(() => {
-    if (!canAi || m.folder !== "INBOX") return;
     const t = setTimeout(() => {
-      if (!m.aiSummary) void analyze(false);
-      const cached = cachedTranslation(m.id);
+      const segs = segmentsOf(baseHtml);
+      const md = savedMode();
+      setSegments(segs);
+      setModeState(md);
+      if (!canAi) return;
+      if (m.folder === "INBOX" && !m.aiSummary) void analyze(false);
+      if (!segs.length) return;
+      const cached = cachedTranslation(m.id, segs.length);
       if (cached) setTranslation(cached);
-      else if (looksForeign(bodyText(m))) void translate();
+      else if (md !== "original" && m.folder === "INBOX" && looksForeign(bodyText(m))) void translate(segs);
     }, 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const srcDoc = useMemo(() => {
-    if (!m.html) return null;
-    return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2328;margin:0;padding:4px 2px;word-break:break-word}img{max-width:100%;height:auto}blockquote{border-left:3px solid #d0d7de;margin:0 0 0 4px;padding-left:10px;color:#57606a}</style></head><body>${m.html.replace(/<img[^>]+\/api\/t\/o\/[^>]*>/g, "")}</body></html>`;
-  }, [m.html]);
+    const body = renderTranslated(baseHtml, translation, mode);
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>html,body{overflow-x:hidden}body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Arial,sans-serif;font-size:15px;line-height:1.6;color:#1f2328;margin:0;padding:2px 0;word-break:break-word;overflow-wrap:anywhere}img,video{max-width:100%!important;height:auto!important}table,div,td,th,p,pre{max-width:100%!important;box-sizing:border-box}table{table-layout:auto!important}pre{white-space:pre-wrap}p{margin:0 0 .9em}blockquote{border-left:3px solid #d0d7de;margin:0 0 0 4px;padding-left:10px;color:#57606a}.crm-tr{display:block;margin-top:.3em}.crm-tr-only{margin-top:0}.crm-orig{display:none}</style></head><body>${body}</body></html>`;
+  }, [baseHtml, translation, mode]);
+
+  // iframe 跟内容一样高：整页只有一个纵向滚动
+  const frame = useRef<HTMLIFrameElement>(null);
+  const ro = useRef<ResizeObserver | null>(null);
+  useEffect(() => () => ro.current?.disconnect(), []);
+  const fitFrame = () => {
+    const f = frame.current;
+    const d = f?.contentDocument;
+    if (!f || !d?.body) return;
+    const fit = () => (f.style.height = `${Math.max(80, d.documentElement.scrollHeight)}px`);
+    fit();
+    ro.current?.disconnect();
+    ro.current = new ResizeObserver(fit);
+    ro.current.observe(d.body);
+  };
 
   const intent = m.aiIntent ? MAIL_INTENT_LABELS[m.aiIntent] : null;
   const priority = m.aiPriority ? MAIL_PRIORITY_LABELS[m.aiPriority] : null;
@@ -326,11 +366,6 @@ export function MailReader({
                       <RotateCw />
                     </Button>
                   )}
-                  {!translation && !translating && bodyText(m) && (
-                    <Button size="xs" variant="ghost" onClick={translate}>
-                      <Languages /> 翻译成中文
-                    </Button>
-                  )}
                 </span>
               </div>
               {analyzing && !m.aiSummary ? (
@@ -348,33 +383,44 @@ export function MailReader({
               <p className="mt-1 text-foreground/90">{m.aiSummary}</p>
             </div>
           )}
-          {(translation || translating) && (
-            <div className="rounded-xl border bg-muted/40 px-3.5 py-2.5 text-sm">
-              <button
-                type="button"
-                onClick={() => setShowTr(!showTr)}
-                className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground"
-              >
-                <Languages className="size-3.5" /> 中文译文
-                {translating && <LoaderCircle className="size-3.5 animate-spin" />}
-                <ChevronDown className={cn("ml-auto size-4 transition-transform", !showTr && "-rotate-90")} />
-              </button>
-              {showTr && <p className="mt-1.5 leading-relaxed whitespace-pre-wrap">{translation || "翻译中…"}</p>}
+          {canAi && segments.length > 0 && (
+            <div className="flex items-center gap-2 text-xs">
+              <Languages className="size-4 text-muted-foreground" />
+              <div role="radiogroup" aria-label="翻译方式" className="inline-flex rounded-full bg-muted p-0.5">
+                {TR_MODES.map((x) => (
+                  <button
+                    key={x.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === x.key}
+                    onClick={() => setMode(x.key)}
+                    className={cn(
+                      "h-7 rounded-full px-3 text-xs transition-colors max-md:h-8 max-md:px-3.5 max-md:text-[13px]",
+                      mode === x.key ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+              {translating && (
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <LoaderCircle className="size-3.5 animate-spin" /> 翻译中…
+                </span>
+              )}
             </div>
           )}
         </div>
 
         <div className="px-4 py-4 md:px-5">
-          {srcDoc ? (
-            <iframe
-              title="邮件正文"
-              srcDoc={srcDoc}
-              sandbox="allow-popups allow-popups-to-escape-sandbox"
-              className="h-[60vh] w-full rounded border-0 bg-white"
-            />
-          ) : (
-            <pre className="font-sans text-sm whitespace-pre-wrap">{m.text || "（没有正文）"}</pre>
-          )}
+          <iframe
+            ref={frame}
+            title="邮件正文"
+            srcDoc={srcDoc}
+            onLoad={fitFrame}
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            className="block h-40 w-full border-0 bg-white"
+          />
         </div>
 
         {m.attachments.length > 0 && (
