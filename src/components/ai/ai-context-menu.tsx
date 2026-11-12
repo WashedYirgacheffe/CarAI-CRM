@@ -48,7 +48,7 @@ function blockOf(target: Element): Element {
 }
 
 /** 给那一块起个名字：它自己的标题，或第一行字 */
-function labelOf(block: Element) {
+export function labelOf(block: Element) {
   const own = block.getAttribute("data-ai-label") || block.getAttribute("aria-label");
   const heading = block.querySelector("h1,h2,h3,h4,[data-slot=card-title]");
   const first = textOf(block).split("\n")[0];
@@ -57,15 +57,77 @@ function labelOf(block: Element) {
   return [page, title].filter((x, i, a) => x && a.indexOf(x) === i).join(" · ");
 }
 
-type Target = {
-  x: number;
-  y: number;
+/** 右键点到的东西：哪一块、选中的字、图片 / 视频、链接 */
+export type AiTarget = {
   block: Element;
   selection: string;
   image: HTMLImageElement | null;
   video: HTMLVideoElement | null;
   link: string | null;
 };
+
+/** 页面自带右键菜单的地方用：从点到的元素读出 AiTarget；选中的文字只认落在这一块里的，图片 / 视频也找这一块里的 */
+export function aiTargetOf(target: Element): AiTarget {
+  const block = blockOf(target);
+  const sel = window.getSelection();
+  const inside = !!sel && !sel.isCollapsed && sel.rangeCount > 0 && block.contains(sel.getRangeAt(0).commonAncestorContainer);
+  const a = target.closest("a[href]") as HTMLAnchorElement | null;
+  return {
+    block,
+    selection: inside ? sel!.toString().trim().slice(0, MAX_TEXT) : "",
+    image: [target.closest("img"), ...block.querySelectorAll("img")].find(big) ?? null,
+    video: target.closest("video") ?? block.querySelector("video"),
+    link: a?.href ?? null,
+  };
+}
+
+/** 头像、图标这种小图不算「这张图」 */
+const big = (el: Element | null): el is HTMLImageElement => {
+  if (!(el instanceof HTMLImageElement) || el.getAttribute("aria-hidden") === "true") return false;
+  const r = el.getBoundingClientRect();
+  return r.width >= 72 && r.height >= 48;
+};
+
+export const mediaWord = (t: AiTarget) => (t.selection ? null : t.image ? "这张图" : t.video ? "这段视频" : null);
+
+/** 把这一块交给 AI：对话框先打开，图片 / 视频处理好了再放进去；带 message 就直接发 */
+export function sendToAi(target: AiTarget, message?: string) {
+  flash(target.block);
+  const media = mediaWord(target);
+  const text = target.selection || textOf(target.block).slice(0, MAX_TEXT);
+  const snippet: PageSnippet | undefined = text
+    ? {
+        label: target.selection ? `${labelOf(target.block)}（选中的文字）` : labelOf(target.block),
+        text,
+        href: target.link ?? `${location.pathname}${location.search}`,
+      }
+    : undefined;
+  const pending =
+    target.image && !target.selection
+      ? imageFromElement(target.image).then((a) => [a])
+      : target.video && !target.selection
+        ? videoAttachment(target.video.currentSrc || target.video.src, "页面视频").then((a) => [a])
+        : undefined;
+  pending?.catch(() => toast.error(`${media}读不出来，只把文字给 AI`));
+  lookAtThis({ snippet, message, pending: pending?.catch(() => []) });
+}
+
+/** 右键菜单里通用的几条 AI 指令（全局菜单和页面自带菜单共用同一套说法） */
+export function aiPrompts(t: AiTarget) {
+  const media = mediaWord(t);
+  return {
+    summary: {
+      label: media ? `AI 解读${media}` : "AI 总结并给建议",
+      message: media ? `帮我看看${media}：是什么、有什么要注意的` : "总结一下这部分的要点，再告诉我接下来该做什么",
+    },
+    translate: media
+      ? null
+      : { label: `AI 翻译${t.selection ? "选中的文字" : "这里"}`, message: "把这部分内容翻译成中文；如果本来就是中文，就翻成地道的英文" },
+    todo: { label: "AI 列出待办并起草", message: "根据这部分内容，帮我列出要跟进的事项，能起草的直接起草" },
+  };
+}
+
+type Target = AiTarget & { x: number; y: number };
 
 function flash(el: Element) {
   el.classList.remove("ac-ai-look");
@@ -145,30 +207,14 @@ export function AiContextMenu() {
 
   if (!t) return null;
 
-  const media = t.image ? "这张图" : t.video ? "这段视频" : null;
+  const media = mediaWord(t);
   const what = t.selection ? "选中的文字" : (media ?? "这里");
+  const p = aiPrompts(t);
 
   const look = (message?: string) => {
     const target = t;
     setT(null);
-    flash(target.block);
-    const text = target.selection || textOf(target.block).slice(0, MAX_TEXT);
-    const snippet: PageSnippet | undefined = text
-      ? {
-          label: target.selection ? `${labelOf(target.block)}（选中的文字）` : labelOf(target.block),
-          text,
-          href: target.link ?? `${location.pathname}${location.search}`,
-        }
-      : undefined;
-    // 图片、视频要先下载 / 抽帧，对话框先打开，处理好了再放进去
-    const pending =
-      target.image && !target.selection
-        ? imageFromElement(target.image).then((a) => [a])
-        : target.video && !target.selection
-          ? videoAttachment(target.video.currentSrc || target.video.src, "页面视频").then((a) => [a])
-          : undefined;
-    pending?.catch(() => toast.error(`${media}读不出来，只把文字给 AI`));
-    lookAtThis({ snippet, message, pending: pending?.catch(() => []) });
+    sendToAi(target, message);
   };
 
   const copy = (s: string, done: string) => {
@@ -197,24 +243,19 @@ export function AiContextMenu() {
           <span className="block truncate text-[11.5px] leading-tight font-normal text-muted-foreground">把{what}交给 AI，说一句就行</span>
         </span>
       </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => look(media ? `帮我看看${media}：是什么、有什么要注意的` : "总结一下这部分的要点，再告诉我接下来该做什么")}
-        className={item}
-      >
+      <button type="button" role="menuitem" onClick={() => look(p.summary.message)} className={item}>
         <Sparkles className="size-4 text-muted-foreground" />
-        {media ? `AI 解读${media}` : "AI 总结并给建议"}
+        {p.summary.label}
       </button>
-      {!media && (
-        <button type="button" role="menuitem" onClick={() => look("把这部分内容翻译成中文；如果本来就是中文，就翻成地道的英文")} className={item}>
+      {p.translate && (
+        <button type="button" role="menuitem" onClick={() => look(p.translate!.message)} className={item}>
           <Languages className="size-4 text-muted-foreground" />
-          AI 翻译{t.selection ? "选中的文字" : "这里"}
+          {p.translate.label}
         </button>
       )}
-      <button type="button" role="menuitem" onClick={() => look("根据这部分内容，帮我列出要跟进的事项，能起草的直接起草")} className={item}>
+      <button type="button" role="menuitem" onClick={() => look(p.todo.message)} className={item}>
         <ListChecks className="size-4 text-muted-foreground" />
-        AI 列出待办并起草
+        {p.todo.label}
       </button>
       {(t.selection || t.link) && <div className="mx-2 my-1 h-px bg-line" role="separator" />}
       {t.selection && (

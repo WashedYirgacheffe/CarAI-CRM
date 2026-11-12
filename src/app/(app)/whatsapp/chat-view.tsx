@@ -348,6 +348,10 @@ export function ChatView({
     ];
   };
 
+  const replyAi = [
+    { label: "AI 帮我回复这条", message: "帮我起草对这条 WhatsApp 消息的回复：结合这个客户的资料和前后聊天，用对方的语言写，附上中文意思" },
+  ];
+
   const chatMenu: MenuEntry[] = [
     { label: chat.customer ? "更换关联客户" : "关联客户", icon: Link2, onSelect: () => setLinking(true) },
     {
@@ -531,6 +535,7 @@ export function ChatView({
             const grouped = !newDay && prev.fromMe === m.fromMe && Date.parse(m.timestamp) - Date.parse(prev.timestamp) < GROUP_GAP;
             const caption = waCaption(m.body, m.media);
             const items = messageMenu(m);
+            const aiActions = m.fromMe ? undefined : replyAi;
             const bubbleBg = m.fromMe ? "bg-[#d9fdd3]" : "bg-white";
             return (
               <Fragment key={m.id}>
@@ -540,8 +545,10 @@ export function ChatView({
                   </div>
                 )}
                 <div id={`m-${m.id}`} className={cn("flex scroll-my-20", m.fromMe ? "justify-end" : "justify-start", grouped ? "mt-0.5" : "mt-2.5")}>
-                  <ContextActions items={items}>
+                  <ContextActions items={items} aiActions={aiActions}>
                     <div
+                      data-ai-context
+                      data-ai-label={`WhatsApp · ${m.fromMe ? `我发给 ${title} 的消息` : `${title} 发来的消息`}`}
                       onDoubleClick={(e) => {
                         if (!(e.target as HTMLElement).closest("a,button,video,audio")) startReply(m);
                       }}
@@ -556,6 +563,7 @@ export function ChatView({
                       {!grouped && <BubbleTail fromMe={m.fromMe} />}
                       <DropdownActions
                         items={items}
+                        aiActions={aiActions}
                         trigger={
                           <button
                             type="button"
