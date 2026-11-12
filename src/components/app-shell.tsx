@@ -30,6 +30,7 @@ import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";
 import { AiDock } from "@/components/ai/ai-dock";
+import { SelectionToolbar } from "@/components/ai/selection-toolbar";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -170,6 +171,7 @@ export function AppShell({
       {ai && (
         <Suspense>
           <AiDock storageKey={ai} />
+          <SelectionToolbar />
         </Suspense>
       )}
 
@@ -198,7 +200,7 @@ export function AppShell({
                     <span
                       className={cn(
                         "relative flex size-12 items-center justify-center rounded-2xl",
-                        on ? "bg-primary text-primary-foreground" : "bg-muted text-foreground/80",
+                        on ? "bg-brand-soft text-brand-ink" : "bg-muted text-foreground/80",
                       )}
                     >
                       <Icon className="size-[22px]" />
@@ -228,7 +230,7 @@ export function AppShell({
                         href={item.href}
                         className={cn(
                           "flex h-11 items-center rounded-full px-4 text-sm",
-                          item.href === active?.leaf ? "bg-primary text-primary-foreground" : "bg-muted/70",
+                          item.href === active?.leaf ? "bg-brand-soft text-brand-ink" : "bg-muted/70",
                         )}
                       >
                         {item.title}
@@ -284,7 +286,7 @@ function TabBar({
             <span
               className={cn(
                 "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-                on && "bg-primary text-primary-foreground",
+                on && "bg-brand-soft text-brand-ink",
               )}
             >
               <Icon className="size-[19px]" strokeWidth={on ? 2 : 1.7} />
@@ -302,7 +304,7 @@ function TabBar({
         <span
           className={cn(
             "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-            (moreOpen || !inTabs) && "bg-primary text-primary-foreground",
+            (moreOpen || !inTabs) && "bg-brand-soft text-brand-ink",
           )}
         >
           <LayoutGrid className="size-[19px]" strokeWidth={moreOpen || !inTabs ? 2 : 1.7} />
@@ -333,7 +335,7 @@ function SubTabs({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]
             aria-current={on ? "page" : undefined}
             className={cn(
               "flex h-8 shrink-0 items-center rounded-full px-3.5 text-[13px] whitespace-nowrap ring-1 transition-colors",
-              on ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-foreground/75 ring-transparent shadow-card",
+              on ? "bg-brand-soft text-brand-ink ring-brand-soft" : "bg-card text-foreground/75 ring-transparent shadow-card",
             )}
           >
             {i.title}
@@ -352,7 +354,7 @@ function RailItem({ module: m, active, count = 0 }: { module: NavModule; active:
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative flex flex-col items-center gap-1.5 rounded-2xl px-1 py-2.5 text-[11px] leading-none transition-colors",
-        active ? "bg-primary text-primary-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        active ? "bg-brand-soft text-brand-ink" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
       )}
     >
       <Icon className="size-5" strokeWidth={active ? 2 : 1.7} />
@@ -382,7 +384,7 @@ function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["men
                     aria-current={on ? "page" : undefined}
                     className={cn(
                       "flex items-center justify-between rounded-full px-3.5 py-2 text-sm transition-colors",
-                      on ? "bg-primary text-primary-foreground" : "text-foreground/75 hover:bg-muted hover:text-foreground",
+                      on ? "bg-brand-soft text-brand-ink" : "text-foreground/75 hover:bg-muted hover:text-foreground",
                     )}
                   >
                     {item.title}
@@ -434,7 +436,7 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="relative flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground/75 transition-colors hover:bg-muted hover:text-foreground aria-expanded:bg-primary aria-expanded:text-primary-foreground md:size-10"
+          className="relative flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground/75 transition-colors hover:bg-muted hover:text-foreground aria-expanded:bg-brand-soft aria-expanded:text-brand-ink md:size-10"
           aria-label={total ? `提醒，${total} 条未处理` : "提醒"}
         >
           <Bell className={cn("size-[18px]", (badges.tasks ?? 0) > 0 && "text-foreground")} />
@@ -480,7 +482,7 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
                     title="标记完成"
                     aria-label="标记完成"
                     onClick={() => act(runAction(toggleTaskAction(t.id, true)))}
-                    className="rounded-full p-1.5 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
+                    className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Check className="size-4" />
                   </button>

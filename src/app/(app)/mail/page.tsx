@@ -238,7 +238,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 className={cn(
                   "inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[13px] lg:h-auto lg:px-2 lg:py-0.5 lg:text-xs",
                   tag === t.key
-                    ? "border-primary bg-primary text-primary-foreground"
+                    ? "border-brand-soft bg-brand-soft text-brand-ink"
                     : t.key === "high" && urgent > 0
                       ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                       : "hover:bg-muted",

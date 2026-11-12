@@ -798,7 +798,7 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
             onClick={() => setMethod(m.value)}
             className={cn(
               "rounded-full px-3 py-1 text-xs transition-colors",
-              method === m.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
+              method === m.value ? "bg-brand-soft text-brand-ink" : "bg-muted text-muted-foreground hover:text-foreground",
             )}
           >
             {m.label}

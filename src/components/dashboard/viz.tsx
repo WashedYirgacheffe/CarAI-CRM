@@ -700,7 +700,7 @@ export function RankSwitch({ metrics }: { metrics: RankMetric[] }) {
               aria-pressed={x.key === m.key}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-                x.key === m.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                x.key === m.key ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {x.label}

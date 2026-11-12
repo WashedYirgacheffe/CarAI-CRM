@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeSelect } from "@/components/native-select";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, LoaderCircle, MessageCircle, RefreshCw, Settings2, Table2, BarChart3 } from "lucide-react";
@@ -257,18 +258,18 @@ function FollowupsWidget({
             }}
           />
           <div className="mt-1 flex items-center gap-2">
-            <select
+            <NativeSelect
               value={method}
               onChange={(e) => setMethod(e.target.value)}
               aria-label="跟进方式"
-              className="h-7 rounded-md border bg-background px-1.5 text-xs text-muted-foreground"
+              className="h-7 w-auto rounded-md px-2 text-xs text-muted-foreground max-md:h-8"
             >
               {FOLLOW_METHODS.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             <Button size="xs" className="ml-auto" disabled={busy || !text.trim()} onClick={submit}>
               保存
             </Button>
@@ -303,18 +304,18 @@ function FollowupsWidget({
 
 function RangeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <select
+    <NativeSelect
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-label="时间范围"
-      className="h-7 rounded-md border bg-background px-1.5 text-xs"
+      className="h-7 w-auto rounded-md px-2 text-xs max-md:h-8"
     >
       {RANGES.map((r) => (
         <option key={r.key} value={r.key}>
           {r.label}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 
@@ -464,13 +465,13 @@ function ChartSelect({
   return (
     <label className="grid grid-cols-[3rem_1fr] items-center gap-2">
       <span className="text-muted-foreground">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="h-8 rounded-md border bg-background px-2">
+      <NativeSelect value={value} onChange={(e) => onChange(e.target.value)} className="h-8 rounded-md px-2">
         {options.map(([k, l]) => (
           <option key={k} value={k}>
             {l}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </label>
   );
 }
