@@ -2,16 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Languages, LoaderCircle, Mail, MessageCircle, PenLine, Replace, Sparkles, WandSparkles, X } from "@/components/icons";
+import { Copy, Eye, Languages, LoaderCircle, Mail, MessageCircle, PenLine, Replace, Sparkles, WandSparkles, X } from "@/components/icons";
 import { toast } from "sonner";
 import { translateTextsAction } from "@/app/(app)/translate-actions";
 import { cn } from "@/lib/utils";
+import { labelOf, lookAtThis } from "./ai-context-menu";
 
 /*
  * 全局划词 AI 工具条：在任何页面框选一段文字（≥2 个字），选区上方浮出一排快捷操作——
  * 翻译（就地出结果，可复制 / 替换原文）、润色 / 仿写 / 裂变（唤起 AI 助手，先问想要的效果）、
  * 发邮件、发 WhatsApp、复制。手机上放在选区下方，避开系统自带的复制菜单。
  * 不想出现工具条的区域加 data-no-ai。
+ *
+ * 和右键菜单的分工：工具条管「选中后马上要做的小事」（问 AI、翻译、润色…），右键管「这一块整体交给 AI」。
+ * 一旦右键，工具条立刻收起，直到下一次左键点击或重新选字，两个弹层不会同时出现；
+ * 右键菜单里「给 AI 看看」会自动带上选中的文字。
  */
 
 export type ComposeKind = "polish" | "rewrite" | "variants";
@@ -78,6 +83,8 @@ export function SelectionToolbar() {
   const [touch, setTouch] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const down = useRef(false);
+  // 右键菜单开着的时候不出工具条
+  const hushed = useRef(false);
   const selRef = useRef(sel);
   useEffect(() => {
     selRef.current = sel;
@@ -86,6 +93,7 @@ export function SelectionToolbar() {
   useEffect(() => {
     let timer = 0;
     const evaluate = () => {
+      if (hushed.current) return;
       const next = readSelection();
       const prev = selRef.current;
       if (!next) {
@@ -102,11 +110,14 @@ export function SelectionToolbar() {
     };
     const onDown = (e: PointerEvent) => {
       if (box.current?.contains(e.target as Node)) return;
+      if (e.button === 2) return;
+      // 点在菜单里不算「回到正常」，点别处才恢复
+      if (!(e.target as Element).closest?.("[data-ai-menu],[role=menu]")) hushed.current = false;
       down.current = true;
       setTouch(e.pointerType === "touch");
     };
     const onUp = (e: PointerEvent) => {
-      if (box.current?.contains(e.target as Node)) return;
+      if (box.current?.contains(e.target as Node) || e.button === 2) return;
       down.current = false;
       window.clearTimeout(timer);
       timer = window.setTimeout(evaluate, 10);
@@ -134,6 +145,13 @@ export function SelectionToolbar() {
       const r = s.input?.getBoundingClientRect() ?? s.range?.getBoundingClientRect();
       if (r) setSel({ ...s, rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right } });
     };
+    const onMenu = () => {
+      hushed.current = true;
+      window.clearTimeout(timer);
+      setSel(null);
+      setTr(null);
+    };
+    document.addEventListener("contextmenu", onMenu, true);
     document.addEventListener("pointerdown", onDown, true);
     document.addEventListener("pointerup", onUp, true);
     document.addEventListener("selectionchange", onSelChange);
@@ -141,6 +159,7 @@ export function SelectionToolbar() {
     window.addEventListener("scroll", onScroll, true);
     return () => {
       window.clearTimeout(timer);
+      document.removeEventListener("contextmenu", onMenu, true);
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointerup", onUp, true);
       document.removeEventListener("selectionchange", onSelChange);
@@ -192,6 +211,18 @@ export function SelectionToolbar() {
     close();
   };
 
+  // 选中的字交给 AI：对话框打开、输入框就绪
+  const ask = () => {
+    const node =
+      sel.input ??
+      (sel.range?.commonAncestorContainer instanceof Element ? sel.range.commonAncestorContainer : sel.range?.commonAncestorContainer.parentElement);
+    const where = node ? labelOf(node.closest("[data-ai-context],tr,li,article,section") ?? node) : document.title;
+    lookAtThis({
+      snippet: { label: `${where}（选中的文字）`, text: sel.text.trim().slice(0, 5000), href: `${location.pathname}${location.search}` },
+    });
+    close();
+  };
+
   const vw = typeof window === "undefined" ? 1024 : window.innerWidth;
   // 手机上「邮件」「WA」只显示图标
   const W = Math.min(400, vw - 16);
@@ -216,6 +247,13 @@ export function SelectionToolbar() {
       )}
     >
       <div className="flex items-center gap-0.5 overflow-x-auto rounded-xl border bg-popover p-1 shadow-lg ring-1 ring-black/[0.04] [scrollbar-width:none]">
+        <button type="button" className={cn(btn, "text-foreground")} onClick={ask} title="把选中的文字交给 AI，说一句想做什么">
+          <span className="ac-tile size-5 shrink-0" style={{ borderRadius: "30% 30% 30% 9%" }}>
+            <Eye className="size-3" strokeWidth={2.4} />
+          </span>
+          问 AI
+        </button>
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
         <button type="button" className={cn(btn, "text-brand-ink")} onClick={translate}>
           {tr?.busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Languages className="size-3.5" />}
           翻译

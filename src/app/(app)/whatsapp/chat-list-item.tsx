@@ -86,8 +86,10 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
     { label: "客户详情", icon: Building2, hidden: !c.customer, onSelect: () => c.customer && router.push(`/customers/${c.customer.id}`) },
   ];
 
+  const chatAi = [{ label: "AI 总结这段对话", message: "读一下这个 WhatsApp 对话：总结聊到哪了、对方在等我什么，再起草下一条回复" }];
+
   return (
-    <li className="group/item relative">
+    <li className="group/item relative" data-ai-context data-ai-label={`WhatsApp 会话 · ${c.name}`}>
       <SwipeRow
         contentClassName="bg-card"
         left={[
@@ -114,7 +116,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
           { label: "更多", icon: MoreHorizontal, tone: "neutral", onAction: () => setSheet(true) },
         ]}
       >
-        <ContextActions items={items}>
+        <ContextActions items={items} aiActions={chatAi}>
           <Link
             href={c.href}
             className={cn(
@@ -162,6 +164,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
       >
         <DropdownActions
           items={items}
+          aiActions={chatAi}
           onOpenChange={setMenuOpen}
           trigger={
             <button
