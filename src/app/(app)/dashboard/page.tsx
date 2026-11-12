@@ -26,7 +26,7 @@ import {
   TrendingDown,
   TrendingUp,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import { can, requireUser } from "@/server/auth";
 import { prisma, tenantDb } from "@/server/db";
 import { getBadges } from "@/server/badges";

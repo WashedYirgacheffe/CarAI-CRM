@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { InsightCard, InsightRow } from "@/components/crm/insights";
 import { StatusBadge } from "@/components/crm/bits";

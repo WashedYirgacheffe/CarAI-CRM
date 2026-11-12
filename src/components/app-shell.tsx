@@ -25,7 +25,7 @@ import {
   Send,
   Settings,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";

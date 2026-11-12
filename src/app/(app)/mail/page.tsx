@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "@/components/crm/empty-state";
-import { Inbox, Mail, Paperclip, PenSquare, Search, Send, Star, UserRound, Sparkles } from "lucide-react";
+import { Inbox, Mail, Paperclip, PenSquare, Search, Send, Star, UserRound, Sparkles } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { WaAvatar } from "@/components/crm/wa-avatar";
 import { waListTime } from "@/lib/wa-time";
@@ -222,7 +222,8 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               {acc && <input type="hidden" name="acc" value={acc} />}
               {tag && <input type="hidden" name="tag" value={tag} />}
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <input {...noAutofill}
+              <input
+                {...noAutofill}
                 name="q"
                 defaultValue={q}
                 placeholder="搜索主题、发件人、内容"

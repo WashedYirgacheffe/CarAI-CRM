@@ -2,7 +2,7 @@
 
 import { Children, isValidElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search } from "@/components/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
@@ -170,7 +170,8 @@ export function NativeSelect({
           {searchable && (
             <div className="relative mb-1 border-b border-border/70 p-1 pb-2">
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-[60%] text-muted-foreground" />
-              <input {...noAutofill}
+              <input
+                {...noAutofill}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="搜索"

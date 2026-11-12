@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search } from "@/components/icons";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
@@ -90,7 +90,8 @@ export function GlobalSearch() {
           <DialogTitle className="sr-only">全局搜索</DialogTitle>
           <div className="flex items-center gap-2 border-b px-3">
             {loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : <Search className="size-4 text-muted-foreground" />}
-            <input {...noAutofill}
+            <input
+              {...noAutofill}
               autoFocus
               value={q}
               onChange={(e) => {

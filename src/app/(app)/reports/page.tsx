@@ -5,7 +5,7 @@ import { requirePermission } from "@/server/auth";
 import { prisma } from "@/server/db";
 import { scopeMembers, scopeOwnerIds } from "@/server/scope";
 import { FOLLOW_METHODS, formatMoney, parseLocalInput, toLocalInput } from "@/lib/crm";
-import { FileText, Inbox, MessagesSquare, ShoppingCart, UserPlus, Wallet, type LucideIcon } from "lucide-react";
+import { FileText, Inbox, MessagesSquare, ShoppingCart, UserPlus, Wallet, type LucideIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

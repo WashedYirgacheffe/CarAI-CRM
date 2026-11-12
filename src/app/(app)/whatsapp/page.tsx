@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "@/components/crm/empty-state";
-import { Archive, ChevronLeft, LoaderCircle, MessageCircle, Search, Smartphone } from "lucide-react";
+import { Archive, ChevronLeft, LoaderCircle, MessageCircle, Search, Smartphone } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { WaAvatar } from "@/components/crm/wa-avatar";
 import { can, requirePermission } from "@/server/auth";
@@ -145,7 +145,8 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
           <form action="/whatsapp" className="relative">
             {f && <input type="hidden" name="f" value={f} />}
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input {...noAutofill}
+            <input
+              {...noAutofill}
               name="q"
               defaultValue={q}
               placeholder="搜索姓名、号码、客户"

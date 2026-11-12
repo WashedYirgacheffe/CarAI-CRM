@@ -3,7 +3,7 @@
 import { NativeSelect } from "@/components/native-select";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, LoaderCircle, MessageCircle, RefreshCw, Settings2, Table2, BarChart3 } from "lucide-react";
+import { ExternalLink, LoaderCircle, MessageCircle, RefreshCw, Settings2, Table2, BarChart3 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

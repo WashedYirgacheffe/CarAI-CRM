@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/crm/bits";
 import { formatDate } from "@/lib/crm";
@@ -46,7 +46,11 @@ export function CustomerDocsCard({
           )
         }
       >
-        {rows.length > 0 && <span className="tabular-nums">共 {rows.length} 张{isQuote ? "报价单" : "订单"}</span>}
+        {rows.length > 0 && (
+          <span className="tabular-nums">
+            共 {rows.length} 张{isQuote ? "报价单" : "订单"}
+          </span>
+        )}
       </PaneToolbar>
       {rows.length === 0 ? (
         <PaneEmpty>{isQuote ? "还没有报价单" : "还没有订单"}</PaneEmpty>

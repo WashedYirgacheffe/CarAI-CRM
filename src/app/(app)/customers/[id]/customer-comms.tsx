@@ -3,7 +3,7 @@
 import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, LoaderCircle, Paperclip, PenSquare, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, LoaderCircle, Paperclip, PenSquare, RefreshCw, Sparkles } from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/crm";

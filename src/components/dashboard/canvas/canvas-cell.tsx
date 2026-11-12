@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, GripVertical, Maximize2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, GripVertical, Maximize2, X } from "@/components/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Dialog as D } from "radix-ui";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, X, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, X, ZoomIn, ZoomOut } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export type LightboxImage = { id: string; caption?: string; meta?: string };

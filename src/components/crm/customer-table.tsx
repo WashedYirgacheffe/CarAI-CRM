@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRightLeft, Hand, Plus, UserPlus, Waves, X } from "lucide-react";
+import { ArrowRightLeft, Hand, Plus, UserPlus, Waves, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";

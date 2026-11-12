@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { CornerDownLeft, Plus } from "lucide-react";
+import { CornerDownLeft, Plus } from "@/components/icons";
 import { TaskList, type TaskItem } from "@/components/crm/tasks";
 import { NativeSelect } from "@/components/native-select";
 import { runAction } from "@/hooks/use-action-form";
@@ -104,7 +104,8 @@ function QuickAdd({ tz }: { tz: string }) {
   return (
     <form onSubmit={submit} className="surface flex items-center gap-2 py-1.5 pr-1.5 pl-3.5">
       <Plus className="size-4 shrink-0 text-brand-ink" />
-      <input {...noAutofill}
+      <input
+        {...noAutofill}
         ref={input}
         value={title}
         onChange={(e) => setTitle(e.target.value)}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/native-select";
 import { COUNTRY_TZ } from "@/lib/dashboard";

@@ -3,30 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, MoreHorizontal, Pencil, Printer, Trash2 } from "lucide-react";
+import { ChevronDown, MoreHorizontal, Pencil, Printer, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/crm/confirm-dialog";
 import { runAction } from "@/hooks/use-action-form";
 import { ORDER_STATUSES } from "@/lib/docs";
 import { deleteOrderAction, setOrderStatusAction } from "../actions";
 
-export function OrderActions({
-  id,
-  no,
-  status,
-  perms,
-}: {
-  id: string;
-  no: string;
-  status: string;
-  perms: { edit: boolean; delete: boolean };
-}) {
+export function OrderActions({ id, no, status, perms }: { id: string; no: string; status: string; perms: { edit: boolean; delete: boolean } }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   return (

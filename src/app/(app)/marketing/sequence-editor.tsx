@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Clock, Languages, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock, Languages, LoaderCircle, Plus, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TokenEditor, type TokenEditorHandle } from "@/components/crm/token-editor";

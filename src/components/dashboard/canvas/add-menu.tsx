@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, LayoutGrid, LoaderCircle, Plus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid, LoaderCircle, Plus, Search } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { searchTargetsAction, type TargetHit } from "@/app/(app)/dashboard/widget-actions";
@@ -167,7 +167,8 @@ function TargetSearch({ kind, onPick }: { kind: "customer" | "chat"; onPick: (h:
     <div>
       <label className="mx-1 mb-1 flex items-center gap-2 rounded-lg border px-2.5">
         <Search className="size-4 shrink-0 text-muted-foreground" />
-        <input {...noAutofill}
+        <input
+          {...noAutofill}
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}

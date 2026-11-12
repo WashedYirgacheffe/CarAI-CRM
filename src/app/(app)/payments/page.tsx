@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Mail, Plus, Send } from "lucide-react";
+import { Mail, Plus, Send } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { InsightCard, InsightRow } from "@/components/crm/insights";

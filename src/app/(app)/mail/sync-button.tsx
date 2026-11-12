@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { runAction } from "@/hooks/use-action-form";
 import { syncNowAction } from "./actions";

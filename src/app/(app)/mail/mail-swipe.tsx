@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, MailOpen, MailWarning, Star, StarOff } from "lucide-react";
+import { Check, MailOpen, MailWarning, Star, StarOff } from "@/components/icons";
 import { SwipeRow } from "@/components/crm/swipe-row";
 import { runAction } from "@/hooks/use-action-form";
 import { setMailDoneAction, setSeenAction, setStarredAction } from "./actions";

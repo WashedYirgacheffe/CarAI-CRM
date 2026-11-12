@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { DesktopOnly, MobileCard, MobileList, MobileMeta } from "@/components/crm/mobile-list";

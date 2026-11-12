@@ -7,7 +7,7 @@ import { MeshGradient } from "@paper-design/shaders-react";
  * 登录 / 注册页的动态背景：Paper Shaders 的 MeshGradient（Apache-2.0，https://github.com/paper-design/shaders）。
  * 暖色网格渐变缓慢流动，叠一层细颗粒；系统开了「减少动态效果」就停在一帧。
  */
-const COLORS = ["#1c120e", "#5a2a18", "#b25f38", "#e8a36b", "#2b1c2e"];
+const COLORS = ["#06142e", "#0a3f9c", "#2b74e6", "#78b4ff", "#101a3a"];
 
 export function AuthBackdrop() {
   const [still, setStill] = useState(false);
@@ -20,7 +20,7 @@ export function AuthBackdrop() {
   }, []);
 
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 bg-[#1c120e]">
+    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 bg-[#06142e]">
       <MeshGradient
         colors={COLORS}
         distortion={0.85}

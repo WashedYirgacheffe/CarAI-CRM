@@ -1,16 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Pencil, Plus, Trash2, Users } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";

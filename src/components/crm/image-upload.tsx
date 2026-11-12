@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImageIcon, Loader2, Plus, Video, X } from "lucide-react";
+import { ImageIcon, Loader2, Plus, Video, X } from "@/components/icons";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -182,14 +182,7 @@ export function GalleryUpload({ name, defaultValue, max = 8 }: { name: string; d
         )}
       </div>
       <p className="text-xs text-muted-foreground">更多图片，最多 {max} 张，每张不超过 10MB</p>
-      <input
-        ref={input}
-        type="file"
-        multiple
-        accept={IMAGE_ACCEPT}
-        className="hidden"
-        onChange={(e) => upload(Array.from(e.target.files ?? []))}
-      />
+      <input ref={input} type="file" multiple accept={IMAGE_ACCEPT} className="hidden" onChange={(e) => upload(Array.from(e.target.files ?? []))} />
     </div>
   );
 }
