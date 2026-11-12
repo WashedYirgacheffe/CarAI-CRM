@@ -239,45 +239,45 @@
 }
 
 :root {
-  /* 中性浅灰底 + 纯白大圆角卡片 + 近黑主色；橙色是唯一强调色，克制使用 */
-  --background: oklch(0.958 0 0);
-  --foreground: oklch(0.235 0 0);
+  /* 暖调浅底 + 纯白大圆角卡片；主色是柔和的陶土橙（白字对比度 4.6），不再用纯黑做按钮 */
+  --background: oklch(0.965 0.005 75);
+  --foreground: oklch(0.3 0.012 55);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.235 0 0);
+  --card-foreground: oklch(0.3 0.012 55);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.235 0 0);
-  --primary: oklch(0.28 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.955 0 0);
-  --secondary-foreground: oklch(0.28 0 0);
-  --muted: oklch(0.962 0 0);
-  --muted-foreground: oklch(0.54 0 0);
-  --accent: oklch(0.955 0 0);
-  --accent-foreground: oklch(0.235 0 0);
-  --destructive: oklch(0.6 0.19 25);
-  --border: oklch(0.925 0 0);
-  --input: oklch(0.905 0 0);
-  --ring: oklch(0.72 0.155 52);
-  /* 强调橙：重点卡片、关键柱、今天；浅橙做辅助填充 */
-  --brand: oklch(0.72 0.155 52);
-  --brand-foreground: oklch(0.2 0 0);
-  --brand-soft: oklch(0.915 0.05 55);
-  --brand-ink: oklch(0.5 0.13 48);
-  --chart-1: oklch(0.72 0.155 52);
-  --chart-2: oklch(0.32 0 0);
-  --chart-3: oklch(0.86 0.07 55);
-  --chart-4: oklch(0.64 0 0);
-  --chart-5: oklch(0.88 0 0);
+  --popover-foreground: oklch(0.3 0.012 55);
+  --primary: oklch(0.575 0.12 45);
+  --primary-foreground: oklch(0.99 0.004 75);
+  --secondary: oklch(0.955 0.008 70);
+  --secondary-foreground: oklch(0.36 0.02 50);
+  --muted: oklch(0.962 0.006 75);
+  --muted-foreground: oklch(0.52 0.012 60);
+  --accent: oklch(0.952 0.012 65);
+  --accent-foreground: oklch(0.3 0.012 55);
+  --destructive: oklch(0.6 0.17 25);
+  --border: oklch(0.925 0.006 70);
+  --input: oklch(0.9 0.008 70);
+  --ring: oklch(0.7 0.11 50);
+  /* 强调橙：重点卡片、关键柱、今天；浅橙做选中态和辅助填充 */
+  --brand: oklch(0.74 0.12 55);
+  --brand-foreground: oklch(0.28 0.03 45);
+  --brand-soft: oklch(0.935 0.035 60);
+  --brand-ink: oklch(0.5 0.12 45);
+  --chart-1: oklch(0.72 0.12 52);
+  --chart-2: oklch(0.55 0.05 50);
+  --chart-3: oklch(0.87 0.06 58);
+  --chart-4: oklch(0.7 0.02 60);
+  --chart-5: oklch(0.89 0.01 70);
   --radius: 0.85rem;
-  --card-shadow: 0 1px 2px oklch(0 0 0 / 0.025), 0 6px 18px -10px oklch(0 0 0 / 0.07);
+  --card-shadow: 0 1px 2px oklch(0.3 0.03 50 / 0.03), 0 6px 18px -10px oklch(0.3 0.03 50 / 0.08);
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.45 0 0);
-  --sidebar-primary: oklch(0.28 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.955 0 0);
-  --sidebar-accent-foreground: oklch(0.235 0 0);
-  --sidebar-border: oklch(0.93 0 0);
-  --sidebar-ring: oklch(0.72 0.155 52);
+  --sidebar-foreground: oklch(0.47 0.012 60);
+  --sidebar-primary: oklch(0.575 0.12 45);
+  --sidebar-primary-foreground: oklch(0.99 0.004 75);
+  --sidebar-accent: oklch(0.952 0.012 65);
+  --sidebar-accent-foreground: oklch(0.3 0.012 55);
+  --sidebar-border: oklch(0.93 0.006 70);
+  --sidebar-ring: oklch(0.7 0.11 50);
 }
 
 .dark {
@@ -287,8 +287,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.72 0.12 52);
+  --primary-foreground: oklch(0.2 0.02 45);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -306,8 +306,8 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.922 0 0);
-  --sidebar-primary-foreground: oklch(0.2 0 0);
+  --sidebar-primary: oklch(0.72 0.12 52);
+  --sidebar-primary-foreground: oklch(0.2 0.02 45);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
@@ -329,11 +329,11 @@
     @apply font-sans;
   }
   ::selection {
-    background: oklch(0.72 0.155 52 / 0.22);
+    background: oklch(0.72 0.12 52 / 0.24);
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: oklch(0.84 0 0) transparent;
+    scrollbar-color: oklch(0.85 0.008 70) transparent;
   }
   .tabular-nums,
   td {

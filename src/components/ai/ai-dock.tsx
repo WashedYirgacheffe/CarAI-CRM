@@ -10,6 +10,7 @@ import type { ActionCard } from "@/lib/ai-actions";
 import { ActionCardView, cardSummary, type CardState } from "@/components/dashboard/canvas/action-card";
 import { applyLayout, applyWorkspace, canvasOnPage, canvasSnapshot, type WorkspaceEvent } from "./canvas-bridge";
 import { AiMascot } from "./ai-mascot";
+import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { cn } from "@/lib/utils";
 
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
@@ -77,6 +78,36 @@ function revive(raw: unknown): Turn[] {
 }
 
 /** 全局 AI 浮窗：右下角的小角色，点开向左推出对话条；切页面不丢对话 */
+const COMPOSE: Record<ComposeKind, { title: string; options: { label: string; prompt: string }[] }> = {
+  polish: {
+    title: "润色",
+    options: [
+      { label: "更专业正式", prompt: "把下面这段润色得更专业、正式，适合外贸商务往来，保持原语言，只给出润色后的文本" },
+      { label: "更简洁", prompt: "把下面这段改得更简洁有力，保留关键信息，保持原语言，只给出改好的文本" },
+      { label: "更亲切热情", prompt: "把下面这段改得更亲切热情、有温度，保持原语言，只给出改好的文本" },
+      { label: "修正语法", prompt: "只修正下面这段的语法和拼写错误，尽量不改原意和语气，并简短列出改了哪里" },
+    ],
+  },
+  rewrite: {
+    title: "仿写",
+    options: [
+      { label: "换个说法", prompt: "仿照下面这段，用不同的措辞写一版意思相同的，保持原语言" },
+      { label: "写成跟进邮件", prompt: "仿照下面这段的风格，写一封给客户的跟进邮件（含主题），用英文" },
+      { label: "写成 WhatsApp 短消息", prompt: "仿照下面这段，改写成一条简短自然的 WhatsApp 消息，用英文" },
+      { label: "译成英文并润色", prompt: "把下面这段写成地道的商务英文" },
+    ],
+  },
+  variants: {
+    title: "裂变",
+    options: [
+      { label: "裂变 3 个版本", prompt: "基于下面这段，裂变出 3 个措辞不同但意思一致的版本，用于群发避免雷同，保持原语言，编号列出" },
+      { label: "5 个邮件主题", prompt: "基于下面这段，写 5 个吸引人打开的英文邮件主题行，编号列出" },
+      { label: "不同语气各一版", prompt: "基于下面这段，分别写正式、友好、简短三种语气各一版，保持原语言" },
+      { label: "多语言版本", prompt: "把下面这段分别写成英语、西班牙语、德语三个版本" },
+    ],
+  },
+};
+
 export function AiDock({ storageKey }: { storageKey: string }) {
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -86,6 +117,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // 划词唤起的「润色 / 仿写 / 裂变」：先问想要什么效果
+  const [compose, setCompose] = useState<{ text: string; kind: ComposeKind } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -120,6 +153,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
 
   const toggle = (next = !open) => {
     setOpen(next);
+    if (!next) setCompose(null);
     if (next) {
       setUnread(false);
       setPush((n) => n + 1);
@@ -241,8 +275,18 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       toggle(true);
       void sendRef.current(message);
     };
+    const onCompose = (e: Event) => {
+      const d = (e as CustomEvent<{ text?: string; kind?: ComposeKind }>).detail;
+      if (!d?.text || !d.kind) return;
+      setCompose({ text: d.text.slice(0, 4000), kind: d.kind });
+      toggle(true);
+    };
     window.addEventListener("crm:ai-ask", onAsk);
-    return () => window.removeEventListener("crm:ai-ask", onAsk);
+    window.addEventListener(AI_COMPOSE_EVENT, onCompose);
+    return () => {
+      window.removeEventListener("crm:ai-ask", onAsk);
+      window.removeEventListener(AI_COMPOSE_EVENT, onCompose);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -253,6 +297,12 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   }, [pathname]);
 
   const suggestions = suggestionsFor(pathname, sp);
+  const runCompose = (instruction: string) => {
+    if (!compose) return;
+    const c = compose;
+    setCompose(null);
+    void send(`${instruction}\n\n原文：\n"""\n${c.text}\n"""`);
+  };
   // 有底部输入框的页面（聊天、写信）把角色抬高一点，别挡住发送按钮
   const lifted = pathname.startsWith("/whatsapp") || pathname.startsWith("/mail/compose");
   // 客户详情在手机上底部有「写跟进」操作条
@@ -294,7 +344,39 @@ export function AiDock({ storageKey }: { storageKey: string }) {
               </Button>
             </span>
           </header>
-          {turns.length === 0 ? (
+          {compose && (
+            <div className="border-b bg-brand-soft/40 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">{COMPOSE[compose.kind].title}</span>
+                <span className="text-muted-foreground">想要什么效果？点一个，或在下面直接说</span>
+                <button
+                  type="button"
+                  onClick={() => setCompose(null)}
+                  className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted"
+                  aria-label="取消"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <blockquote className="mt-2 line-clamp-3 border-l-2 border-brand/60 pl-2.5 text-[13px] text-foreground/75 whitespace-pre-wrap">
+                {compose.text}
+              </blockquote>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {COMPOSE[compose.kind].options.map((o) => (
+                  <button
+                    key={o.label}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => runCompose(o.prompt)}
+                    className="rounded-full border border-brand/30 bg-card px-3 py-1 text-xs font-medium text-brand-ink transition-colors hover:bg-brand-soft disabled:opacity-50"
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {compose && turns.length === 0 ? null : turns.length === 0 ? (
             <div className="space-y-2 px-4 py-3">
               <p className="text-sm text-muted-foreground">可以这样问我：</p>
               <div className="flex flex-wrap gap-1.5">
@@ -314,7 +396,10 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             <div ref={logRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" aria-live="polite">
               {turns.map((t, i) =>
                 t.role === "user" ? (
-                  <p key={i} className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm text-primary-foreground">
+                  <p
+                    key={i}
+                    className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-brand-soft px-3 py-2 text-sm whitespace-pre-wrap text-foreground line-clamp-[12]"
+                  >
                     {t.text}
                   </p>
                 ) : (
@@ -344,7 +429,11 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           )}
           onSubmit={(e) => {
             e.preventDefault();
-            void send(input);
+            if (compose && input.trim()) {
+              const v = input.trim();
+              setInput("");
+              runCompose(`${COMPOSE[compose.kind].title}：${v}`);
+            } else void send(input);
           }}
         >
           <input
@@ -352,7 +441,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             value={input}
             tabIndex={open ? 0 : -1}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="说一句话：查数据、摆工作台、起草邮件或报价单…"
+            placeholder={compose ? "说说想要的效果，比如：更正式、写成西班牙语…" : "说一句话：查数据、摆工作台、起草邮件或报价单…"}
             aria-label="对 AI 说"
             maxLength={2000}
             className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"

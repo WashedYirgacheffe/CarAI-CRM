@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Clock, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock, Languages, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { TokenEditor, type TokenEditorHandle } from "@/components/crm/token-editor";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/native-select";
@@ -15,6 +15,7 @@ import { useActionForm } from "@/hooks/use-action-form";
 import { cn } from "@/lib/utils";
 import { SEQUENCE_PRESETS, SEQUENCE_VARS, renderTemplate } from "@/lib/sequences";
 import { saveSequenceAction } from "./actions";
+import { translateTextsAction } from "../translate-actions";
 
 type Step = { key: number; delayDays: number; subject: string; body: string };
 export type EditableSequence = {
@@ -42,7 +43,8 @@ export function SequenceEditor({
   const [steps, setSteps] = useState<Step[]>(() => sequence.steps.map((s) => ({ ...s, key: seed++ })));
   const [active, setActive] = useState(0);
   const [name, setName] = useState(sequence.name);
-  const focused = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; i: number; field: "subject" | "body" } | null>(null);
+  const focused = useRef<{ i: number; field: "subject" | "body" } | null>(null);
+  const editors = useRef(new Map<string, TokenEditorHandle>());
   const [state, submit, pending] = useActionForm(saveSequenceAction, (_f, r) => {
     router.push(`/marketing/${r.id}`);
   });
@@ -57,21 +59,11 @@ export function SequenceEditor({
     });
 
   function insertVar(key: string) {
-    const f = focused.current;
-    const token = `{{${key}}}`;
-    if (!f) {
-      update(active, { body: `${steps[active]?.body ?? ""}${token}` });
-      return;
-    }
-    const { el, i, field } = f;
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? start;
-    const value = el.value.slice(0, start) + token + el.value.slice(end);
-    update(i, { [field]: value });
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + token.length, start + token.length);
-    });
+    const f = focused.current && focused.current.i === active ? focused.current : { i: active, field: "body" as const };
+    const step = steps[f.i];
+    const ed = step && editors.current.get(`${step.key}:${f.field}`);
+    if (ed) ed.insert(key);
+    else update(f.i, { body: `${step?.body ?? ""}{{${key}}}` });
   }
 
   function applyPreset(key: string) {
@@ -83,7 +75,41 @@ export function SequenceEditor({
   }
 
   const sample = Object.fromEntries(SEQUENCE_VARS.map((v) => [v.key, v.key === "sender" ? senderName : v.sample]));
+  const vars = SEQUENCE_VARS.map((v) => ({ key: v.key, label: v.label, sample: sample[v.key] }));
   const preview = steps[active];
+  const pSubject = preview ? renderTemplate(preview.subject, sample) : "";
+  const pParas = preview
+    ? renderTemplate(preview.body, sample)
+        .split(/\n\s*\n/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+    : [];
+
+  // 预览区实时对照翻译：停止输入 0.7 秒后翻译当前这封
+  const [bilingual, setBilingual] = useState(true);
+  const [tr, setTr] = useState<{ src: string; t: string[]; to?: string } | null>(null);
+  const [trBusy, setTrBusy] = useState(false);
+  const trSrc = JSON.stringify([pSubject, ...pParas]);
+  useEffect(() => {
+    if (!bilingual) return;
+    const texts = JSON.parse(trSrc) as string[];
+    if (!texts.some((x) => x.trim())) return;
+    let alive = true;
+    const t = setTimeout(async () => {
+      setTrBusy(true);
+      const r = await translateTextsAction(texts).catch(() => null);
+      if (!alive) return;
+      setTrBusy(false);
+      if (r?.ok && r.t) setTr({ src: trSrc, t: r.t, to: r.to });
+    }, 700);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [bilingual, trSrc]);
+  // 旧译文对不上当前文本时按段对齐显示，避免整块闪烁
+  const trList = bilingual && tr ? tr.t : null;
+  const trStale = tr?.src !== trSrc;
   // 第 N 封相对加入的累计天数
   const dayOf = (i: number) => steps.slice(0, i + 1).reduce((n, s) => n + (Number(s.delayDays) || 0), 0);
 
@@ -152,12 +178,14 @@ export function SequenceEditor({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => insertVar(v.key)}
-                className="rounded-full bg-primary/8 px-2.5 py-1 font-medium text-primary hover:bg-primary/15"
+                className="inline-flex items-center gap-1 rounded-md bg-brand-soft px-2 py-1 font-medium text-brand-ink transition-colors hover:bg-brand/25"
+                title={`示例：${sample[v.key]}`}
               >
+                <Plus className="size-3" />
                 {v.label}
               </button>
             ))}
-            <span className="text-muted-foreground">没有值时自动用 there / your company 兜底</span>
+            <span className="text-muted-foreground">点一下插到光标处；没有值时自动用 there / your company 兜底</span>
           </div>
 
           <ol className="flex flex-col gap-3">
@@ -167,11 +195,11 @@ export function SequenceEditor({
                 onFocusCapture={() => setActive(i)}
                 className={cn(
                   "rounded-xl border p-3 transition-colors md:p-4",
-                  active === i ? "border-primary/40 bg-primary/[0.03]" : "border-border/70",
+                  active === i ? "border-brand/50 bg-brand-soft/30" : "border-border/70",
                 )}
               >
                 <div className="mb-2.5 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand-ink">
                     {i + 1}
                   </span>
                   <Clock className="size-3.5 text-muted-foreground" />
@@ -216,20 +244,31 @@ export function SequenceEditor({
                     </Button>
                   </span>
                 </div>
-                <Input
+                <TokenEditor
+                  ref={(h) => {
+                    if (h) editors.current.set(`${s.key}:subject`, h);
+                    else editors.current.delete(`${s.key}:subject`);
+                  }}
+                  vars={vars}
                   value={s.subject}
                   placeholder="主题"
-                  onChange={(e) => update(i, { subject: e.target.value })}
-                  onFocus={(e) => (focused.current = { el: e.currentTarget, i, field: "subject" })}
-                  className="mb-2"
+                  onChange={(v) => update(i, { subject: v })}
+                  onFocus={() => (focused.current = { i, field: "subject" })}
+                  className="mb-2 font-medium"
                   aria-label={`第 ${i + 1} 封主题`}
                 />
-                <Textarea
+                <TokenEditor
+                  ref={(h) => {
+                    if (h) editors.current.set(`${s.key}:body`, h);
+                    else editors.current.delete(`${s.key}:body`);
+                  }}
+                  multiline
+                  vars={vars}
                   value={s.body}
                   placeholder="正文（签名会自动附在末尾）"
-                  rows={active === i ? 9 : 4}
-                  onChange={(e) => update(i, { body: e.target.value })}
-                  onFocus={(e) => (focused.current = { el: e.currentTarget, i, field: "body" })}
+                  onChange={(v) => update(i, { body: v })}
+                  onFocus={() => (focused.current = { i, field: "body" })}
+                  className={active === i ? "min-h-56" : "max-h-32 overflow-hidden"}
                   aria-label={`第 ${i + 1} 封正文`}
                 />
               </li>
@@ -254,15 +293,48 @@ export function SequenceEditor({
 
       <aside className="flex flex-col gap-4 lg:sticky lg:top-4">
         <section className="surface p-4">
-          <h2 className="text-sm text-muted-foreground">预览 · 第 {active + 1} 封</h2>
+          <header className="flex items-center justify-between gap-2">
+            <h2 className="text-sm text-muted-foreground">预览 · 第 {active + 1} 封</h2>
+            <button
+              type="button"
+              aria-pressed={bilingual}
+              onClick={() => setBilingual((v) => !v)}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
+                bilingual ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {bilingual && trBusy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Languages className="size-3.5" />}
+              {tr?.to === "English" ? "英文对照" : "中文对照"}
+            </button>
+          </header>
           {preview ? (
             <div className="mt-3 text-sm">
-              <p className="font-medium break-words">{renderTemplate(preview.subject, sample) || "（无主题）"}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="font-medium break-words">{pSubject || "（无主题）"}</p>
+              {trList?.[0] && <p className={cn("mt-0.5 text-[13px] break-words text-brand-ink/80", trStale && "opacity-50")}>{trList[0]}</p>}
+              <p className="mt-1 text-xs text-muted-foreground">
                 发给 {sample.name} · {sample.company}
               </p>
-              <div className="mt-3 max-h-96 overflow-y-auto border-t border-border/70 pt-3 leading-relaxed break-words whitespace-pre-wrap">
-                {renderTemplate(preview.body, sample) || <span className="text-muted-foreground">（无正文）</span>}
+              <div className="mt-3 flex max-h-[28rem] flex-col gap-3 overflow-y-auto border-t border-border/70 pt-3 leading-relaxed break-words whitespace-pre-wrap">
+                {pParas.length ? (
+                  pParas.map((p, k) => (
+                    <div key={k}>
+                      <p>{p}</p>
+                      {trList?.[k + 1] && (
+                        <p
+                          className={cn(
+                            "mt-1 border-l-2 border-brand/50 pl-2 text-[13px] text-foreground/70 transition-opacity",
+                            trStale && "opacity-50",
+                          )}
+                        >
+                          {trList[k + 1]}
+                        </p>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground">（无正文）</span>
+                )}
               </div>
               <p className="mt-3 border-t border-border/70 pt-2 text-xs text-muted-foreground">末尾自动附退订链接，并追踪打开和点击</p>
             </div>

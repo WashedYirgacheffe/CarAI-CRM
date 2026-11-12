@@ -143,7 +143,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const dayAt = (i: number) => new Date(Date.parse(`${range.from}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10);
   const buckets: { key: string; label: string; value: number }[] = [];
   if (unit === "month") {
-    for (let k = range.from.slice(0, 7); k <= range.to.slice(0, 7);) {
+    for (let k = range.from.slice(0, 7); k <= range.to.slice(0, 7); ) {
       buckets.push({ key: k, label: `${Number(k.slice(5))}月`, value: 0 });
       const [yy, mm] = k.split("-").map(Number);
       k = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
@@ -233,7 +233,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   aria-current={range.key === p.key ? "page" : undefined}
                   className={cn(
                     "shrink-0 rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors sm:px-3",
-                    range.key === p.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                    range.key === p.key ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {p.label}

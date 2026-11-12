@@ -212,7 +212,7 @@ export function CustomerAiPanel({
             onClick={() => setTab(k)}
             className={cn(
               "flex-1 rounded-full px-2 py-1 transition-colors",
-              tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              tab === k ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {label}

@@ -56,7 +56,9 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
   const groupCount = (keys: string[]) => openKinds.filter((k) => k.kind && keys.includes(k.kind)).reduce((n, k) => n + k._count, 0);
   const chips = [
     { key: "", label: "全部", n: openTotal },
-    ...REMINDER_GROUPS.map((g) => ({ key: g.key, label: g.label, n: groupCount(g.kinds.map((k) => k.key)) })).filter((c) => c.n > 0 || c.key === group?.key),
+    ...REMINDER_GROUPS.map((g) => ({ key: g.key, label: g.label, n: groupCount(g.kinds.map((k) => k.key)) })).filter(
+      (c) => c.n > 0 || c.key === group?.key,
+    ),
   ];
 
   return (
@@ -74,7 +76,7 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
               href={c.key ? `/schedule?g=${c.key}` : "/schedule"}
               className={cn(
                 "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
-                (group?.key ?? "") === c.key ? "bg-primary text-primary-foreground" : "bg-card text-foreground/75 shadow-card hover:text-foreground",
+                (group?.key ?? "") === c.key ? "bg-brand-soft text-brand-ink" : "bg-card text-foreground/75 shadow-card hover:text-foreground",
               )}
             >
               {c.label}

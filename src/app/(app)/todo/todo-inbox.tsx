@@ -109,7 +109,7 @@ export function TodoInbox({ items, tz }: { items: TodoItem[]; tz: string }) {
             aria-pressed={filter === c.key}
             className={cn(
               "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
-              filter === c.key ? "bg-primary text-primary-foreground" : "bg-card text-foreground/75 shadow-card hover:text-foreground",
+              filter === c.key ? "bg-brand-soft text-brand-ink" : "bg-card text-foreground/75 shadow-card hover:text-foreground",
             )}
           >
             {c.label}
