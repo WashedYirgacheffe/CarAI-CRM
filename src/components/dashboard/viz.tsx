@@ -210,7 +210,7 @@ export function Funnel({ steps }: { steps: { label: string; value: number; href?
               </p>
             )}
             {s.href ? (
-              <Link href={s.href} className="-mx-2 flex items-center gap-2.5 rounded-full px-2 py-0.5 hover:bg-muted/60">
+              <Link href={s.href} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-0.5 hover:bg-muted/60">
                 {body}
               </Link>
             ) : (
@@ -699,7 +699,7 @@ export function RankSwitch({ metrics }: { metrics: RankMetric[] }) {
               onClick={() => setKey(x.key)}
               aria-pressed={x.key === m.key}
               className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+                "rounded-[10px] px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
                 x.key === m.key ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
               )}
             >

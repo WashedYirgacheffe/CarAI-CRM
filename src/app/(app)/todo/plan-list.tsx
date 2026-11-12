@@ -50,7 +50,7 @@ export function PlanList({
               key={c.key}
               href={c.key ? `/todo?view=list&g=${c.key}` : "/todo?view=list"}
               className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors",
                 active === c.key ? "bg-brand-soft text-brand-ink" : "bg-card text-foreground/75 shadow-card hover:text-foreground",
               )}
             >

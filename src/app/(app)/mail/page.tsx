@@ -18,6 +18,7 @@ import { MailShortcuts } from "./mail-shortcuts";
 import { SyncButton } from "./sync-button";
 import { MailSwipe } from "./mail-swipe";
 import { noAutofill } from "@/lib/no-autofill";
+import { SkyGlow } from "@/components/agentes/sky";
 
 export const metadata: Metadata = { title: "邮件" };
 
@@ -62,9 +63,9 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
 
   if (!accounts.length) {
     return (
-      <div className="mx-auto max-w-md surface p-10 text-center">
-        <Mail className="mx-auto mb-3 size-8 text-muted-foreground" />
-        <p className="font-medium">还没有绑定邮箱</p>
+      <div className="mx-auto mt-6 max-w-md surface px-10 pt-6 pb-10 text-center">
+        <SkyGlow surface="--raised" className="mx-auto h-32 w-56" />
+        <p className="font-brand text-lg font-medium">还没有绑定邮箱</p>
         <p className="mt-1 text-sm text-muted-foreground">绑定工作邮箱后，就能在这里收发邮件，往来邮件自动归档到客户。</p>
         <Button asChild className="mt-4">
           <Link href="/settings/mailboxes">去绑定邮箱</Link>
@@ -148,13 +149,13 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               key={b.key}
               href={href({ box: b.key, page: 1, id: null })}
               className={cn(
-                "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm",
+                "flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-sm",
                 box === b.key ? "bg-sidebar-accent font-medium" : "hover:bg-muted",
               )}
             >
               <b.icon className="size-4" /> {b.label}
               {b.key === "inbox" && unread > 0 && (
-                <span className="ml-auto rounded-full bg-primary px-1.5 text-[11px] leading-5 font-medium text-primary-foreground tabular-nums">
+                <span className="ml-auto rounded-md bg-primary px-1.5 text-[11px] leading-5 font-medium text-primary-foreground tabular-nums">
                   {unread}
                 </span>
               )}
@@ -166,7 +167,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
           <div className="space-y-0.5">
             <Link
               href={href({ acc: null, page: 1, id: null })}
-              className={cn("block truncate rounded-full px-3 py-1 text-sm", !acc ? "bg-sidebar-accent font-medium" : "hover:bg-muted")}
+              className={cn("block truncate rounded-[10px] px-3 py-1 text-sm", !acc ? "bg-sidebar-accent font-medium" : "hover:bg-muted")}
             >
               全部邮箱
             </Link>
@@ -176,7 +177,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 href={href({ acc: a.id, page: 1, id: null })}
                 title={a.lastError ?? a.email}
                 className={cn(
-                  "flex items-center gap-1.5 truncate rounded-full px-3 py-1 text-sm",
+                  "flex items-center gap-1.5 truncate rounded-[10px] px-3 py-1 text-sm",
                   acc === a.id ? "bg-sidebar-accent font-medium" : "hover:bg-muted",
                 )}
               >
@@ -238,7 +239,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 key={t.key}
                 href={href({ tag: t.key || null, page: 1, id: null })}
                 className={cn(
-                  "inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[13px] lg:h-auto lg:px-2 lg:py-0.5 lg:text-xs",
+                  "inline-flex h-8 shrink-0 items-center rounded-[10px] border px-3 text-[13px] lg:h-auto lg:px-2 lg:py-0.5 lg:text-xs",
                   tag === t.key
                     ? "border-brand-soft bg-brand-soft text-brand-ink"
                     : t.key === "high" && urgent > 0
@@ -323,9 +324,9 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                               {m.customer.name}
                             </span>
                           )}
-                          {!m.customer && m.leadId && <span className="rounded-full bg-brand-soft px-1.5 text-[11px] text-brand-ink">线索</span>}
+                          {!m.customer && m.leadId && <span className="rounded-md bg-brand-soft px-1.5 text-[11px] text-brand-ink">线索</span>}
                           {intent && (
-                            <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>
+                            <span className={cn("inline-flex items-center gap-0.5 rounded-md px-1.5 text-[11px]", intent.cls)}>{intent.label}</span>
                           )}
                         </div>
                       )}

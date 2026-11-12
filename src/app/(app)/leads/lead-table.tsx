@@ -231,7 +231,7 @@ export function LeadTable({
               title={l.companyName ?? l.contactName ?? l.email}
               sub={[l.companyName && l.contactName, l.email, l.country && countryName(l.country)].filter(Boolean).join(" · ")}
               aside={
-                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
+                <span className={cn("inline-flex rounded-md px-2 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
                   {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
                 </span>
               }
@@ -357,7 +357,7 @@ export function LeadTable({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{l.source ?? "—"}</TableCell>
                   <TableCell>
-                    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
+                    <span className={cn("inline-flex rounded-md px-2 py-0.5 text-xs font-medium", STATUS_STYLE[l.status])}>
                       {LEAD_STATUSES.find((s) => s.value === l.status)?.label}
                     </span>
                     {l.status === "CONVERTED" && l.customerId && (

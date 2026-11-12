@@ -67,7 +67,7 @@ export default async function TodoPage({ searchParams }: PageProps<"/todo">) {
             href={v.key === "inbox" ? "/todo" : `/todo?view=${v.key}`}
             aria-current={view === v.key ? "page" : undefined}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors",
               view === v.key ? "bg-card text-foreground shadow-card" : "text-foreground/65 hover:text-foreground",
             )}
           >

@@ -80,7 +80,7 @@ export function GlobalSearch() {
       >
         <Search className="size-4" />
         <span className="hidden flex-1 text-left sm:inline">搜索客户、线索、单据…</span>
-        <kbd className="hidden rounded-full bg-muted px-2 py-0.5 font-sans text-[10px] sm:inline">⌘K</kbd>
+        <kbd className="hidden rounded-md bg-muted px-2 py-0.5 font-sans text-[10px] sm:inline">⌘K</kbd>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent

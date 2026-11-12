@@ -223,3 +223,207 @@
     background-position: -150% 0;
   }
 }
+
+/* ================================================================
+ * 第二批：agentes 的像素天空、选中态、模块色图块和入场动效
+ * ================================================================ */
+
+/* ---- 像素天空（canvas 铺满父元素；父元素 relative + overflow hidden） ---- */
+.ac-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.ac-sky-burst {
+  position: fixed;
+  z-index: 200;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.ac-sky-glow {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+/* 侧栏底部的地平线 */
+.ac-rail-horizon {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 132px;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* 卡片顶部的一层淡天色 */
+.ac-card-sky {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 76px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ---- 页头：右上角升起一片模块色的天 ---- */
+.ac-page-head {
+  position: relative;
+  isolation: isolate;
+}
+.ac-page-head__sky {
+  position: absolute;
+  z-index: -1;
+  top: -24px;
+  right: -24px;
+  width: min(68%, 820px);
+  height: calc(100% + 48px);
+  overflow: hidden;
+  pointer-events: none;
+  border-bottom-left-radius: 20px;
+}
+@media (max-width: 767px) {
+  .ac-page-head__sky {
+    display: none;
+  }
+}
+
+/* ---- 选中态：浅底 + 从右边升起的抖动天色（agentes 侧栏选中项） ---- */
+.ac-sel {
+  background-color: var(--side-active);
+  background-image: var(--sel-sky, none);
+  background-position: right center;
+  background-size: auto 100%;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    0 1px 2px rgba(23, 23, 22, 0.05);
+}
+.dark .ac-sel {
+  background-image: var(--sel-sky-dark, var(--sel-sky, none));
+}
+
+/* ---- 模块色图块：agentes 的头像形状（三个圆角 + 左下切角），渐变底白图标 ---- */
+.ac-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 30% 30% 30% 9%;
+  color: #fff;
+  background: linear-gradient(160deg, var(--t-top, var(--mod-top)), var(--t-bottom, var(--mod-bottom)));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 3px 8px -3px color-mix(in srgb, var(--t-bottom, var(--mod-bottom)) 70%, transparent);
+}
+.ac-tile--pop {
+  animation: ac-tile-pop 420ms var(--ease-spring) both;
+}
+/* 未选中的模块图标用自己的颜色描边 */
+.ac-tint {
+  color: var(--t-bottom, var(--mod-bottom));
+}
+.dark .ac-tint {
+  color: var(--t-top, var(--mod-top));
+}
+
+/* 卡片悬停：轻轻浮起 */
+.ac-lift {
+  transition:
+    transform 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out);
+}
+.ac-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--e2);
+}
+
+/* ---- 入场动效 ---- */
+/* 表格行、列表逐个上浮（只在挂载时，同页筛选复用节点不重放） */
+[data-slot="table-body"] > tr,
+.ac-stagger > * {
+  animation: ac-rise 320ms var(--ease-out) both;
+}
+[data-slot="table-body"] > tr:nth-child(2),
+.ac-stagger > :nth-child(2) {
+  animation-delay: 25ms;
+}
+[data-slot="table-body"] > tr:nth-child(3),
+.ac-stagger > :nth-child(3) {
+  animation-delay: 50ms;
+}
+[data-slot="table-body"] > tr:nth-child(4),
+.ac-stagger > :nth-child(4) {
+  animation-delay: 75ms;
+}
+[data-slot="table-body"] > tr:nth-child(5),
+.ac-stagger > :nth-child(5) {
+  animation-delay: 100ms;
+}
+[data-slot="table-body"] > tr:nth-child(n + 6),
+.ac-stagger > :nth-child(n + 6) {
+  animation-delay: 125ms;
+}
+/* 勾选：对勾一笔画出来 */
+[data-slot="checkbox-indicator"] svg path {
+  stroke-dasharray: 14;
+  animation: ac-check-draw 220ms var(--ease-out) both;
+}
+/* 选项卡切换：选中的那格弹一下 */
+[data-slot="tabs-trigger"][data-state="active"] {
+  animation: ac-chip-in 200ms var(--ease-out);
+}
+/* 数字角标出现 */
+.ac-mark-in {
+  animation: ac-mark-in 260ms var(--ease-spring) both;
+}
+
+@keyframes ac-tile-pop {
+  from {
+    transform: scale(0.82) rotate(-6deg);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes ac-check-draw {
+  from {
+    stroke-dashoffset: 14;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes ac-chip-in {
+  from {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+}
+@keyframes ac-mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="table-body"] > tr,
+  .ac-stagger > *,
+  [data-slot="checkbox-indicator"] svg path,
+  [data-slot="tabs-trigger"][data-state="active"],
+  .ac-tile--pop,
+  .ac-mark-in {
+    animation: none;
+  }
+  .ac-lift:hover {
+    transform: none;
+  }
+}

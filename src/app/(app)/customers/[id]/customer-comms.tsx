@@ -72,7 +72,7 @@ export function CustomerMails({ rows, tz, composeHref }: { rows: CustomerMailRow
                         <a
                           key={a.id}
                           href={`/api/mail/attachments/${m.id}/${a.id}`}
-                          className="rounded-full bg-background px-2.5 py-0.5 text-xs ring-1 ring-border hover:bg-muted"
+                          className="rounded-md bg-background px-2.5 py-0.5 text-xs ring-1 ring-border hover:bg-muted"
                         >
                           {a.filename}
                         </a>
@@ -211,7 +211,7 @@ export function CustomerAiPanel({
             aria-selected={tab === k}
             onClick={() => setTab(k)}
             className={cn(
-              "flex-1 rounded-full px-2 py-1 transition-colors",
+              "flex-1 rounded-md px-2 py-1 transition-colors",
               tab === k ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
             )}
           >

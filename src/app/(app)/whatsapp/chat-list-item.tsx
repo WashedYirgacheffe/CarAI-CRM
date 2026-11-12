@@ -144,7 +144,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
                 <span className="w-0 shrink-0 transition-[width] group-hover/item:w-5" aria-hidden />
               </div>
               {c.customer && (
-                <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-primary/8 px-2 py-0.5 text-[11px] text-primary">
+                <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-md bg-primary/8 px-2 py-0.5 text-[11px] text-primary">
                   <Building2 className="size-3 shrink-0" />
                   <span className="truncate">{c.customer.name}</span>
                 </span>

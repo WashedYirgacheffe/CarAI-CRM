@@ -189,7 +189,7 @@ export function Distribution({ dims }: { dims: { key: string; label: string; dat
             type="button"
             onClick={() => setActive(d.key)}
             className={cn(
-              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              "rounded-[10px] px-3 py-1 text-xs font-medium transition-colors",
               d.key === cur.key ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
             )}
           >

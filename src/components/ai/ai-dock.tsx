@@ -12,6 +12,7 @@ import { ActionCardView, cardSummary, type CardState } from "@/components/dashbo
 import { applyLayout, applyWorkspace, canvasOnPage, canvasSnapshot, type WorkspaceEvent } from "./canvas-bridge";
 import { AgentAvatar, type AgentState } from "@/components/agentes/agent-avatar";
 import { PixelSpinner } from "@/components/agentes/pixel-spinner";
+import { HeroSky } from "@/components/agentes/sky";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { normalizeAppearance } from "@/lib/agentes/tokens/look";
 import { AgentProfile, DEFAULT_PREFS, Feedback, SIZES, ThreadList, WorkLine, WorkSummary, type Prefs, type ThreadMeta } from "./agent-bits";
@@ -186,6 +187,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const heroFace = useRef<HTMLSpanElement>(null);
   const openRef = useRef(open);
   useEffect(() => {
     openRef.current = open;
@@ -716,13 +718,16 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             {settingsButton}
           </span>
           {/* 助手站在一小片自己的天光里 */}
-          <span className="relative grid place-items-center [view-transition-name:ai-mascot]">
+          <span className="relative grid place-items-center">
             <span
               aria-hidden
-              className="absolute -inset-10 rounded-full opacity-70 blur-2xl"
-              style={{ background: "radial-gradient(closest-side, color-mix(in srgb, var(--agent) 16%, transparent), transparent)" }}
-            />
-            <AgentAvatar name={prefs.name} size="xl" state={agentState} appearance={prefs.look} labelled />
+              className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-[300px] w-[min(620px,94vw)] -translate-1/2 overflow-hidden"
+            >
+              <HeroSky color={prefs.look.color ?? "sky"} face={heroFace} />
+            </span>
+            <span ref={heroFace} className="relative grid place-items-center [view-transition-name:ai-mascot]">
+              <AgentAvatar name={prefs.name} size="xl" state={agentState} appearance={prefs.look} labelled />
+            </span>
           </span>
           <h1 className="mt-2 font-brand text-[1.5rem] leading-8 font-medium tracking-[-0.02em] md:text-[1.8rem] md:leading-10">{stage.greeting}</h1>
           <p className="mt-1 text-sm text-muted-foreground">

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { runAiActionAction } from "@/app/(app)/dashboard/ai-actions";
 import type { ActionCard, ActionResult } from "@/lib/ai-actions";
 import { cn } from "@/lib/utils";
+import { burstFrom, CardSky } from "@/components/agentes/sky";
 
 export type CardState = {
   card: ActionCard;
@@ -43,12 +44,16 @@ export function ActionCardView({
   const [confirmOutward, setConfirmOutward] = useState(false);
   const locked = state !== "pending" && state !== "failed";
 
-  const run = async () => {
+  const run = async (from?: HTMLElement) => {
     onChange({ state: "running" });
     try {
       const r = await runAiActionAction(card.kind, params);
       onChange({ state: r.ok ? "done" : "failed", result: r });
-      if (r.ok) window.dispatchEvent(new Event("crm:widgets-refresh"));
+      if (r.ok) {
+        // 拍板的事做成了：从按钮迸出一小团像素和小人
+        burstFrom(from);
+        window.dispatchEvent(new Event("crm:widgets-refresh"));
+      }
     } catch {
       onChange({ state: "failed", result: { ok: false, message: "执行失败，请重试" } });
     }
@@ -76,12 +81,7 @@ export function ActionCardView({
       )}
     >
       {/* 顶部一条淡淡的天色：等你拍板的事和普通消息区分开 */}
-      {(state === "pending" || state === "running") && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--agent)_9%,transparent),transparent)]"
-        />
-      )}
+      {(state === "pending" || state === "running") && <CardSky color="sky" />}
       <div className="relative mb-2.5 flex items-center gap-2">
         <span className="text-[13px] text-muted-foreground">
           <b className="font-semibold text-foreground">{agentName}</b> {state === "done" ? "已经做好" : "想要"}
@@ -141,7 +141,7 @@ export function ActionCardView({
         ) : (
           <>
             {card.outward && <span className="text-xs text-warn">确认后会立即发给对方，无法撤回</span>}
-            <Button size="sm" disabled={state === "running"} onClick={run}>
+            <Button size="sm" disabled={state === "running"} onClick={(e) => run(e.currentTarget)}>
               {state === "running" ? <LoaderCircle /> : <Check />}
               {card.outward ? `确认${card.confirm}` : card.confirm}
             </Button>

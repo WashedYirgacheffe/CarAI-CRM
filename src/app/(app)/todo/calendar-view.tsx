@@ -60,7 +60,7 @@ export function CalendarView({
             {y} 年 {m} 月
           </h2>
           {!today.startsWith(month) && (
-            <Link href="/todo?view=calendar" className="mr-1 rounded-full px-3 py-1 text-[13px] text-brand-ink hover:bg-brand-soft">
+            <Link href="/todo?view=calendar" className="mr-1 rounded-[10px] px-3 py-1 text-[13px] text-brand-ink hover:bg-brand-soft">
               今天
             </Link>
           )}

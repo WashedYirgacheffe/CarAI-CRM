@@ -753,7 +753,7 @@ export function ChatView({
                   aria-pressed={outTr}
                   title="开启后，用中文写的消息会先按客户的语言翻译好放回输入框，确认后再发送"
                   className={cn(
-                    "mb-0.5 ml-2 inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium whitespace-nowrap transition-colors",
+                    "mb-0.5 ml-2 inline-flex h-5 shrink-0 items-center rounded-md px-2 text-[11px] font-medium whitespace-nowrap transition-colors",
                     outTr ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
                   )}
                 >
