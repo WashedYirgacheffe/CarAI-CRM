@@ -67,7 +67,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
       key={key}
       href={tabHref(key)}
       className={cn(
-        "flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm transition-colors lg:shrink",
+        "flex shrink-0 items-center gap-2 rounded-[10px] px-3 py-1.5 text-sm transition-colors lg:shrink",
         tab === key ? "bg-primary font-medium text-primary-foreground" : "text-foreground/80 hover:bg-muted",
       )}
     >

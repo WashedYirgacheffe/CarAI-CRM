@@ -39,6 +39,10 @@ import { runAction } from "@/hooks/use-action-form";
 import { snoozeTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
 import type { DueReminder } from "@/server/badges";
 import { activeNav, type BadgeKey, type NavModule } from "@/lib/nav";
+import { moduleColor, moduleVars, tileVars } from "@/lib/module-color";
+import { selectionSkyUrl } from "@/lib/agentes/sky/selection";
+import { ModuleColorContext, RailHorizon } from "@/components/agentes/sky";
+import type { AgentPresetColor } from "@/lib/agentes/agent/engine.js";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -60,6 +64,11 @@ type Badges = Partial<Record<BadgeKey, number>> & { due?: DueReminder[] };
 type UserInfo = { name: string; email: string; roleName: string; isOwner: boolean };
 
 const MENU_COOKIE = "navmenu";
+
+/** 选中项的抖动天色（亮 / 暗两套），按模块颜色 */
+const selVars = (c: AgentPresetColor) => ({ "--sel-sky": selectionSkyUrl(c), "--sel-sky-dark": selectionSkyUrl(c, true) }) as React.CSSProperties;
+/** 模块图块的渐变两端 */
+const tileOf = (key: string) => tileVars(moduleColor(key));
 
 /** 手机底部标签栏固定的 4 个模块（按顺序，没权限的跳过），第 5 个是「更多」 */
 const TAB_KEYS = ["dashboard", "todo", "customers", "whatsapp"] as const;
@@ -94,158 +103,159 @@ export function AppShell({
   };
 
   const menu = active?.module.menu;
+  const color = moduleColor(active?.module.key);
 
   return (
-    <div className="min-h-svh">
-      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur md:border-b-0 md:bg-background/90 [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
-        <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
-          <span className="hidden w-[72px] shrink-0 justify-center md:flex">
-            <BrandMark className="size-9" />
-          </span>
-          <span className="grid min-w-0 gap-1">
-            <Brand className="h-5 md:h-[18px]" />
-            <span className="hidden truncate text-xs leading-none text-muted-foreground sm:block">{tenantName}</span>
-          </span>
-        </Link>
-        <div className="flex flex-1 justify-end md:justify-center">
-          <GlobalSearch />
-        </div>
-        <div className="flex items-center gap-1 md:gap-2">
-          <Reminders modules={modules} badges={badges} reload={reloadBadges} />
-          <UserMenu {...user} />
-        </div>
-      </header>
+    <ModuleColorContext.Provider value={color}>
+      <div className="min-h-svh" style={{ ...moduleVars(color), ...selVars(color) }}>
+        <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur md:border-b-0 md:bg-background/90 [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
+          <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
+            <span className="hidden w-[72px] shrink-0 justify-center md:flex">
+              <BrandMark className="size-9" />
+            </span>
+            <span className="grid min-w-0 gap-1">
+              <Brand className="h-5 md:h-[18px]" />
+              <span className="hidden truncate text-xs leading-none text-muted-foreground sm:block">{tenantName}</span>
+            </span>
+          </Link>
+          <div className="flex flex-1 justify-end md:justify-center">
+            <GlobalSearch />
+          </div>
+          <div className="flex items-center gap-1 md:gap-2">
+            <Reminders modules={modules} badges={badges} reload={reloadBadges} />
+            <UserMenu {...user} />
+          </div>
+        </header>
 
-      <div className="flex">
-        <nav
-          aria-label="模块"
-          className={cn(
-            "sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto bg-sidebar px-2 py-3 md:flex",
-            // 有二级菜单时和菜单连成一块，大圆角放到菜单右上角
-            !menu && "rounded-tr-3xl",
-          )}
-        >
-          {modules.map((m) => (
-            <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
-          ))}
-        </nav>
-
-        {menu && (
-          <aside
-            aria-label={`${active.module.title}菜单`}
+        <div className="flex">
+          <nav
+            aria-label="模块"
             className={cn(
-              "sticky top-14 hidden h-[calc(100svh-3.5rem)] shrink-0 overflow-hidden rounded-tr-3xl border-l border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:block",
-              collapsed ? "w-6" : "w-44",
+              "sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 flex-col items-stretch gap-1 overflow-x-hidden overflow-y-auto bg-sidebar px-2 py-3 md:flex",
+              // 有二级菜单时和菜单连成一块，大圆角放到菜单右上角
+              !menu && "rounded-tr-3xl",
             )}
           >
-            {collapsed ? (
-              <button
-                type="button"
-                onClick={toggleMenu}
-                className="mt-4 flex h-8 w-full items-center justify-center text-muted-foreground hover:text-foreground"
-                aria-label="展开菜单"
-              >
-                <ChevronsRight className="size-4" />
-              </button>
-            ) : (
-              <div className="flex h-full flex-col overflow-y-auto px-3 py-4">
-                <div className="mb-3 flex items-center justify-between pl-2">
-                  <span className="text-lg tracking-[-0.01em]">{active.module.title}</span>
-                  <button
-                    type="button"
-                    onClick={toggleMenu}
-                    className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label="收起菜单"
-                  >
-                    <ChevronsLeft className="size-4" />
-                  </button>
+            <RailHorizon level={0.45} />
+            {modules.map((m) => (
+              <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
+            ))}
+          </nav>
+
+          {menu && (
+            <aside
+              aria-label={`${active.module.title}菜单`}
+              className={cn(
+                "sticky top-14 hidden h-[calc(100svh-3.5rem)] shrink-0 overflow-hidden rounded-tr-3xl border-l border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:block",
+                collapsed ? "w-6" : "w-44",
+              )}
+            >
+              {collapsed ? (
+                <button
+                  type="button"
+                  onClick={toggleMenu}
+                  className="mt-4 flex h-8 w-full items-center justify-center text-muted-foreground hover:text-foreground"
+                  aria-label="展开菜单"
+                >
+                  <ChevronsRight className="size-4" />
+                </button>
+              ) : (
+                <div className="relative flex h-full flex-col overflow-y-auto px-3 py-4">
+                  <RailHorizon level={0.6} />
+                  <div className="relative mb-3 flex items-center justify-between pl-2">
+                    <span className="font-brand text-lg font-medium tracking-[-0.01em]">{active.module.title}</span>
+                    <button
+                      type="button"
+                      onClick={toggleMenu}
+                      className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="收起菜单"
+                    >
+                      <ChevronsLeft className="size-4" />
+                    </button>
+                  </div>
+                  <MenuGroups groups={menu} activeLeaf={active.leaf} />
                 </div>
-                <MenuGroups groups={menu} activeLeaf={active.leaf} />
-              </div>
-            )}
-          </aside>
+              )}
+            </aside>
+          )}
+
+          <main data-page-root className="min-w-0 flex-1 px-3 pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6">
+            {menu && <SubTabs groups={menu} activeLeaf={active.leaf} />}
+            {children}
+          </main>
+        </div>
+
+        {ai && (
+          <Suspense>
+            <AiDock storageKey={ai} />
+            <SelectionToolbar />
+          </Suspense>
         )}
 
-        <main data-page-root className="min-w-0 flex-1 px-3 pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6">
-          {menu && <SubTabs groups={menu} activeLeaf={active.leaf} />}
-          {children}
-        </main>
-      </div>
+        <TabBar modules={modules} activeKey={active?.module.key} badges={badges} moreOpen={mobileOpen} onMore={() => setMobileOpen(true)} />
 
-      {ai && (
-        <Suspense>
-          <AiDock storageKey={ai} />
-          <SelectionToolbar />
-        </Suspense>
-      )}
-
-      <TabBar modules={modules} activeKey={active?.module.key} badges={badges} moreOpen={mobileOpen} onMore={() => setMobileOpen(true)} />
-
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent
-          side="bottom"
-          className="max-h-[85svh] gap-0 overflow-y-auto rounded-t-3xl px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]"
-          // 点了任一链接就收起
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest("a")) setMobileOpen(false);
-          }}
-        >
-          <span className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
-          <SheetTitle className="px-1 text-base">全部功能</SheetTitle>
-          <SheetDescription className="sr-only">在这里进入所有模块</SheetDescription>
-          <ul className="mt-3 grid grid-cols-4 gap-y-4">
-            {modules.map((m) => {
-              const Icon = ICONS[m.icon] ?? ChevronRight;
-              const on = active?.module.key === m.key;
-              const count = m.badge ? (badges[m.badge] ?? 0) : 0;
-              return (
-                <li key={m.key}>
-                  <Link href={m.href} className="flex flex-col items-center gap-1.5 text-xs">
-                    <span
-                      className={cn(
-                        "relative flex size-12 items-center justify-center rounded-2xl",
-                        on ? "bg-brand-soft text-brand-ink" : "bg-muted text-foreground/80",
-                      )}
-                    >
-                      <Icon className="size-[22px]" />
-                      {count > 0 && (
-                        <span className="absolute -top-1 -right-1">
-                          <CountPill count={count} />
-                        </span>
-                      )}
-                    </span>
-                    {m.title}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-          {modules
-            .filter((m) => m.menu?.length)
-            .map((m) => (
-              <section key={m.key} className="mt-5">
-                <h3 className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">{m.title}</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {m
-                    .menu!.flatMap((g) => g.items)
-                    .map((item) => (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={cn(
-                          "flex h-11 items-center rounded-full px-4 text-sm",
-                          item.href === active?.leaf ? "bg-brand-soft text-brand-ink" : "bg-muted/70",
-                        )}
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent
+            side="bottom"
+            className="max-h-[85svh] gap-0 overflow-y-auto rounded-t-3xl px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+            // 点了任一链接就收起
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest("a")) setMobileOpen(false);
+            }}
+          >
+            <span className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+            <SheetTitle className="px-1 text-base">全部功能</SheetTitle>
+            <SheetDescription className="sr-only">在这里进入所有模块</SheetDescription>
+            <ul className="mt-3 grid grid-cols-4 gap-y-4">
+              {modules.map((m) => {
+                const Icon = ICONS[m.icon] ?? ChevronRight;
+                const on = active?.module.key === m.key;
+                const count = m.badge ? (badges[m.badge] ?? 0) : 0;
+                return (
+                  <li key={m.key}>
+                    <Link href={m.href} className="flex flex-col items-center gap-1.5 text-xs">
+                      <span
+                        className={cn("ac-tile relative size-12", on && "ac-tile--pop ring-2 ring-foreground/70 ring-offset-2 ring-offset-popover")}
+                        style={tileOf(m.key)}
                       >
-                        {item.title}
-                      </Link>
-                    ))}
-                </div>
-              </section>
-            ))}
-        </SheetContent>
-      </Sheet>
-    </div>
+                        <Icon className="size-[22px]" />
+                        {count > 0 && (
+                          <span className="absolute -top-1 -right-1">
+                            <CountPill count={count} />
+                          </span>
+                        )}
+                      </span>
+                      {m.title}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            {modules
+              .filter((m) => m.menu?.length)
+              .map((m) => (
+                <section key={m.key} className="mt-5">
+                  <h3 className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">{m.title}</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {m
+                      .menu!.flatMap((g) => g.items)
+                      .map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          style={item.href === active?.leaf ? selVars(moduleColor(m.key)) : undefined}
+                          className={cn("flex h-11 items-center rounded-[10px] px-4 text-sm", item.href === active?.leaf ? "ac-sel" : "bg-muted/70")}
+                        >
+                          {item.title}
+                        </Link>
+                      ))}
+                  </div>
+                </section>
+              ))}
+          </SheetContent>
+        </Sheet>
+      </div>
+    </ModuleColorContext.Provider>
   );
 }
 
@@ -289,9 +299,10 @@ function TabBar({
           >
             <span
               className={cn(
-                "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-                on && "bg-brand-soft text-brand-ink",
+                "relative flex h-7 w-12 items-center justify-center rounded-[10px] transition-colors",
+                on ? "ac-tile ac-tile--pop" : "ac-tint",
               )}
+              style={tileOf(m.key)}
             >
               <Icon className="size-[19px]" strokeWidth={on ? 2 : 1.7} />
               {count > 0 && (
@@ -307,8 +318,8 @@ function TabBar({
       <button type="button" onClick={onMore} className={cn(item, moreOpen || !inTabs ? "text-foreground" : "text-muted-foreground")}>
         <span
           className={cn(
-            "relative flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-            (moreOpen || !inTabs) && "bg-brand-soft text-brand-ink",
+            "relative flex h-7 w-12 items-center justify-center rounded-[10px] transition-colors",
+            (moreOpen || !inTabs) && "ac-tile ac-tile--pop",
           )}
         >
           <LayoutGrid className="size-[19px]" strokeWidth={moreOpen || !inTabs ? 2 : 1.7} />
@@ -338,8 +349,8 @@ function SubTabs({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]
             href={i.href}
             aria-current={on ? "page" : undefined}
             className={cn(
-              "flex h-8 shrink-0 items-center rounded-full px-3.5 text-[13px] whitespace-nowrap ring-1 transition-colors",
-              on ? "bg-brand-soft text-brand-ink ring-brand-soft" : "bg-card text-foreground/75 ring-transparent shadow-card",
+              "flex h-8 shrink-0 items-center rounded-[10px] px-3.5 text-[13px] whitespace-nowrap ring-1 transition-colors",
+              on ? "ac-sel ring-transparent" : "bg-card text-foreground/75 ring-transparent shadow-card",
             )}
           >
             {i.title}
@@ -356,12 +367,20 @@ function RailItem({ module: m, active, count = 0 }: { module: NavModule; active:
     <Link
       href={m.href}
       aria-current={active ? "page" : undefined}
+      style={tileOf(m.key)}
       className={cn(
-        "relative flex flex-col items-center gap-1.5 rounded-2xl px-1 py-2.5 text-[11px] leading-none transition-colors",
-        active ? "bg-brand-soft text-brand-ink" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "group/rail relative flex flex-col items-center gap-1 rounded-[12px] px-1 py-1.5 text-[11px] leading-none transition-colors",
+        active ? "font-semibold text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
       )}
     >
-      <Icon className="size-5" strokeWidth={active ? 2 : 1.7} />
+      <span
+        className={cn(
+          "grid size-8 place-items-center transition-transform duration-200 group-hover/rail:scale-105",
+          active ? "ac-tile ac-tile--pop" : "ac-tint",
+        )}
+      >
+        <Icon className="size-[18px]" strokeWidth={active ? 2 : 1.75} />
+      </span>
       <span className="whitespace-nowrap">{m.title}</span>
       {count > 0 && (
         <span className="absolute top-1 right-1">
@@ -374,7 +393,7 @@ function RailItem({ module: m, active, count = 0 }: { module: NavModule; active:
 
 function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]>; activeLeaf?: string }) {
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4">
       {groups.map((g, gi) => (
         <div key={g.group ?? gi}>
           {g.group && <p className="mb-1 px-2 text-xs text-muted-foreground">{g.group}</p>}
@@ -387,14 +406,12 @@ function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["men
                     href={item.href}
                     aria-current={on ? "page" : undefined}
                     className={cn(
-                      "flex items-center justify-between rounded-full px-3.5 py-2 text-sm transition-colors",
-                      on ? "bg-brand-soft text-brand-ink" : "text-foreground/75 hover:bg-muted hover:text-foreground",
+                      "flex items-center justify-between rounded-[10px] px-3 py-2 text-sm transition-colors",
+                      on ? "ac-sel" : "text-foreground/75 hover:bg-sidebar-accent hover:text-foreground",
                     )}
                   >
                     {item.title}
-                    {item.phase && (
-                      <span className={cn("text-[10px]", on ? "text-primary-foreground/60" : "text-muted-foreground")}>{item.phase}</span>
-                    )}
+                    {item.phase && <span className="text-[10px] font-normal text-muted-foreground">{item.phase}</span>}
                   </Link>
                 </li>
               );
@@ -408,7 +425,7 @@ function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["men
 
 function CountPill({ count }: { count: number }) {
   return (
-    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-medium text-white tabular-nums ring-2 ring-sidebar">
+    <span className="ac-mark-in flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-medium text-white tabular-nums ring-2 ring-sidebar">
       {count > 99 ? "99+" : count}
     </span>
   );

@@ -18,6 +18,7 @@ import { STATUS_COLORS, formatDateTime } from "@/lib/crm";
 import { CONTEXT_KINDS, REMINDER_GROUPS, REMINDER_KINDS, SNOOZE_PRESETS, TIME_PRESETS, presetLocal, type TimePreset } from "@/lib/reminders";
 import { deleteTaskAction, saveTaskAction, snoozeTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
 import { EmptyState } from "@/components/crm/empty-state";
+import { confettiFrom } from "@/components/agentes/sky";
 import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
 
 export type TaskItem = {
@@ -99,7 +100,7 @@ export function TaskForm({
         onClick={() => pick(key)}
         aria-pressed={on}
         className={cn(
-          "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+          "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
           on ? STATUS_COLORS[color] : "border-border/80 text-foreground/80 hover:bg-muted",
           on && "ring-2 ring-current/20",
         )}
@@ -126,7 +127,7 @@ export function TaskForm({
             <button
               type="button"
               onClick={() => setShowAll((v) => !v)}
-              className="inline-flex items-center gap-0.5 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center gap-0.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
               aria-expanded={showAll}
             >
               更多场景 <ChevronDown className={cn("size-3.5 transition-transform", showAll && "rotate-180")} />
@@ -268,7 +269,7 @@ export function KindTag({ kind, className }: { kind?: string | null; className?:
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[11px] leading-4 font-medium whitespace-nowrap",
+        "inline-flex shrink-0 items-center rounded-md border px-1.5 py-px text-[11px] leading-4 font-medium whitespace-nowrap",
         STATUS_COLORS[k.color],
         className,
       )}
@@ -346,6 +347,10 @@ function TaskRow({ t, tz, now, showCustomer }: { t: TaskItem; tz: string; now: n
             className="mt-0.5"
             checked={t.done}
             aria-label={t.done ? "标记为未完成" : "标记为完成"}
+            onClick={(e) => {
+              // 做完一件事：撒一把像素彩纸
+              if (!t.done) confettiFrom(e.currentTarget);
+            }}
             onCheckedChange={(v) => runAction(toggleTaskAction(t.id, !!v))}
           />
           <div className="min-w-0 flex-1">

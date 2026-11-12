@@ -10,7 +10,7 @@ export function StatusBadge({ name, color, className }: { name?: string | null; 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+        "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
         STATUS_COLORS[color ?? "slate"] ?? STATUS_COLORS.slate,
         className,
       )}
@@ -84,7 +84,7 @@ export function Tags({ tags, max = 3 }: { tags: string[]; max?: number }) {
   return (
     <span className="inline-flex flex-wrap gap-1">
       {tags.slice(0, max).map((t) => (
-        <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        <span key={t} className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {t}
         </span>
       ))}

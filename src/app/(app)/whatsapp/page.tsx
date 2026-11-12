@@ -13,6 +13,7 @@ import { ChatView, LiveRefresh, NewChatButton, StartFromParams } from "./chat-vi
 import { ChatListItem } from "./chat-list-item";
 import { loadChatView } from "./chat-data";
 import { noAutofill } from "@/lib/no-autofill";
+import { SkyGlow } from "@/components/agentes/sky";
 
 export const metadata: Metadata = { title: "WhatsApp" };
 
@@ -34,11 +35,9 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
 
   if (!account) {
     return (
-      <div className="mx-auto mt-10 max-w-md surface p-10 text-center">
-        <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-          <MessageCircle className="size-7" />
-        </span>
-        <p className="text-lg font-medium">还没有绑定 WhatsApp</p>
+      <div className="mx-auto mt-10 max-w-md surface px-10 pt-6 pb-10 text-center">
+        <SkyGlow surface="--raised" className="mx-auto h-32 w-56" />
+        <p className="font-brand text-lg font-medium">还没有绑定 WhatsApp</p>
         <p className="mt-1.5 text-sm text-muted-foreground">用手机号配对码或扫码关联后，聊天记录会同步过来，直接在这里和客户沟通。</p>
         <Button asChild className="mt-5">
           <Link href="/settings/whatsapp">去绑定</Link>
@@ -160,7 +159,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
                 href={href({ f: x.key })}
                 aria-current={f === x.key ? "page" : undefined}
                 className={cn(
-                  "inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] font-medium transition-colors md:h-auto md:px-3 md:py-1 md:text-xs",
+                  "inline-flex h-8 items-center gap-1 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors md:h-auto md:px-3 md:py-1 md:text-xs",
                   f === x.key ? "bg-emerald-100 text-emerald-800" : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >

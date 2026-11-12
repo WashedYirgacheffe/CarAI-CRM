@@ -307,7 +307,7 @@ export function OpportunityBoard({
                   onClick={() => setPickedStage(s.id)}
                   aria-pressed={on}
                   className={cn(
-                    "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+                    "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors",
                     on
                       ? s.kind === "WON"
                         ? "bg-emerald-500 text-white"
@@ -386,8 +386,8 @@ export function OpportunityBoard({
             {stages.map((s, i) => {
               const items = opps.filter((o) => o.stageId === s.id);
               const over = overStage === s.id;
-              // 进行中阶段蓝色由浅到深；赢单绿；输单灰
-              const tint = s.kind === "OPEN" ? 10 + Math.round((openStages.indexOf(s.id) / Math.max(1, openStages.length - 1)) * 18) : 0;
+              // 进行中阶段用模块色由浅到深；赢单绿；输单灰
+              const tint = s.kind === "OPEN" ? 22 + Math.round((openStages.indexOf(s.id) / Math.max(1, openStages.length - 1)) * 50) : 0;
               return (
                 <div key={s.id} className="flex w-64 shrink-0 flex-col">
                   <div
@@ -397,7 +397,7 @@ export function OpportunityBoard({
                       i === 0 ? "pl-3" : "pl-6",
                       s.kind === "WON" && "bg-emerald-500 text-white",
                       s.kind === "LOST" && "bg-muted text-muted-foreground",
-                      s.kind === "OPEN" && "text-primary",
+                      s.kind === "OPEN" && "text-[color-mix(in_oklab,var(--mod-bottom)_80%,black)] dark:text-foreground",
                       over && "brightness-95",
                     )}
                     style={{
@@ -406,7 +406,7 @@ export function OpportunityBoard({
                           ? "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%)"
                           : "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 16px 50%)",
                       ...(s.kind === "OPEN"
-                        ? { backgroundColor: `color-mix(in oklab, var(--primary) ${over ? tint + 10 : tint}%, var(--card))` }
+                        ? { backgroundColor: `color-mix(in oklab, var(--mod-top) ${over ? tint + 14 : tint}%, var(--card))` }
                         : {}),
                     }}
                   >
@@ -425,7 +425,7 @@ export function OpportunityBoard({
                       <span
                         className={cn(
                           "block h-full rounded-full",
-                          s.kind === "WON" ? "bg-[var(--chart-2)]" : s.kind === "LOST" ? "bg-muted-foreground/40" : "bg-[var(--chart-1)]",
+                          s.kind === "WON" ? "bg-emerald-500" : s.kind === "LOST" ? "bg-muted-foreground/40" : "bg-[var(--mod-bottom)]",
                         )}
                         style={{ width: `${maxStageCny ? (stageCny[i] / maxStageCny) * 100 : 0}%` }}
                       />

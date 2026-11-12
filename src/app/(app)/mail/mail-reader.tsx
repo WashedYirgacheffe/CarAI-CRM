@@ -324,7 +324,7 @@ export function MailReader({
                 {m.lead ? (
                   <Link
                     href={`/leads?q=${encodeURIComponent(m.fromAddr)}&tab=all`}
-                    className="rounded-full bg-brand-soft px-2.5 py-0.5 text-xs text-brand-ink"
+                    className="rounded-md bg-brand-soft px-2.5 py-0.5 text-xs text-brand-ink"
                   >
                     已建为线索，去处理
                   </Link>
@@ -352,14 +352,14 @@ export function MailReader({
                 {priority && m.aiPriority !== "low" && (
                   <span
                     className={cn(
-                      "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                      "rounded-md px-2 py-0.5 text-[11px] font-medium",
                       m.aiPriority === "high" ? "bg-rose-500 text-white" : "bg-amber-100 text-amber-800",
                     )}
                   >
                     {m.aiPriority === "high" ? "高优先 · 尽快回复" : "中优先"}
                   </span>
                 )}
-                {intent && <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", intent.cls)}>{intent.label}</span>}
+                {intent && <span className={cn("rounded-md border px-2 py-0.5 text-[11px] font-medium", intent.cls)}>{intent.label}</span>}
                 <span className="ml-auto flex gap-1">
                   {m.aiSummary && !analyzing && (
                     <Button size="icon-xs" variant="ghost" onClick={() => void analyze(true)} aria-label="重新分析" title="重新分析">
@@ -395,7 +395,7 @@ export function MailReader({
                     aria-checked={mode === x.key}
                     onClick={() => setMode(x.key)}
                     className={cn(
-                      "h-7 rounded-full px-3 text-xs transition-colors max-md:h-8 max-md:px-3.5 max-md:text-[13px]",
+                      "h-7 rounded-[10px] px-3 text-xs transition-colors max-md:h-8 max-md:px-3.5 max-md:text-[13px]",
                       mode === x.key ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                     )}
                   >

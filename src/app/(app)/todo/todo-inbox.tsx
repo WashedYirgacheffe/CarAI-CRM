@@ -17,6 +17,7 @@ import { MAIL_INTENT_LABELS } from "@/lib/mail";
 import { SNOOZE_PRESETS, TIME_PRESETS, type TimePreset } from "@/lib/reminders";
 import { formatDateTime } from "@/lib/crm";
 import { cn } from "@/lib/utils";
+import { confettiFrom, SkyGlow } from "@/components/agentes/sky";
 import type { ActionState } from "@/lib/action";
 
 export type TodoItem = {
@@ -108,7 +109,7 @@ export function TodoInbox({ items, tz }: { items: TodoItem[]; tz: string }) {
             onClick={() => setFilter(c.key)}
             aria-pressed={filter === c.key}
             className={cn(
-              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors",
               filter === c.key ? "bg-brand-soft text-brand-ink" : "bg-card text-foreground/75 shadow-card hover:text-foreground",
             )}
           >
@@ -119,11 +120,9 @@ export function TodoInbox({ items, tz }: { items: TodoItem[]; tz: string }) {
       </nav>
 
       {shown.length === 0 ? (
-        <div className="surface flex flex-col items-center gap-2 px-6 py-16 text-center">
-          <span className="flex size-14 items-center justify-center rounded-full border border-dashed border-foreground/25 text-foreground/70">
-            <Check className="size-6" />
-          </span>
-          <p className="font-medium">都处理完了</p>
+        <div className="surface flex flex-col items-center gap-2 px-6 pt-8 pb-16 text-center">
+          <SkyGlow surface="--raised" className="h-36 w-60" />
+          <p className="font-brand text-lg font-medium">都处理完了</p>
           <p className="text-sm text-muted-foreground">新的提醒、重要邮件和 WhatsApp 消息到了会出现在这里</p>
         </div>
       ) : (
@@ -167,9 +166,9 @@ function Row({
           </span>
           <div className="min-w-0 flex-1">
             <p className="flex min-w-0 flex-wrap items-center gap-1.5">
-              {i.high && <span className="rounded-full bg-brand px-1.5 py-px text-[11px] leading-4 text-brand-foreground">高优先</span>}
+              {i.high && <span className="rounded-md bg-brand px-1.5 py-px text-[11px] leading-4 text-brand-foreground">高优先</span>}
               {i.kind === "task" && <KindTag kind={i.tag} />}
-              {intent && <span className={cn("rounded-full border px-1.5 py-px text-[11px] leading-4 font-medium", intent.cls)}>{intent.label}</span>}
+              {intent && <span className={cn("rounded-md border px-1.5 py-px text-[11px] leading-4 font-medium", intent.cls)}>{intent.label}</span>}
               {i.href ? (
                 <Link
                   href={i.href}
@@ -227,7 +226,10 @@ function Row({
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={onDone}
+              onClick={(e) => {
+                confettiFrom(e.currentTarget);
+                onDone();
+              }}
               aria-label={doneLabel}
               title={doneLabel}
               className="hover:bg-primary hover:text-primary-foreground"

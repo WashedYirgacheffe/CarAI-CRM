@@ -168,7 +168,7 @@ function CustomerWidget({ data, api, loading }: { data: Extract<WidgetData, { ty
       {c.tags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {c.tags.slice(0, 8).map((t) => (
-            <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+            <span key={t} className="rounded-md bg-muted px-2 py-0.5 text-xs">
               {t}
             </span>
           ))}

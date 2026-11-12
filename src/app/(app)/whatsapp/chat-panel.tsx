@@ -417,7 +417,7 @@ function SendTab({ data }: { data: PanelData }) {
                     </Link>
                     <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                       <span className="tabular-nums">{formatMoney(qt.total, qt.currency)}</span>
-                      <span className={cn("rounded-full border px-1.5 leading-4", STATUS_COLORS[st.color])}>
+                      <span className={cn("rounded-md border px-1.5 leading-4", STATUS_COLORS[st.color])}>
                         {blocked ? (qt.approval === "PENDING" ? "审批中" : "已驳回") : st.label}
                       </span>
                     </p>

@@ -5,6 +5,8 @@ import { requirePermission } from "@/server/auth";
 import { prisma } from "@/server/db";
 import { scopeMembers, scopeOwnerIds } from "@/server/scope";
 import { FOLLOW_METHODS, formatMoney, parseLocalInput, toLocalInput } from "@/lib/crm";
+import { tileVars } from "@/lib/module-color";
+import type { AgentPresetColor } from "@/lib/agentes/agent/engine.js";
 import { FileText, Inbox, MessagesSquare, ShoppingCart, UserPlus, Wallet, type LucideIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -206,13 +208,13 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   ];
 
   const money = (n: number) => formatMoney(n, "CNY");
-  const kpis: { icon: LucideIcon; label: string; value: number | string; hint?: string; strong?: boolean }[] = [
-    { icon: Inbox, label: "新增询盘", value: leads.length, hint: `已转客户 ${converted} · ${pct(converted, leads.length)}` },
-    { icon: UserPlus, label: "新增客户", value: customers.length, hint: "期间新建档" },
-    { icon: MessagesSquare, label: "跟进次数", value: follows.length, hint: `邮件 ${mailOut} · WA ${waOut} 条发出` },
-    { icon: FileText, label: "报价单", value: quotes.length, hint: money(quoteAmount) },
-    { icon: ShoppingCart, label: "成交订单", value: orders.length, hint: money(orderAmount), strong: true },
-    { icon: Wallet, label: "回款", value: money(paidAmount), hint: `占成交额 ${pct(paidAmount, orderAmount)}` },
+  const kpis: { icon: LucideIcon; label: string; value: number | string; hint?: string; strong?: boolean; color: AgentPresetColor }[] = [
+    { color: "amber", icon: Inbox, label: "新增询盘", value: leads.length, hint: `已转客户 ${converted} · ${pct(converted, leads.length)}` },
+    { color: "sky", icon: UserPlus, label: "新增客户", value: customers.length, hint: "期间新建档" },
+    { color: "green", icon: MessagesSquare, label: "跟进次数", value: follows.length, hint: `邮件 ${mailOut} · WA ${waOut} 条发出` },
+    { color: "indigo", icon: FileText, label: "报价单", value: quotes.length, hint: money(quoteAmount) },
+    { color: "violet", icon: ShoppingCart, label: "成交订单", value: orders.length, hint: money(orderAmount), strong: true },
+    { color: "teal", icon: Wallet, label: "回款", value: money(paidAmount), hint: `占成交额 ${pct(paidAmount, orderAmount)}` },
   ];
 
   return (
@@ -232,7 +234,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   href={`/reports?range=${p.key}`}
                   aria-current={range.key === p.key ? "page" : undefined}
                   className={cn(
-                    "shrink-0 rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors sm:px-3",
+                    "shrink-0 rounded-[10px] px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors sm:px-3",
                     range.key === p.key ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -256,12 +258,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <section className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-6">
           {kpis.map((k) => (
             <div key={k.label} className="surface flex min-w-0 flex-col gap-2.5 p-3.5 md:gap-3 md:p-5">
-              <span
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-xl",
-                  k.strong ? "bg-primary text-primary-foreground" : "bg-accent text-primary",
-                )}
-              >
+              <span className="ac-tile size-9" style={tileVars(k.color)}>
                 <k.icon className="size-[18px]" />
               </span>
               <span className="min-w-0">

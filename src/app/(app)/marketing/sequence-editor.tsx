@@ -300,7 +300,7 @@ export function SequenceEditor({
               aria-pressed={bilingual}
               onClick={() => setBilingual((v) => !v)}
               className={cn(
-                "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
+                "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-medium transition-colors",
                 bilingual ? "bg-brand-soft text-brand-ink" : "text-muted-foreground hover:bg-muted",
               )}
             >

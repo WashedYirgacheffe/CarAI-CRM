@@ -49,7 +49,7 @@ export function SuggestionList({ rows, tz }: { rows: Suggestion[]; tz: string })
                 type="button"
                 onClick={() => setKind(k)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-[13px] transition-colors",
+                  "rounded-[10px] px-3 py-1 text-[13px] transition-colors",
                   kind === k ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                 )}
               >

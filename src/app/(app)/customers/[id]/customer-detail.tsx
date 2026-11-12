@@ -1,5 +1,6 @@
 "use client";
 
+import { CardSky } from "@/components/agentes/sky";
 import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -290,13 +291,12 @@ export function CustomerDetail({
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 md:gap-4 xl:grid-cols-[23.5rem_minmax(0,1fr)]">
         {/* 左栏：客户档案 + AI + 联系人 + 资料 */}
         <div className="min-w-0 max-xl:contents xl:space-y-4">
-          <section className="surface max-xl:order-1">
-            <div className="space-y-4 p-4 md:p-5">
+          <section className="surface relative overflow-hidden max-xl:order-1">
+            <CardSky />
+            <div className="relative space-y-4 p-4 md:p-5">
               <div className="flex items-start gap-4">
                 <div className="relative shrink-0">
-                  <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-normal text-primary">
-                    {initialOf(c.name)}
-                  </div>
+                  <div className="ac-tile size-14 font-brand text-2xl font-medium">{initialOf(c.name)}</div>
                   <span
                     className={cn(
                       "absolute -right-1.5 -bottom-1.5 rounded-full px-1.5 py-px text-[10px] font-medium ring-2 ring-card",
@@ -343,7 +343,7 @@ export function CustomerDetail({
               {c.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {c.tags.map((t) => (
-                    <span key={t} className="inline-flex items-center gap-1 rounded-full bg-primary/8 px-2.5 py-0.5 text-xs text-primary">
+                    <span key={t} className="inline-flex items-center gap-1 rounded-md bg-primary/8 px-2.5 py-0.5 text-xs text-primary">
                       <TagIcon className="size-3" />
                       {t}
                     </span>
@@ -797,7 +797,7 @@ function FollowUpForm({ customerId, tz }: { customerId: string; tz: string }) {
             aria-checked={method === m.value}
             onClick={() => setMethod(m.value)}
             className={cn(
-              "rounded-full px-3 py-1 text-xs transition-colors",
+              "rounded-[10px] px-3 py-1 text-xs transition-colors",
               method === m.value ? "bg-brand-soft text-brand-ink" : "bg-muted text-muted-foreground hover:text-foreground",
             )}
           >
@@ -864,7 +864,7 @@ function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }
             aria-selected={kind === k.key}
             onClick={() => setKind(k.key)}
             className={cn(
-              "rounded-full px-3 py-1 text-xs transition-colors",
+              "rounded-[10px] px-3 py-1 text-xs transition-colors",
               kind === k.key ? "bg-primary/10 font-medium text-primary" : "bg-muted text-muted-foreground hover:text-foreground",
             )}
           >
@@ -980,7 +980,7 @@ function LocalTime({ country, myTz }: { country: string; myTz: string }) {
           </span>{" "}
           {WEEK[weekday]}
         </span>
-        <span className={cn("rounded-full px-1.5 text-[11px]", working ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground")}>
+        <span className={cn("rounded-md px-1.5 text-[11px]", working ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground")}>
           {working ? "工作时间" : "非工作时间"}
         </span>
       </span>

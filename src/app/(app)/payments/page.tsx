@@ -194,7 +194,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
                 href={tabHref(t.key)}
                 aria-current={tab === t.key ? "page" : undefined}
                 className={cn(
-                  "inline-flex h-7 items-center rounded-full px-3.5 text-sm font-medium transition-colors",
+                  "inline-flex h-7 items-center rounded-[10px] px-3.5 text-sm font-medium transition-colors",
                   tab === t.key ? "bg-brand-soft text-brand-ink" : "text-foreground/60 hover:text-foreground",
                 )}
               >
