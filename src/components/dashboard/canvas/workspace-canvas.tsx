@@ -246,46 +246,49 @@ export function WorkspaceCanvas({ blocks, available, overview, workspaces, home:
           <p className="text-sm text-muted-foreground">在上方告诉 AI 你想看什么，或用右上角的「添加组件」把需要的模块放上来。</p>
         </div>
       ) : (
-        <div
-          className="grid grid-flow-row-dense grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-12"
-          onDragLeave={(e) => e.currentTarget === e.target && setDrop(null)}
-        >
-          {visible.map((it, i) => (
-            <CanvasCell
-              key={it.id}
-              item={it}
-              index={i}
-              count={visible.length}
-              dragging={dragId === it.id}
-              armed={armedId === it.id}
-              drop={drop}
-              onArm={(a) => setArmedId(a ? it.id : null)}
-              onDragStart={() => setDragId(it.id)}
-              onDragEnd={() => {
-                setDragId(null);
-                setArmedId(null);
-                setDrop(null);
-              }}
-              onDragOverCell={(after, vertical) => {
-                if (!dragId || dragId === it.id) return setDrop(null);
-                if (drop?.id !== it.id || drop.after !== after || drop.vertical !== vertical) setDrop({ id: it.id, after, vertical });
-              }}
-              onDropCell={() => {
-                if (drop) dropOn(drop.id, drop.after);
-                setDrop(null);
-              }}
-              onResize={(s) => resize(it.id, s)}
-              onMove={(d) => move(it.id, d)}
-              onMaximize={() => setMaxId(it.id)}
-              onRemove={() => remove(it.id)}
-            >
-              {maxId === it.id ? (
-                <div className="surface flex h-full min-h-32 items-center justify-center text-sm text-muted-foreground">正在放大显示</div>
-              ) : (
-                render(it)
-              )}
-            </CanvasCell>
-          ))}
+        // 按画布自己的宽度排列（工作台左右分栏时画布只占右半边）
+        <div className="@container/canvas">
+          <div
+            className="grid grid-flow-row-dense grid-cols-1 gap-3 @xl/canvas:grid-cols-2 @xl/canvas:gap-4 @5xl/canvas:grid-cols-12"
+            onDragLeave={(e) => e.currentTarget === e.target && setDrop(null)}
+          >
+            {visible.map((it, i) => (
+              <CanvasCell
+                key={it.id}
+                item={it}
+                index={i}
+                count={visible.length}
+                dragging={dragId === it.id}
+                armed={armedId === it.id}
+                drop={drop}
+                onArm={(a) => setArmedId(a ? it.id : null)}
+                onDragStart={() => setDragId(it.id)}
+                onDragEnd={() => {
+                  setDragId(null);
+                  setArmedId(null);
+                  setDrop(null);
+                }}
+                onDragOverCell={(after, vertical) => {
+                  if (!dragId || dragId === it.id) return setDrop(null);
+                  if (drop?.id !== it.id || drop.after !== after || drop.vertical !== vertical) setDrop({ id: it.id, after, vertical });
+                }}
+                onDropCell={() => {
+                  if (drop) dropOn(drop.id, drop.after);
+                  setDrop(null);
+                }}
+                onResize={(s) => resize(it.id, s)}
+                onMove={(d) => move(it.id, d)}
+                onMaximize={() => setMaxId(it.id)}
+                onRemove={() => remove(it.id)}
+              >
+                {maxId === it.id ? (
+                  <div className="surface flex h-full min-h-32 items-center justify-center text-sm text-muted-foreground">正在放大显示</div>
+                ) : (
+                  render(it)
+                )}
+              </CanvasCell>
+            ))}
+          </div>
         </div>
       )}
 

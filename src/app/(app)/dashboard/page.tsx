@@ -7,6 +7,8 @@ import { TaskList } from "@/components/crm/tasks";
 import { WorldClock } from "@/components/dashboard/world-clock";
 import { FxCalculator } from "@/components/dashboard/fx-calculator";
 import { WorkspaceCanvas } from "@/components/dashboard/canvas/workspace-canvas";
+import { AiStage } from "@/components/ai/ai-stage";
+import { aiConfigured } from "@/server/ai";
 import { BarTrend, Distribution, HBars } from "@/components/dashboard/charts";
 import { Funnel, Heatmap, PaceChart, SegmentBar, Sparkline, StackedDaily } from "@/components/dashboard/viz";
 import { RAMP, yuan } from "@/lib/viz";
@@ -709,15 +711,14 @@ export default async function DashboardPage() {
   ].filter((x): x is string => !!x);
 
   const onboarding = await getOnboarding(user);
+  const aiOn = can(user, "ai.use") && aiConfigured();
 
-  return (
+  const sub = [user.tenantName, user.departmentName && user.departmentName !== user.tenantName ? user.departmentName : null, user.roleName]
+    .filter(Boolean)
+    .join(" · ");
+  const page = (
     <>
-      <PageHeader
-        title={`你好，${user.name}`}
-        description={[user.tenantName, user.departmentName && user.departmentName !== user.tenantName ? user.departmentName : null, user.roleName]
-          .filter(Boolean)
-          .join(" · ")}
-      />
+      <PageHeader title={`你好，${user.name}`} description={sub} className={aiOn ? "lg:hidden" : undefined} />
       {onboarding && <OnboardingChecklist steps={onboarding} />}
       <WorkspaceCanvas
         blocks={Object.fromEntries(available.map((k) => [k, blocks[k]]))}
@@ -730,6 +731,14 @@ export default async function DashboardPage() {
         promptOff={saved?.dashboardPromptOff ?? false}
       />
     </>
+  );
+  // 能用 AI 时，电脑端工作台以 AI 对话为主角（见 AiStage）
+  return aiOn ? (
+    <AiStage greeting={`你好，${user.name}`} sub={sub}>
+      {page}
+    </AiStage>
+  ) : (
+    page
   );
 }
 
