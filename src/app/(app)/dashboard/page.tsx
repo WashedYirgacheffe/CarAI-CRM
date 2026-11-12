@@ -361,7 +361,7 @@ export default async function DashboardPage() {
       href: "/customers?follow=due",
       alert: dueCustomers > 0,
     },
-    { icon: CalendarX2, label: "逾期日程", value: overdueTasks, hint: "未完成且已过时间", href: "/schedule", alert: overdueTasks > 0 },
+    { icon: CalendarX2, label: "逾期日程", value: overdueTasks, hint: "未完成且已过时间", href: "/todo?view=list", alert: overdueTasks > 0 },
     canOpps && { icon: KanbanSquare, label: "进行中商机", value: oppCount, hint: oppSum, href: "/opportunities" },
     canOrders && {
       icon: ReceiptText,
@@ -568,7 +568,7 @@ export default async function DashboardPage() {
           <CardTitle>今天要做</CardTitle>
           <CardAction>
             <Link
-              href="/schedule"
+              href="/todo?view=list"
               aria-label="全部日程"
               title="全部日程"
               className="flex size-9 items-center justify-center rounded-full border border-border text-foreground/75 transition-colors hover:bg-primary hover:text-primary-foreground"

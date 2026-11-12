@@ -49,6 +49,7 @@ export function TaskForm({
   link,
   subject,
   defaultKind,
+  defaultDue,
 }: {
   customerId?: string | null;
   customers?: { id: string; name: string }[];
@@ -61,14 +62,16 @@ export function TaskForm({
   /** 关联的单据 / 邮件主题，附在提醒内容后面 */
   subject?: string;
   defaultKind?: string;
+  /** 默认时间（YYYY-MM-DDTHH:mm），日历上点某天新建时用 */
+  defaultDue?: string;
 }) {
   const [state, submit, pending] = useActionForm(saveTaskAction, onDone);
   const initial = defaultKind ? REMINDER_KINDS[defaultKind] : undefined;
   const withSubject = (t: string) => (subject ? `${t} · ${subject}` : t);
   const [kind, setKind] = useState(initial?.key ?? "");
   const [title, setTitle] = useState(initial ? withSubject(initial.title) : "");
-  const [when, setWhen] = useState<TimePreset | "">(initial?.when ?? "tomorrow");
-  const [due, setDue] = useState(() => presetLocal(initial?.when ?? "tomorrow", tz));
+  const [when, setWhen] = useState<TimePreset | "">(defaultDue ? "" : (initial?.when ?? "tomorrow"));
+  const [due, setDue] = useState(() => defaultDue ?? presetLocal(initial?.when ?? "tomorrow", tz));
   const [showAll, setShowAll] = useState(false);
   const suggested = CONTEXT_KINDS[context] ?? CONTEXT_KINDS.customer;
   const k = kind ? REMINDER_KINDS[kind] : undefined;

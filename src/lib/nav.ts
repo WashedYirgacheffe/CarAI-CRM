@@ -69,7 +69,6 @@ export const NAV: NavModule[] = [
       },
     ],
   },
-  { key: "schedule", title: "日程", href: "/schedule", icon: "CalendarClock", permission: "customer.view", badge: "tasks" },
   { key: "reports", title: "团队数据", href: "/reports", icon: "BarChart3", permission: "report.view" },
   { key: "settings", title: "设置", href: "/settings", icon: "Settings", menu: [] },
 ];

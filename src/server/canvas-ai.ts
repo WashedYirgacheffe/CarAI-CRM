@@ -22,6 +22,7 @@ import {
 } from "@/lib/canvas";
 import { AI_ACTION_KINDS, isAiActionKind, type ActionCard } from "@/lib/ai-actions";
 import { TIME_PRESETS } from "@/lib/reminders";
+import { VISUAL_KINDS, sanitizeVisual, type Visual } from "@/lib/ai-visual";
 import { FOLLOW_METHODS } from "@/lib/crm";
 import { prepareAction } from "@/server/canvas-actions";
 import { customerContext, listQuotations, listSequences, listTasks, pageContext, searchProducts } from "@/server/canvas-tools";
@@ -34,6 +35,7 @@ export type CanvasEvent =
   | { t: "layout"; layout: CanvasLayout }
   | { t: "choice"; question: string; options: { label: string; detail?: string; reply: string }[] }
   | { t: "link"; label: string; href: string }
+  | { t: "visual"; visual: Visual }
   | { t: "error"; message: string }
   | { t: "action"; card: ActionCard }
   | { t: "workspace"; op: "open"; id: string; layout: CanvasLayout }
@@ -47,6 +49,49 @@ export type CanvasTurn = { role: "user" | "assistant"; content: string };
 const MAX_STEPS = 8;
 
 const TOOLS: ToolSpec[] = [
+  {
+    type: "function",
+    function: {
+      name: "show_visual",
+      description:
+        "在对话里直接展示一张可视化卡片（不改工作台画布）。回答里有数字、对比、排名、占比、走势、多条记录或时间安排时优先用它，而不是用文字罗列。可以一次回答里调用多次（如先 stats 再 bars）。",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: [...VISUAL_KINDS],
+            description:
+              "stats=2～6 个关键数字卡；bars=横向条形对比 / 排名；trend=按时间的走势；donut=占比（≤6 项）；table=多列明细；list=客户 / 报价单 / 会话等条目卡片（可跳转）；timeline=按时间顺序的安排或经过",
+          },
+          title: { type: "string", description: "卡片标题，简短" },
+          unit: { type: "string", description: "bars / trend / donut 的单位，如「元」「个」" },
+          items: {
+            type: "array",
+            description: "除 table 外都用它",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", description: "名称 / 时间点 / 标题" },
+                value: { type: "number", description: "数值（bars / trend / donut 必填）" },
+                display: { type: "string", description: "stats 用：格式化后的展示值，如「¥12.8 万」「23 个」" },
+                hint: { type: "string", description: "stats 用：补充说明，如「比上月 +12%」" },
+                tone: { type: "string", enum: ["up", "down"], description: "stats 用：涨 / 跌" },
+                subtitle: { type: "string", description: "list / timeline 用：第二行说明" },
+                meta: { type: "string", description: "list 用：右侧的金额 / 状态" },
+                href: { type: "string", description: "list 用：站内路径，点击跳转" },
+                time: { type: "string", description: "timeline 用：时间，如「11/12 10:00」" },
+              },
+              required: ["label"],
+            },
+          },
+          columns: { type: "array", items: { type: "string" }, description: "table 用：列名（≤6 列）" },
+          rows: { type: "array", items: { type: "array", items: { type: "string" } }, description: "table 用：每行的单元格文字（≤20 行）" },
+        },
+        required: ["kind"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -250,9 +295,16 @@ const ACTION_DOC = `- send_whatsapp {chatId, text}：发一条 WhatsApp 文字�
 - enroll_sequence {sequenceId, customerIds:[...]}：把客户加进邮件营销序列（会自动群发）。
 - set_sequence_status {sequenceId, active}：启动 / 暂停营销序列。`;
 
-const PAGES = `/marketing/new 新建营销序列；/settings/mailboxes 绑定邮箱；/settings/whatsapp 连接 WhatsApp；/settings/members 成员；/settings/roles 角色权限；/settings/company 企业信息；/settings/documents 单据设置；/settings/fields 自定义字段；/settings/pool-rules 公海规则；/settings/stages 商机阶段；/settings/profile 个人资料；/customers 客户列表；/customers/<id> 客户详情；/customers/pool 公海；/leads 询盘线索；/opportunities 商机看板；/quotations 报价单；/quotations/new 新建报价单；/orders 订单；/payments 回款；/products 产品；/mail 邮件；/mail/compose?to=<邮箱> 写邮件；/whatsapp WhatsApp；/marketing 邮件营销；/schedule 日程待办；/reports 团队数据；/settings 设置`;
+const PAGES = `/marketing/new 新建营销序列；/settings/mailboxes 绑定邮箱；/settings/whatsapp 连接 WhatsApp；/settings/members 成员；/settings/roles 角色权限；/settings/company 企业信息；/settings/documents 单据设置；/settings/fields 自定义字段；/settings/pool-rules 公海规则；/settings/stages 商机阶段；/settings/profile 个人资料；/customers 客户列表；/customers/<id> 客户详情；/customers/pool 公海；/leads 询盘线索；/opportunities 商机看板；/quotations 报价单；/quotations/new 新建报价单；/orders 订单；/payments 回款；/products 产品；/mail 邮件；/mail/compose?to=<邮箱> 写邮件；/whatsapp WhatsApp；/marketing 邮件营销；/todo 待办（?view=list 清单，?view=calendar 日历）；/reports 团队数据；/settings 设置`;
 
-function systemPrompt(user: CurrentUser, layout: CanvasLayout, spaces: Space[], active: string, where: { page: string; onCanvas: boolean }) {
+function systemPrompt(
+  user: CurrentUser,
+  layout: CanvasLayout,
+  spaces: Space[],
+  active: string,
+  where: { page: string; onCanvas: boolean },
+  name: string,
+) {
   const sizeNote = "尺寸 s=4 列（侧边长条）· m=6 列 · l=8 列 · xl=12 列（全宽）；一行 12 列，按顺序自动排，放不下就换行";
   const catalog = WIDGETS.map((w) => {
     const ps = w.params?.length ? `；参数 ${w.params.map((p) => `${p.key}${p.optional ? "(可选)" : ""}=${p.desc}`).join("，")}` : "";
@@ -264,14 +316,14 @@ function systemPrompt(user: CurrentUser, layout: CanvasLayout, spaces: Space[], 
   const current = layout.length
     ? layout.map((it) => `- [${it.id}] ${it.type} ${it.size}${it.params ? ` ${JSON.stringify(it.params)}` : ""}`).join("\n")
     : "（空）";
-  return `你是「车车外贸 CRM」里的 AI 助手（右下角浮窗，每个页面都能叫出来），帮外贸业务员查数据、做分析、把需要的东西摆到工作台画布上、起草消息和单据。今天是 ${dateInput(user.timezone)}，用户是 ${user.name}（${user.roleName}）。
+  return `你是「车车外贸 CRM」里的 AI 助手，名字叫「${name}」（右下角浮窗，每个页面都能叫出来；用户问你叫什么就用这个名字），帮外贸业务员查数据、做分析、把需要的东西摆到工作台画布上、起草消息和单据。今天是 ${dateInput(user.timezone)}，用户是 ${user.name}（${user.roleName}）。
 
 ## 用户现在在哪
 ${where.page || "（未知页面）"}
 ${
   where.onCanvas
     ? "用户正在工作台，画布改动会马上看到。"
-    : "用户不在工作台。只有用户想看数据、图表、某个客户或会话时才 update_canvas（界面会给一个「到工作台查看」按钮）；起草、提醒、问答类不要动画布。"
+    : "用户不在工作台。问数据、排名、走势、列表时用 show_visual 直接在对话里展示；只有用户明确想「放到工作台 / 打开某个客户或会话」时才 update_canvas（界面会给一个「到工作台查看」按钮）；起草、提醒、问答类不要动画布。"
 }
 
 ## 画布
@@ -300,10 +352,11 @@ ${ACTION_DOC}
 2. 布局要好看：一行凑满 12 列。主组件用 l，辅助的长条组件用 s 跟在它后面就会在右侧；两个并列用 m+m；团队和总览类用 xl。
 3. 找人：先 search_entities。只有一个明确结果就直接用；同名多个、或分不清是客户还是同事时，用 ask_choice 让用户选，reply 里写上 id。
 4. 用户想和某个客户「聊天 / 沟通 / 联系」但没说渠道：先 customer_channels。WhatsApp 和邮箱都有时用 ask_choice 问用哪个；只有一种就直接用，不要再问。WhatsApp → update_canvas(clear=true) 放 whatsapp(l) + followups(s)。只有邮件 → update_canvas(clear=true) 放 customer(m) + followups(m)，并 open_page 给「给 <名字> 写邮件」按钮（/mail/compose?to=邮箱）。都没有就放 customer 组件并说明没有联系方式。同事没有内部聊天功能，如实说明。
-5. 数据分析：先用 query_metric / team_summary 拿到真实数字，再用 update_canvas 放 chart 或 team 组件（chart 的 params 写 metric、by、range、chart，可加 title 作为图表标题），然后用 2～4 句话（不超过 150 字）给出最关键的结论，引用具体数字。明细已经在画布组件里，不要再用文字或表格列一遍。绝不编造数字；没有数据就说没有。
+5. 数据分析：先用 query_metric / team_summary 拿到真实数字。在工作台时用 update_canvas 放 chart 或 team 组件（chart 的 params 写 metric、by、range、chart，可加 title 作为图表标题）；不在工作台时用 show_visual 在对话里展示（总数 / 环比用 stats，排名对比用 bars，按时间用 trend，占比用 donut，多列明细用 table）。然后用 2～4 句话（不超过 150 字）给出最关键的结论，引用具体数字，关键数字可以 **加粗**。明细已经在组件或卡片里，不要再用文字列一遍。绝不编造数字；没有数据就说没有。
+5b. 可视化优先：回答里只要有 3 条以上的记录（提醒、客户、报价单、会话）、多个数字或时间安排，就用 show_visual 展示（提醒 / 日程用 timeline，客户 / 报价单用 list 并带 href，如 /customers/<id>、/quotations/<id>），文字只做一两句总结。只有一两个数字时直接在文字里说。
 6. 画布上没有组件的功能（新建报价单、看订单列表、设置等）用 open_page 给跳转按钮。可用页面：${PAGES}。
 7. 起草与执行：用户让你发消息、发邮件、发报价单、做报价单、加提醒、写跟进、建线索、加入群发时，先查清楚需要的东西（search_entities → customer_context / search_products / list_quotations），再用 propose_action 起草，用户会在卡片上确认、修改或取消。同时把相关组件摆出来（如 whatsapp(l)+followups(s)）。信息不够（不知道发什么、发给谁、哪个产品、多少数量）就先问，不要乱填。起草对外内容时，交期、报价有效期、付款方式、运费、免费样品、折扣这类承诺，只能用查到的数据（报价单、产品、客户记录）或用户说过的话；没有依据就写成「[交期]」这样的方括号占位让用户补，绝不自己编。删除、转移客户、改权限、导出、改设置你做不了，用 open_page 给对应页面。
-8. 全程只用简体中文，简短直接（一般 1～3 句）。调用工具之前不要说「我来查一下」之类的话，直接调用。输出纯文本：不要 Markdown（不要 **加粗**、标题、表格、列表符号），不要用 emoji，不要输出 id 和站内路径（要跳转就用 open_page），不要复述工具返回的原始数据。
+8. 全程只用简体中文，简短直接（一般 1～3 句）。调用工具之前不要说「我来查一下」之类的话，直接调用。可以用少量 Markdown：**加粗** 关键词、「- 」列表列要点、短小标题；不要写 Markdown 表格（要表格就用 show_visual 的 table），不要用 emoji，不要输出 id 和站内路径（要跳转就用 open_page 或 list 卡片的 href），不要复述工具返回的原始数据。
 9. 工作情景：用户说「保存 / 记住这个布局 / 存成 xx 模式」就 save_workspace（没给名字就按画布内容起一个短名字）；说「恢复 / 打开 / 切到 xx」就 open_workspace，名字对不上时用 ask_choice 让用户从已保存的情景里选。`;
 }
 
@@ -503,6 +556,7 @@ const STATUS: Record<string, (a: Record<string, unknown>) => string> = {
   propose_action: () => "正在起草…",
   save_workspace: () => "正在保存情景…",
   open_workspace: () => "正在切换情景…",
+  show_visual: () => "正在整理成图表…",
 };
 
 const norm = (s: string) =>
@@ -633,6 +687,12 @@ async function runTool(ctx: Ctx, call: ToolCall): Promise<unknown> {
         return await saveSpace(ctx, args);
       case "open_workspace":
         return await openSpace(ctx, args);
+      case "show_visual": {
+        const visual = sanitizeVisual(args);
+        if (typeof visual === "string") return { error: visual };
+        ctx.emit({ t: "visual", visual });
+        return { ok: true, note: "卡片已展示给用户，文字里不要再重复卡片里的数字明细，只说结论" };
+      }
       case "open_page": {
         const path = String(args.path ?? "");
         if (!path.startsWith("/") || path.startsWith("//")) return { error: "path 必须是站内路径" };
@@ -651,7 +711,7 @@ async function runTool(ctx: Ctx, call: ToolCall): Promise<unknown> {
 /** 一轮对话：模型可以多步调工具（查数据 → 摆组件 → 总结），事件实时推给前端 */
 export async function runCanvasTurn(
   user: CurrentUser,
-  input: { message: string; history: CanvasTurn[]; layout: unknown; active?: string; page?: string; onCanvas?: boolean },
+  input: { message: string; history: CanvasTurn[]; layout: unknown; active?: string; page?: string; onCanvas?: boolean; name?: string },
   emit: (e: CanvasEvent) => void,
   signal?: AbortSignal,
 ) {
@@ -666,6 +726,11 @@ export async function runCanvasTurn(
   const page = (input.page ?? "").slice(0, 500);
   const where = { page: page ? await pageContext(user, page).catch(() => `页面：${page}`) : "", onCanvas: input.onCanvas !== false };
   const ctx: Ctx = { user, layout: sanitizeLayout(input.layout), emit, stop: false, spaces, active, where };
+  const name =
+    input.name
+      ?.replace(/[\n\r`"「」]/g, "")
+      .trim()
+      .slice(0, 16) || "AI 助手";
   const messages: ChatMessage[] = [
     ...input.history.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }) as ChatMessage),
     { role: "user", content: input.message.slice(0, 2000) },
@@ -678,7 +743,7 @@ export async function runCanvasTurn(
       emit({ t: "step" });
       // 系统提示每步重建：画布可能刚被改过
       for await (const ev of aiToolStream({
-        system: systemPrompt(user, ctx.layout, ctx.spaces, ctx.active, ctx.where),
+        system: systemPrompt(user, ctx.layout, ctx.spaces, ctx.active, ctx.where, name),
         messages,
         tools: TOOLS,
         // 最后一步不许再调工具，必须用文字收尾
