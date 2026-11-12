@@ -9,6 +9,7 @@ import { runAction } from "@/hooks/use-action-form";
 import { TIME_PRESETS, presetLocal, type TimePreset } from "@/lib/reminders";
 import { cn } from "@/lib/utils";
 import { saveTaskAction } from "../schedule/actions";
+import { noAutofill } from "@/lib/no-autofill";
 
 const DAY = 86_400_000;
 const QUICK: TimePreset[] = ["h1", "eod", "tomorrow", "d2", "mon", "w1", "m1"];
@@ -103,7 +104,7 @@ function QuickAdd({ tz }: { tz: string }) {
   return (
     <form onSubmit={submit} className="surface flex items-center gap-2 py-1.5 pr-1.5 pl-3.5">
       <Plus className="size-4 shrink-0 text-brand-ink" />
-      <input
+      <input {...noAutofill}
         ref={input}
         value={title}
         onChange={(e) => setTitle(e.target.value)}

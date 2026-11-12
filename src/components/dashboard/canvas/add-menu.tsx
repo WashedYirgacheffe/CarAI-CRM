@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { searchTargetsAction, type TargetHit } from "@/app/(app)/dashboard/widget-actions";
 import { MAX_ITEMS, WIDGETS, type WidgetDef } from "@/lib/canvas";
 import { METRICS } from "@/lib/metrics";
+import { noAutofill } from "@/lib/no-autofill";
 
 type Props = {
   available: Set<string>;
@@ -166,7 +167,7 @@ function TargetSearch({ kind, onPick }: { kind: "customer" | "chat"; onPick: (h:
     <div>
       <label className="mx-1 mb-1 flex items-center gap-2 rounded-lg border px-2.5">
         <Search className="size-4 shrink-0 text-muted-foreground" />
-        <input
+        <input {...noAutofill}
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}

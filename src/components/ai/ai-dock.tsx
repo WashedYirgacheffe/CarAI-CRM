@@ -14,6 +14,7 @@ import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { RichText, VisualView } from "./ai-visual";
 import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
+import { noAutofill } from "@/lib/no-autofill";
 
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
 type AssistantTurn = {
@@ -490,7 +491,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             } else void send(input);
           }}
         >
-          <input
+          <input {...noAutofill}
             ref={inputRef}
             value={input}
             tabIndex={open ? 0 : -1}
@@ -621,7 +622,7 @@ function PrefsPanel({ value, onChange, onClose }: { value: Prefs; onChange: (p: 
     <div className="space-y-3 border-b bg-muted/40 px-4 py-3 text-sm">
       <label className="flex items-center gap-3">
         <span className="w-16 shrink-0 text-muted-foreground">名称</span>
-        <input
+        <input {...noAutofill}
           value={name}
           maxLength={16}
           onChange={(e) => setName(e.target.value)}

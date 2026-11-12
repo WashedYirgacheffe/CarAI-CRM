@@ -5,6 +5,7 @@ import type { ReactElement, ReactNode } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { noAutofill } from "@/lib/no-autofill";
 
 /*
  * 自定义下拉（替代浏览器原生 select 的弹出列表），用法和 <select> 完全一样：
@@ -169,7 +170,7 @@ export function NativeSelect({
           {searchable && (
             <div className="relative mb-1 border-b border-border/70 p-1 pb-2">
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-[60%] text-muted-foreground" />
-              <input
+              <input {...noAutofill}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="搜索"

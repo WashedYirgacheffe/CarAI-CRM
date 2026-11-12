@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { ChatView, LiveRefresh, NewChatButton, StartFromParams } from "./chat-view";
 import { ChatListItem } from "./chat-list-item";
 import { loadChatView } from "./chat-data";
+import { noAutofill } from "@/lib/no-autofill";
 
 export const metadata: Metadata = { title: "WhatsApp" };
 
@@ -144,7 +145,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
           <form action="/whatsapp" className="relative">
             {f && <input type="hidden" name="f" value={f} />}
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
+            <input {...noAutofill}
               name="q"
               defaultValue={q}
               placeholder="搜索姓名、号码、客户"
