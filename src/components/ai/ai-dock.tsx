@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowRight, ArrowUp, LoaderCircle, Square, Trash2, X } from "lucide-react";
+import { ArrowRight, ArrowUp, LoaderCircle, Settings2, Square, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
 import type { ActionCard } from "@/lib/ai-actions";
@@ -11,6 +11,8 @@ import { ActionCardView, cardSummary, type CardState } from "@/components/dashbo
 import { applyLayout, applyWorkspace, canvasOnPage, canvasSnapshot, type WorkspaceEvent } from "./canvas-bridge";
 import { AiMascot } from "./ai-mascot";
 import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
+import { RichText, VisualView } from "./ai-visual";
+import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
@@ -23,6 +25,8 @@ type AssistantTurn = {
   error: string | null;
   done: boolean;
   cards: CardState[];
+  /** 对话里的可视化卡片（旧记录没有） */
+  visuals?: Visual[];
   /** 不在工作台时 AI 摆了组件：给一个「到工作台查看」 */
   canvas?: boolean;
   /** 本步开始时的文字长度，丢弃过渡话时截回这里 */
@@ -36,6 +40,7 @@ type StreamEvent =
   | { t: "layout"; layout: CanvasLayout }
   | ({ t: "choice" } & Choice)
   | { t: "link"; label: string; href: string }
+  | { t: "visual"; visual: Visual }
   | { t: "error"; message: string }
   | { t: "action"; card: ActionCard }
   | WorkspaceEvent
@@ -44,6 +49,16 @@ type StreamEvent =
   | { t: "done" };
 
 const MAX_TURNS = 30;
+
+/** 用户自定义：助手名字、对话字号 */
+type Prefs = { name: string; size: number };
+const DEFAULT_PREFS: Prefs = { name: "AI 助手", size: 14 };
+const SIZES = [
+  { px: 13, label: "小" },
+  { px: 14, label: "标准" },
+  { px: 15.5, label: "大" },
+  { px: 17, label: "特大" },
+];
 
 function suggestionsFor(path: string, sp: URLSearchParams) {
   if (/^\/customers\/[^/]+$/.test(path)) return ["总结这个客户的近况", "给这个客户起草一封跟进邮件", "明天上午提醒我跟进这个客户"];
@@ -59,6 +74,7 @@ function historyOf(turns: Turn[]) {
     if (t.role === "user") return { role: "user" as const, content: t.text };
     const parts = [t.text.trim()];
     if (t.choice) parts.push(`（我问了：${t.choice.question}；选项：${t.choice.options.map((o) => `${o.label} → ${o.reply}`).join("；")}）`);
+    for (const v of t.visuals ?? []) parts.push(visualSummary(v));
     for (const c of t.cards) parts.push(cardSummary(c));
     if (t.links.length) parts.push(`（给了跳转按钮：${t.links.map((l) => `${l.label} ${l.href}`).join("，")}）`);
     return { role: "assistant" as const, content: parts.filter(Boolean).join("\n") || "（已调整画布）" };
@@ -119,6 +135,17 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const [busy, setBusy] = useState(false);
   // 划词唤起的「润色 / 仿写 / 裂变」：先问想要什么效果
   const [compose, setCompose] = useState<{ text: string; kind: ComposeKind } | null>(null);
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const [editing, setEditing] = useState(false);
+  // 电脑端（≥768px）角色常驻右下角；手机端只在工作台常驻
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const on = () => setDesktop(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -134,8 +161,10 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as { turns?: unknown; open?: boolean } | null;
       if (saved) {
         setTurns(revive(saved.turns));
-        if (saved.open && window.location.pathname === "/dashboard") setOpen(true);
+        if (saved.open && (window.location.pathname === "/dashboard" || window.matchMedia("(min-width: 768px)").matches)) setOpen(true);
       }
+      const p = JSON.parse(localStorage.getItem(`${storageKey}:prefs`) ?? "null") as Partial<Prefs> | null;
+      if (p) setPrefs({ name: p.name?.trim() || DEFAULT_PREFS.name, size: SIZES.some((x) => x.px === p.size) ? p.size! : DEFAULT_PREFS.size });
     } catch {}
     loaded.current = true;
   }, [storageKey]);
@@ -145,6 +174,13 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       localStorage.setItem(storageKey, JSON.stringify({ turns: turns.slice(-MAX_TURNS), open }));
     } catch {}
   }, [turns, open, busy, storageKey]);
+
+  const savePrefs = (next: Prefs) => {
+    setPrefs(next);
+    try {
+      localStorage.setItem(`${storageKey}:prefs`, JSON.stringify(next));
+    } catch {}
+  };
 
   useEffect(() => {
     if (open) logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
@@ -192,7 +228,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     setTurns((ts) => [
       ...ts.slice(-(MAX_TURNS - 2)),
       { role: "user", text: message },
-      { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [] },
+      { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [], visuals: [] },
     ]);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -207,6 +243,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           active: snap.active,
           page: `${pathname}${query ? `?${query}` : ""}`,
           onCanvas: canvasOnPage(),
+          name: prefs.name,
         }),
         signal: ac.signal,
       });
@@ -239,7 +276,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             const here = canvasOnPage();
             applyWorkspace(e);
             if (!here) patchLast(() => ({ canvas: true }));
-          } else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
+          } else if (e.t === "visual") patchLast((t) => ({ visuals: [...(t.visuals ?? []), e.visual], status: null }));
+          else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
           else if (e.t === "error") patchLast(() => ({ error: e.message, status: null }));
         }
       }
@@ -290,10 +328,14 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 只在工作台首页常驻；其他页面只有「让 AI …」按钮唤起时出现，收起就消失
+  // 电脑端每个页面都常驻；手机端只在工作台常驻，其他页面由「让 AI …」按钮唤起，换页就收起
   const home = pathname === "/dashboard";
+  const desktopRef = useRef(desktop);
   useEffect(() => {
-    if (pathname !== "/dashboard") setOpen(false);
+    desktopRef.current = desktop;
+  }, [desktop]);
+  useEffect(() => {
+    if (pathname !== "/dashboard" && !desktopRef.current) setOpen(false);
   }, [pathname]);
 
   const suggestions = suggestionsFor(pathname, sp);
@@ -308,7 +350,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   // 客户详情在手机上底部有「写跟进」操作条
   const liftMobile = /^\/customers\/(?!new)[^/]+$/.test(pathname);
 
-  if (!home && !open) return null;
+  if (!home && !open && !desktop) return null;
 
   return (
     <div
@@ -327,11 +369,11 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       {/* 对话记录：在对话条上方 */}
       {open && (
         <section
-          aria-label="AI 助手"
+          aria-label={prefs.name}
           className="pointer-events-auto flex max-h-[min(34rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-3xl bg-popover shadow-2xl ring-1 ring-black/[0.06] duration-200 fade-in-0 slide-in-from-bottom-2"
         >
           <header className="flex items-center gap-2 border-b px-4 py-2.5">
-            <span className="shrink-0 text-base">AI 助手</span>
+            <span className="max-w-[12rem] shrink-0 truncate text-base">{prefs.name}</span>
             <span className="truncate text-xs text-muted-foreground max-sm:hidden">能查数据、摆工作台、起草消息和单据，确认后才执行</span>
             <span className="ml-auto flex items-center gap-0.5">
               {turns.length > 0 && (
@@ -339,11 +381,23 @@ export function AiDock({ storageKey }: { storageKey: string }) {
                   <Trash2 />
                 </Button>
               )}
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => setEditing((v) => !v)}
+                aria-label="助手设置"
+                aria-expanded={editing}
+                title="助手设置"
+                className={cn(editing && "bg-muted")}
+              >
+                <Settings2 />
+              </Button>
               <Button size="icon-xs" variant="ghost" onClick={() => toggle(false)} aria-label="收起" title="收起（Esc）">
                 <X />
               </Button>
             </span>
           </header>
+          {editing && <PrefsPanel value={prefs} onChange={savePrefs} onClose={() => setEditing(false)} />}
           {compose && (
             <div className="border-b bg-brand-soft/40 px-4 py-3">
               <div className="flex items-center gap-2 text-sm">
@@ -393,12 +447,12 @@ export function AiDock({ storageKey }: { storageKey: string }) {
               </div>
             </div>
           ) : (
-            <div ref={logRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" aria-live="polite">
+            <div ref={logRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" style={{ fontSize: prefs.size }} aria-live="polite">
               {turns.map((t, i) =>
                 t.role === "user" ? (
                   <p
                     key={i}
-                    className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-brand-soft px-3 py-2 text-sm whitespace-pre-wrap text-foreground line-clamp-[12]"
+                    className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-brand-soft px-3 py-2 whitespace-pre-wrap text-foreground line-clamp-[12]"
                   >
                     {t.text}
                   </p>
@@ -444,7 +498,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             placeholder={compose ? "说说想要的效果，比如：更正式、写成西班牙语…" : "说一句话：查数据、摆工作台、起草邮件或报价单…"}
             aria-label="对 AI 说"
             maxLength={2000}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            style={{ fontSize: Math.max(prefs.size, desktop ? 13 : 16) }}
+            className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
           />
           {busy ? (
             <Button type="button" size="icon-sm" variant="outline" className="rounded-full" onClick={stop} aria-label="停止" title="停止">
@@ -469,9 +524,9 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           key={push}
           type="button"
           onClick={() => toggle()}
-          aria-label={open ? "收起 AI 助手" : "打开 AI 助手"}
+          aria-label={open ? `收起${prefs.name}` : `打开${prefs.name}`}
           aria-expanded={open}
-          title={open ? "收起（⌘J）" : "AI 助手（⌘J）"}
+          title={open ? "收起（⌘J）" : `${prefs.name}（⌘J）`}
           className={cn(
             "pointer-events-auto relative size-14 shrink-0 rounded-full shadow-xl ring-1 ring-black/5 dark:ring-white/15 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
             push > 0 && "ai-push",
@@ -487,16 +542,6 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     </div>
   );
 }
-
-/** 模型偶尔还是会带 Markdown：去掉加粗、标题、表格行 */
-const plain = (s: string) =>
-  s
-    .split("\n")
-    .filter((l) => !/^\s*\|/.test(l))
-    .map((l) => l.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/, ""))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 
 function AssistantView({
   turn,
@@ -514,13 +559,16 @@ function AssistantView({
   onNavigate: () => void;
 }) {
   return (
-    <div className="space-y-2 text-sm">
+    <div className="space-y-2.5">
       {turn.status && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin" /> {turn.status}
         </p>
       )}
-      {plain(turn.text) && <p className="leading-relaxed whitespace-pre-line text-foreground/90">{plain(turn.text)}</p>}
+      {turn.text.trim() && <RichText text={turn.text} />}
+      {turn.visuals?.map((v, vi) => (
+        <VisualView key={vi} v={v} onNavigate={onNavigate} />
+      ))}
       {turn.choice && (
         <div>
           <p className="mb-1.5 text-foreground/90">{turn.choice.question}</p>
@@ -562,6 +610,57 @@ function AssistantView({
         </div>
       )}
       {turn.error && <p className="text-destructive">{turn.error}</p>}
+    </div>
+  );
+}
+
+function PrefsPanel({ value, onChange, onClose }: { value: Prefs; onChange: (p: Prefs) => void; onClose: () => void }) {
+  const [name, setName] = useState(value.name);
+  const commit = () => onChange({ ...value, name: name.trim().slice(0, 16) || DEFAULT_PREFS.name });
+  return (
+    <div className="space-y-3 border-b bg-muted/40 px-4 py-3 text-sm">
+      <label className="flex items-center gap-3">
+        <span className="w-16 shrink-0 text-muted-foreground">名称</span>
+        <input
+          value={name}
+          maxLength={16}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              commit();
+              onClose();
+            }
+          }}
+          placeholder={DEFAULT_PREFS.name}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-card px-2.5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 max-md:text-base"
+        />
+      </label>
+      <div className="flex items-center gap-3">
+        <span className="w-16 shrink-0 text-muted-foreground">字号</span>
+        <div role="radiogroup" aria-label="字号" className="inline-flex rounded-full bg-card p-0.5 shadow-card">
+          {SIZES.map((s) => (
+            <button
+              key={s.px}
+              type="button"
+              role="radio"
+              aria-checked={value.size === s.px}
+              onClick={() => onChange({ ...value, name: name.trim().slice(0, 16) || DEFAULT_PREFS.name, size: s.px })}
+              className={cn(
+                "h-7 rounded-full px-3 transition-colors",
+                value.size === s.px ? "bg-brand-soft font-medium text-brand-ink" : "text-foreground/70 hover:text-foreground",
+              )}
+              style={{ fontSize: s.px - 1 }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={onClose} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
+          完成
+        </button>
+      </div>
     </div>
   );
 }

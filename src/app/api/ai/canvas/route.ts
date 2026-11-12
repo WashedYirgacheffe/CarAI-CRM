@@ -17,6 +17,7 @@ export async function POST(request: Request) {
     active?: unknown;
     page?: unknown;
     onCanvas?: unknown;
+    name?: unknown;
   } | null;
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   if (!message) return fail("请输入内容");
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
           active: typeof body?.active === "string" ? body.active : undefined,
           page: typeof body?.page === "string" ? body.page : undefined,
           onCanvas: body?.onCanvas !== false,
+          name: typeof body?.name === "string" ? body.name : undefined,
         },
         emit,
         abort.signal,

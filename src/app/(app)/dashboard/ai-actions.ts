@@ -67,7 +67,7 @@ export async function runAiActionAction(kind: string, raw: Record<string, string
       return out(await sendFormAction(p.chatId, p.form === "shipping" ? "shipping" : "inquiry"), "表单已发送");
     case "create_task":
       return out(await saveTaskAction({}, form(p, ["title", "dueAt", "customerId", "kind"])), "提醒已添加", {
-        href: "/schedule",
+        href: "/todo?view=list",
         hrefLabel: "看日程",
       });
     case "add_followup":

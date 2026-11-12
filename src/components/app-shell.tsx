@@ -119,7 +119,11 @@ export function AppShell({
       <div className="flex">
         <nav
           aria-label="模块"
-          className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto rounded-tr-3xl bg-sidebar px-2 py-3 md:flex"
+          className={cn(
+            "sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto bg-sidebar px-2 py-3 md:flex",
+            // 有二级菜单时和菜单连成一块，大圆角放到菜单右上角
+            !menu && "rounded-tr-3xl",
+          )}
         >
           {modules.map((m) => (
             <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
@@ -130,7 +134,7 @@ export function AppShell({
           <aside
             aria-label={`${active.module.title}菜单`}
             className={cn(
-              "sticky top-14 hidden h-[calc(100svh-3.5rem)] shrink-0 border-l border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:block",
+              "sticky top-14 hidden h-[calc(100svh-3.5rem)] shrink-0 overflow-hidden rounded-tr-3xl border-l border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:block",
               collapsed ? "w-6" : "w-44",
             )}
           >
@@ -455,7 +459,7 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
               <li key={t.id} className="flex items-start gap-2 px-3.5 py-2.5 hover:bg-muted/40">
                 <AlarmClock className="mt-0.5 size-4 shrink-0 text-destructive" />
                 <Link
-                  href={t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/schedule")}
+                  href={t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/todo?view=list")}
                   onClick={() => setOpen(false)}
                   className="min-w-0 flex-1"
                 >
@@ -558,7 +562,7 @@ function notifyDue(due: DueReminder[]) {
       icon: <AlarmClock className="size-4 text-destructive" />,
       description: [t.customerName, t.note].filter(Boolean).join(" · ") || undefined,
       duration: 12_000,
-      action: { label: "去处理", onClick: () => window.location.assign(t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/schedule")) },
+      action: { label: "去处理", onClick: () => window.location.assign(t.link ?? (t.customerId ? `/customers/${t.customerId}` : "/todo?view=list")) },
     });
   }
   localStorage.setItem(SEEN_KEY, JSON.stringify([...fresh.map((t) => `${t.id}@${t.dueAt}`), ...seen].slice(0, 200)));
