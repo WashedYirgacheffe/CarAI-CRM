@@ -7,10 +7,10 @@ export const SIZES = ["s", "m", "l", "xl"] as const;
 export type CanvasSize = (typeof SIZES)[number];
 export const SIZE_LABEL: Record<CanvasSize, string> = { s: "小", m: "中", l: "大", xl: "全宽" };
 export const SIZE_SPAN: Record<CanvasSize, string> = {
-  s: "md:col-span-1 xl:col-span-4",
-  m: "md:col-span-1 xl:col-span-6",
-  l: "md:col-span-2 xl:col-span-8",
-  xl: "md:col-span-2 xl:col-span-12",
+  s: "@xl/canvas:col-span-1 @5xl/canvas:col-span-4",
+  m: "@xl/canvas:col-span-1 @5xl/canvas:col-span-6",
+  l: "@xl/canvas:col-span-2 @5xl/canvas:col-span-8",
+  xl: "@xl/canvas:col-span-2 @5xl/canvas:col-span-12",
 };
 
 export type WidgetDef = {

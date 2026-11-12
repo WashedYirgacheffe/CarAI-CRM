@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowRight, ArrowUp, LoaderCircle, Settings2, Square, Trash2, X } from "lucide-react";
+import { ArrowRight, ArrowUp, LoaderCircle, Settings2, SquarePen, Square, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
 import type { ActionCard } from "@/lib/ai-actions";
@@ -12,6 +13,7 @@ import { applyLayout, applyWorkspace, canvasOnPage, canvasSnapshot, type Workspa
 import { AiMascot } from "./ai-mascot";
 import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { RichText, VisualView } from "./ai-visual";
+import { setStageMode, useStage, withStageTransition } from "./ai-stage";
 import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
@@ -147,6 +149,22 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
+  // 电脑端工作台：对话界面放进页面里的「AI 舞台」，而不是右下角浮窗
+  const stage = useStage();
+  const staged = pathname === "/dashboard" && !!stage.slot;
+  const stagedRef = useRef(staged);
+  useEffect(() => {
+    stagedRef.current = staged;
+  }, [staged]);
+  const hasTurns = turns.length > 0;
+  useLayoutEffect(() => {
+    setStageMode(hasTurns ? "split" : "hero");
+  }, [hasTurns]);
+  /** 舞台上从居中切到左右分栏（或反过来）时带过渡动画 */
+  const morph = (update: () => void) => {
+    if (!stagedRef.current) return update();
+    withStageTransition(() => flushSync(update));
+  };
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -184,11 +202,16 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   };
 
   useEffect(() => {
-    if (open) logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [turns, open]);
+    if (open || staged) logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+  }, [turns, open, staged]);
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const toggle = (next = !open) => {
+    // 舞台上没有「收起」：⌘J / 唤起时直接聚焦输入框
+    if (stagedRef.current) {
+      requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+      return;
+    }
     setOpen(next);
     if (!next) setCompose(null);
     if (next) {
@@ -224,13 +247,19 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     const history = historyOf(turns);
     const snap = canvasSnapshot();
     const query = sp.toString();
-    setInput("");
-    setBusy(true);
-    setTurns((ts) => [
-      ...ts.slice(-(MAX_TURNS - 2)),
-      { role: "user", text: message },
-      { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [], visuals: [] },
-    ]);
+    const first = turns.length === 0;
+    const start = () => {
+      setInput("");
+      setBusy(true);
+      setTurns((ts) => [
+        ...ts.slice(-(MAX_TURNS - 2)),
+        { role: "user", text: message },
+        { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [], visuals: [] },
+      ]);
+      if (first) setStageMode("split");
+    };
+    if (first) morph(start);
+    else start();
     const ac = new AbortController();
     abortRef.current = ac;
     try {
@@ -288,7 +317,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       patchLast(() => ({ status: null, done: true }));
       setBusy(false);
       abortRef.current = null;
-      if (!openRef.current) setUnread(true);
+      if (!openRef.current && !stagedRef.current) setUnread(true);
     }
   };
 
@@ -296,6 +325,12 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     setTurns((ts) =>
       ts.map((t, i) => (i === ti && t.role === "assistant" ? { ...t, cards: t.cards.map((c, j) => (j === ci ? { ...c, ...patch } : c)) } : t)),
     );
+
+  const clear = () =>
+    morph(() => {
+      setTurns([]);
+      setStageMode("hero");
+    });
 
   const stop = () => {
     abortRef.current?.abort();
@@ -351,6 +386,201 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   // 客户详情在手机上底部有「写跟进」操作条
   const liftMobile = /^\/customers\/(?!new)[^/]+$/.test(pathname);
 
+  const live = open || staged;
+  const settingsButton = (
+    <Button
+      size="icon-xs"
+      variant="ghost"
+      onClick={() => setEditing((v) => !v)}
+      aria-label="助手设置"
+      aria-expanded={editing}
+      title="助手设置"
+      className={cn(editing && "bg-muted")}
+    >
+      <Settings2 />
+    </Button>
+  );
+  const prefsPanel = editing && <PrefsPanel value={prefs} onChange={savePrefs} onClose={() => setEditing(false)} />;
+  const composeBox = compose && (
+    <div className="border-b bg-brand-soft/40 px-4 py-3">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-medium">{COMPOSE[compose.kind].title}</span>
+        <span className="text-muted-foreground">想要什么效果？点一个，或在下面直接说</span>
+        <button
+          type="button"
+          onClick={() => setCompose(null)}
+          className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted"
+          aria-label="取消"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <blockquote className="mt-2 line-clamp-3 border-l-2 border-brand/60 pl-2.5 text-[13px] text-foreground/75 whitespace-pre-wrap">
+        {compose.text}
+      </blockquote>
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {COMPOSE[compose.kind].options.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            disabled={busy}
+            onClick={() => runCompose(o.prompt)}
+            className="rounded-full border border-brand/30 bg-card px-3 py-1 text-xs font-medium text-brand-ink transition-colors hover:bg-brand-soft disabled:opacity-50"
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  const chips = (className?: string) => (
+    <div className={cn("flex flex-wrap gap-1.5", className)}>
+      {suggestions.map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => void send(s)}
+          className="rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  );
+  const log = (
+    <div ref={logRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" style={{ fontSize: prefs.size }} aria-live="polite">
+      {turns.map((t, i) =>
+        t.role === "user" ? (
+          <p
+            key={i}
+            className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-brand-soft px-3 py-2 whitespace-pre-wrap text-foreground line-clamp-[12]"
+          >
+            {t.text}
+          </p>
+        ) : (
+          <AssistantView
+            key={i}
+            turn={t}
+            last={i === turns.length - 1}
+            busy={busy}
+            onReply={send}
+            onCard={(ci, patch) => patchCard(i, ci, patch)}
+            onNavigate={() => setOpen(false)}
+          />
+        ),
+      )}
+    </div>
+  );
+  const form = (className: string, big = false) => (
+    <form
+      aria-hidden={!live}
+      className={className}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (compose && input.trim()) {
+          const v = input.trim();
+          setInput("");
+          runCompose(`${COMPOSE[compose.kind].title}：${v}`);
+        } else void send(input);
+      }}
+    >
+      <input
+        {...noAutofill}
+        ref={inputRef}
+        value={input}
+        tabIndex={live ? 0 : -1}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder={compose ? "说说想要的效果，比如：更正式、写成西班牙语…" : "说一句话：查数据、摆工作台、起草邮件或报价单…"}
+        aria-label="对 AI 说"
+        maxLength={2000}
+        style={{ fontSize: big ? Math.max(prefs.size + 1, 15) : Math.max(prefs.size, desktop ? 13 : 16) }}
+        className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+      />
+      {busy ? (
+        <Button
+          type="button"
+          size={big ? "icon" : "icon-sm"}
+          variant="outline"
+          className="rounded-full"
+          onClick={stop}
+          aria-label="停止"
+          title="停止"
+        >
+          <Square className="fill-current" />
+        </Button>
+      ) : (
+        <Button
+          type="submit"
+          size={big ? "icon" : "icon-sm"}
+          className="rounded-full"
+          disabled={!input.trim()}
+          aria-label="发送"
+          title="发送（回车）"
+          tabIndex={live ? 0 : -1}
+        >
+          <ArrowUp />
+        </Button>
+      )}
+    </form>
+  );
+
+  // 电脑端工作台：对话界面就是页面主角
+  if (staged && stage.slot) {
+    return createPortal(
+      hasTurns ? (
+        <section
+          aria-label={prefs.name}
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl bg-card shadow-card [view-transition-name:ai-panel]"
+        >
+          <header className="flex items-center gap-2.5 border-b px-4 py-2.5">
+            <span className="size-8 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 [view-transition-name:ai-mascot]">
+              <AiMascot thinking={busy} className="size-full" />
+            </span>
+            <span className="max-w-[12rem] shrink-0 truncate text-base">{prefs.name}</span>
+            <span className="truncate text-xs text-muted-foreground max-xl:hidden">能查数据、摆工作台、起草消息和单据，确认后才执行</span>
+            <span className="ml-auto flex items-center gap-0.5">
+              <Button size="xs" variant="ghost" disabled={busy} onClick={clear} title="清空对话，回到开始">
+                <SquarePen /> 新对话
+              </Button>
+              {settingsButton}
+            </span>
+          </header>
+          {prefsPanel}
+          {composeBox}
+          {log}
+          <div className="p-3 pt-1">
+            {form(
+              "flex h-12 items-center gap-2 rounded-full border bg-background pr-1.5 pl-4 transition-shadow focus-within:shadow-md [view-transition-name:ai-input]",
+            )}
+          </div>
+        </section>
+      ) : (
+        <section aria-label={prefs.name} className="relative mx-auto flex max-w-2xl flex-col items-center pt-[max(0.5rem,calc(33svh-16rem))] pb-10">
+          <span className="absolute top-0 right-0">{settingsButton}</span>
+          <span className="size-16 overflow-hidden rounded-full shadow-xl ring-1 ring-black/5 [view-transition-name:ai-mascot]">
+            <AiMascot thinking={busy} className="size-full" />
+          </span>
+          <h1 className="mt-3 text-[1.65rem] leading-8 tracking-[-0.01em]">{stage.greeting}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {stage.sub ? `${stage.sub} · ` : ""}今天想让{prefs.name}帮你做什么？
+          </p>
+          {(prefsPanel || composeBox) && (
+            <div className="mt-4 w-full overflow-hidden rounded-2xl bg-card shadow-card">
+              {prefsPanel}
+              {composeBox}
+            </div>
+          )}
+          {form(
+            "mt-5 flex h-14 w-full items-center gap-2 rounded-full border bg-card pr-2 pl-5 shadow-lg ring-1 ring-black/[0.03] transition-shadow focus-within:shadow-xl [view-transition-name:ai-input]",
+            true,
+          )}
+          {!compose && chips("mt-3 justify-center")}
+        </section>
+      ),
+      stage.slot,
+    );
+  }
+
   if (!home && !open && !desktop) return null;
 
   return (
@@ -378,148 +608,37 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             <span className="truncate text-xs text-muted-foreground max-sm:hidden">能查数据、摆工作台、起草消息和单据，确认后才执行</span>
             <span className="ml-auto flex items-center gap-0.5">
               {turns.length > 0 && (
-                <Button size="icon-xs" variant="ghost" disabled={busy} onClick={() => setTurns([])} aria-label="清空对话" title="清空对话">
+                <Button size="icon-xs" variant="ghost" disabled={busy} onClick={clear} aria-label="清空对话" title="清空对话">
                   <Trash2 />
                 </Button>
               )}
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                onClick={() => setEditing((v) => !v)}
-                aria-label="助手设置"
-                aria-expanded={editing}
-                title="助手设置"
-                className={cn(editing && "bg-muted")}
-              >
-                <Settings2 />
-              </Button>
+              {settingsButton}
               <Button size="icon-xs" variant="ghost" onClick={() => toggle(false)} aria-label="收起" title="收起（Esc）">
                 <X />
               </Button>
             </span>
           </header>
-          {editing && <PrefsPanel value={prefs} onChange={savePrefs} onClose={() => setEditing(false)} />}
-          {compose && (
-            <div className="border-b bg-brand-soft/40 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="font-medium">{COMPOSE[compose.kind].title}</span>
-                <span className="text-muted-foreground">想要什么效果？点一个，或在下面直接说</span>
-                <button
-                  type="button"
-                  onClick={() => setCompose(null)}
-                  className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted"
-                  aria-label="取消"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </div>
-              <blockquote className="mt-2 line-clamp-3 border-l-2 border-brand/60 pl-2.5 text-[13px] text-foreground/75 whitespace-pre-wrap">
-                {compose.text}
-              </blockquote>
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {COMPOSE[compose.kind].options.map((o) => (
-                  <button
-                    key={o.label}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => runCompose(o.prompt)}
-                    className="rounded-full border border-brand/30 bg-card px-3 py-1 text-xs font-medium text-brand-ink transition-colors hover:bg-brand-soft disabled:opacity-50"
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {prefsPanel}
+          {composeBox}
           {compose && turns.length === 0 ? null : turns.length === 0 ? (
             <div className="space-y-2 px-4 py-3">
               <p className="text-sm text-muted-foreground">可以这样问我：</p>
-              <div className="flex flex-wrap gap-1.5">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => void send(s)}
-                    className="rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
+              {chips()}
             </div>
           ) : (
-            <div ref={logRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" style={{ fontSize: prefs.size }} aria-live="polite">
-              {turns.map((t, i) =>
-                t.role === "user" ? (
-                  <p
-                    key={i}
-                    className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-brand-soft px-3 py-2 whitespace-pre-wrap text-foreground line-clamp-[12]"
-                  >
-                    {t.text}
-                  </p>
-                ) : (
-                  <AssistantView
-                    key={i}
-                    turn={t}
-                    last={i === turns.length - 1}
-                    busy={busy}
-                    onReply={send}
-                    onCard={(ci, patch) => patchCard(i, ci, patch)}
-                    onNavigate={() => setOpen(false)}
-                  />
-                ),
-              )}
-            </div>
+            log
           )}
         </section>
       )}
 
       <div className="flex w-full items-center justify-end gap-2">
         {/* 对话条：从角色左边推出来 */}
-        <form
-          aria-hidden={!open}
-          className={cn(
+        {form(
+          cn(
             "flex h-12 min-w-0 origin-right items-center gap-2 overflow-hidden rounded-full border bg-popover pr-1.5 pl-4 shadow-xl ring-1 ring-black/5 transition-[max-width,opacity,transform] duration-300 ease-out",
             open ? "pointer-events-auto max-w-full flex-1 opacity-100" : "max-w-0 flex-none scale-x-90 border-transparent opacity-0",
-          )}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (compose && input.trim()) {
-              const v = input.trim();
-              setInput("");
-              runCompose(`${COMPOSE[compose.kind].title}：${v}`);
-            } else void send(input);
-          }}
-        >
-          <input {...noAutofill}
-            ref={inputRef}
-            value={input}
-            tabIndex={open ? 0 : -1}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={compose ? "说说想要的效果，比如：更正式、写成西班牙语…" : "说一句话：查数据、摆工作台、起草邮件或报价单…"}
-            aria-label="对 AI 说"
-            maxLength={2000}
-            style={{ fontSize: Math.max(prefs.size, desktop ? 13 : 16) }}
-            className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-          />
-          {busy ? (
-            <Button type="button" size="icon-sm" variant="outline" className="rounded-full" onClick={stop} aria-label="停止" title="停止">
-              <Square className="fill-current" />
-            </Button>
-          ) : (
-            <Button
-              type="submit"
-              size="icon-sm"
-              className="rounded-full"
-              disabled={!input.trim()}
-              aria-label="发送"
-              title="发送（回车）"
-              tabIndex={open ? 0 : -1}
-            >
-              <ArrowUp />
-            </Button>
-          )}
-        </form>
+          ),
+        )}
 
         <button
           key={push}
@@ -622,7 +741,8 @@ function PrefsPanel({ value, onChange, onClose }: { value: Prefs; onChange: (p: 
     <div className="space-y-3 border-b bg-muted/40 px-4 py-3 text-sm">
       <label className="flex items-center gap-3">
         <span className="w-16 shrink-0 text-muted-foreground">名称</span>
-        <input {...noAutofill}
+        <input
+          {...noAutofill}
           value={name}
           maxLength={16}
           onChange={(e) => setName(e.target.value)}

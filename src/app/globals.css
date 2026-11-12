@@ -499,3 +499,29 @@ html {
     animation: none;
   }
 }
+
+/* 工作台 AI 舞台：居中 ↔ 左右分栏之间的过渡（View Transitions） */
+::view-transition-group(ai-mascot),
+::view-transition-group(ai-input),
+::view-transition-group(ai-canvas),
+::view-transition-group(ai-panel) {
+  animation-duration: 0.5s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-old(ai-canvas),
+::view-transition-new(ai-canvas) {
+  animation-duration: 0.35s;
+}
+::view-transition-new(ai-panel) {
+  animation: ai-panel-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes ai-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.3s;
+}
