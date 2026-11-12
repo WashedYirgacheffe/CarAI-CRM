@@ -17,6 +17,7 @@ import { MailReader } from "./mail-reader";
 import { MailShortcuts } from "./mail-shortcuts";
 import { SyncButton } from "./sync-button";
 import { MailSwipe } from "./mail-swipe";
+import { noAutofill } from "@/lib/no-autofill";
 
 export const metadata: Metadata = { title: "邮件" };
 
@@ -221,7 +222,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
               {acc && <input type="hidden" name="acc" value={acc} />}
               {tag && <input type="hidden" name="tag" value={tag} />}
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <input
+              <input {...noAutofill}
                 name="q"
                 defaultValue={q}
                 placeholder="搜索主题、发件人、内容"
