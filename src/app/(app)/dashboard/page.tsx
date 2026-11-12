@@ -718,7 +718,7 @@ export default async function DashboardPage() {
     .join(" · ");
   const page = (
     <>
-      <PageHeader title={`你好，${user.name}`} description={sub} className={aiOn ? "lg:hidden" : undefined} />
+      <PageHeader title={`你好，${user.name}`} description={sub} className={aiOn ? "hidden" : undefined} />
       {onboarding && <OnboardingChecklist steps={onboarding} />}
       <WorkspaceCanvas
         blocks={Object.fromEntries(available.map((k) => [k, blocks[k]]))}
