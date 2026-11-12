@@ -195,6 +195,51 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
+  // 电脑端浮窗的宽高：拖左边、上边或左上角调整，记在这台电脑上；null = 默认大小
+  const [box, setBox] = useState<PanelSize>({ w: null, h: null });
+  const panelRef = useRef<HTMLElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SIZE_KEY) ?? "null") as PanelSize | null;
+      if (v) setBox({ w: typeof v.w === "number" ? v.w : null, h: typeof v.h === "number" ? v.h : null });
+    } catch {}
+  }, []);
+  const startResize = (dir: "x" | "y" | "xy") => (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const panel = panelRef.current?.getBoundingClientRect();
+    const wrap = wrapRef.current?.getBoundingClientRect();
+    if (!panel || !wrap) return;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let next: PanelSize = { ...box };
+    const move = (ev: PointerEvent) => {
+      // 浮窗贴着右下角：往左拖变宽，往上拖变高
+      if (dir !== "y") next = { ...next, w: Math.round(clamp(wrap.width + x0 - ev.clientX, MIN_W, window.innerWidth - 48)) };
+      if (dir !== "x") next = { ...next, h: Math.round(clamp(panel.height + y0 - ev.clientY, MIN_H, window.innerHeight - 128)) };
+      setBox(next);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+      try {
+        localStorage.setItem(SIZE_KEY, JSON.stringify(next));
+      } catch {}
+    };
+    document.body.style.cursor = dir === "x" ? "ew-resize" : dir === "y" ? "ns-resize" : "nwse-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const resetSize = () => {
+    setBox({ w: null, h: null });
+    try {
+      localStorage.removeItem(SIZE_KEY);
+    } catch {}
+  };
   // 电脑端工作台：对话界面放进页面里的「AI 舞台」，而不是右下角浮窗
   const stage = useStage();
   const staged = pathname === "/dashboard" && !!stage.slot;
@@ -983,6 +1028,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
 
   return (
     <div
+      ref={wrapRef}
+      style={desktop && box.w ? { width: `min(${box.w}px, calc(100vw - 3rem))` } : undefined}
       className={cn(
         "pointer-events-none fixed right-3 z-40 flex w-[min(40rem,calc(100vw-1.5rem))] flex-col items-end gap-2 md:right-6",
         lifted
@@ -998,9 +1045,40 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       {/* 对话记录：在对话条上方 */}
       {open && (
         <section
+          ref={panelRef}
           aria-label={prefs.name}
-          className="pointer-events-auto flex max-h-[min(36rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-[18px] bg-popover shadow-e3 duration-200 fade-in-0 slide-in-from-bottom-2"
+          style={desktop && box.h ? { height: `min(${box.h}px, calc(100svh - 8rem))`, maxHeight: "none" } : undefined}
+          className="group/panel relative pointer-events-auto flex max-h-[min(36rem,calc(100svh-12rem))] w-full origin-bottom-right animate-in flex-col overflow-hidden rounded-[18px] bg-popover shadow-e3 duration-200 fade-in-0 slide-in-from-bottom-2"
         >
+          {desktop && (
+            <>
+              {/* 拖左边变宽、拖上边变高、拖左上角一起调；双击恢复默认大小 */}
+              <span
+                aria-hidden
+                onPointerDown={startResize("x")}
+                onDoubleClick={resetSize}
+                className="absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
+              />
+              <span
+                aria-hidden
+                onPointerDown={startResize("y")}
+                onDoubleClick={resetSize}
+                className="absolute inset-x-4 top-0 z-20 h-1.5 cursor-ns-resize"
+              />
+              <span
+                role="separator"
+                aria-label="拖动调整对话框大小，双击恢复默认"
+                title="拖动调整大小，双击恢复默认"
+                onPointerDown={startResize("xy")}
+                onDoubleClick={resetSize}
+                className="absolute top-0 left-0 z-30 grid size-4 cursor-nwse-resize place-items-center rounded-br-md text-muted-foreground/0 transition-colors group-hover/panel:text-muted-foreground/60 hover:!text-foreground"
+              >
+                <svg viewBox="0 0 8 8" className="size-2" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+                  <path d="M1 7V1h6M1 4l3-3" />
+                </svg>
+              </span>
+            </>
+          )}
           {header}
           {prefsPanel}
           {composeBox}
@@ -1053,6 +1131,12 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     </div>
   );
 }
+
+type PanelSize = { w: number | null; h: number | null };
+const SIZE_KEY = "crm:ai-dock-size";
+const MIN_W = 360;
+const MIN_H = 260;
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
 function AssistantView({
   turn,
