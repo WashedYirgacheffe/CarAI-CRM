@@ -15,7 +15,7 @@ const SLICE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--char
 
 export function VisualView({ v, onNavigate }: { v: Visual; onNavigate?: () => void }) {
   return (
-    <figure className="overflow-hidden rounded-2xl border bg-card">
+    <figure className="ai-fade @container/vis overflow-hidden rounded-2xl border bg-card">
       {v.title && <figcaption className="px-3.5 pt-3 text-[0.93em] font-medium">{v.title}</figcaption>}
       <div className="p-3.5 pt-2.5">
         {v.kind === "stats" ? (
@@ -26,6 +26,10 @@ export function VisualView({ v, onNavigate }: { v: Visual; onNavigate?: () => vo
           <Trend items={v.items} unit={v.unit} />
         ) : v.kind === "donut" ? (
           <Donut items={v.items} unit={v.unit} />
+        ) : v.kind === "funnel" ? (
+          <Funnel items={v.items} unit={v.unit} />
+        ) : v.kind === "progress" ? (
+          <Progress items={v.items} unit={v.unit} />
         ) : v.kind === "table" ? (
           <Table columns={v.columns} rows={v.rows} />
         ) : v.kind === "list" ? (
@@ -40,7 +44,9 @@ export function VisualView({ v, onNavigate }: { v: Visual; onNavigate?: () => vo
 
 function Stats({ items }: { items: VisualItem[] }) {
   return (
-    <div className={cn("grid gap-2", items.length === 1 ? "grid-cols-1" : items.length % 3 === 0 ? "grid-cols-3" : "grid-cols-2")}>
+    <div
+      className={cn("grid gap-2", items.length === 1 ? "grid-cols-1" : items.length % 3 === 0 ? "grid-cols-2 @md/vis:grid-cols-3" : "grid-cols-2")}
+    >
       {items.map((it) => (
         <div key={it.label} className="min-w-0 rounded-xl bg-muted/50 px-3 py-2.5">
           <div className="truncate text-[0.8em] text-muted-foreground">{it.label}</div>
@@ -76,7 +82,7 @@ function Bars({ items, unit }: { items: VisualItem[]; unit?: string }) {
           <span className="truncate text-[0.86em] text-foreground/80">{it.label}</span>
           <span className="h-2.5 overflow-hidden rounded-full bg-muted">
             <span
-              className="block h-full rounded-full bg-brand transition-[width] duration-500"
+              className="ai-grow block h-full rounded-full bg-brand transition-[width] duration-500"
               style={{ width: it.value ? `${Math.max(2, (Math.abs(it.value) / max) * 100)}%` : 0 }}
             />
           </span>
@@ -112,7 +118,7 @@ function Trend({ items, unit }: { items: VisualItem[]; unit?: string }) {
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="h-32 w-full touch-none overflow-visible"
+        className="ai-reveal h-32 w-full touch-none overflow-visible"
         preserveAspectRatio="none"
         role="img"
         aria-label={`趋势：${items.map((i) => `${i.label} ${fmt(i.value ?? 0, unit)}`).join("，")}`}
@@ -181,8 +187,8 @@ function Donut({ items, unit }: { items: VisualItem[]; unit?: string }) {
   const offs = pcts.map((_, i) => pcts.slice(0, i).reduce((a, b) => a + b, 0));
   const focus = hover !== null ? slices[hover] : null;
   return (
-    <div className="flex items-center gap-4">
-      <div className="relative size-28 shrink-0">
+    <div className="flex flex-col items-center gap-3 @xs/vis:flex-row @xs/vis:gap-4">
+      <div className="ai-pop relative size-28 shrink-0">
         <svg viewBox="0 0 42 42" className="size-full -rotate-90" role="img" aria-label="占比">
           <circle cx="21" cy="21" r={R} fill="none" stroke="var(--muted)" strokeWidth="5" />
           {slices.map((s, i) => {
@@ -212,7 +218,7 @@ function Donut({ items, unit }: { items: VisualItem[]; unit?: string }) {
           <span className="max-w-[5rem] truncate text-[0.7em] text-muted-foreground">{focus ? focus.label : "合计"}</span>
         </div>
       </div>
-      <ul className="min-w-0 flex-1 space-y-1.5">
+      <ul className="w-full min-w-0 flex-1 space-y-1.5">
         {slices.map((s, i) => (
           <li
             key={s.label}
@@ -409,4 +415,82 @@ export function RichText({ text }: { text: string }) {
   }
   flush();
   return <div className="space-y-2 leading-relaxed text-foreground/90">{blocks}</div>;
+}
+
+/** 漏斗：每一层宽度按第一层的比例，层与层之间标出转化率 */
+function Funnel({ items, unit }: { items: VisualItem[]; unit?: string }) {
+  // 按最大的一层算宽度（偶尔后一层比前一层多，比如一条询盘报了多次价）
+  const top = Math.max(...items.map((i) => i.value ?? 0), 1);
+  return (
+    <ol className="space-y-0.5">
+      {items.map((it, i) => {
+        const v = it.value ?? 0;
+        const prev = i ? (items[i - 1].value ?? 0) : 0;
+        const w = Math.max(18, (Math.max(0, v) / top) * 100);
+        return (
+          <li key={it.label}>
+            {i > 0 && (
+              <div className="flex items-center justify-center gap-1 py-0.5 text-[0.72em] text-muted-foreground tabular-nums">
+                <ArrowDownRight className="size-3 rotate-45" />
+                {prev > 0 ? `${Math.round((v / prev) * 100)}%` : "—"}
+              </div>
+            )}
+            <div
+              title={`${it.label}：${fmt(v, unit)}`}
+              className="ai-grow-c mx-auto flex h-9 items-center justify-between gap-2 rounded-lg px-3 text-[0.86em]"
+              style={{
+                width: `${w}%`,
+                minWidth: "min(9.5rem, 100%)",
+                background: `color-mix(in oklab, var(--brand) ${Math.round(88 - (i / Math.max(1, items.length - 1)) * 58)}%, var(--card))`,
+                color: i / Math.max(1, items.length - 1) < 0.5 ? "var(--brand-foreground)" : "var(--foreground)",
+                animationDelay: `${i * 70}ms`,
+              }}
+            >
+              <span className="min-w-0 truncate font-medium">{it.label}</span>
+              <span className="shrink-0 font-semibold tabular-nums">{it.display ?? fmt(v, unit)}</span>
+            </div>
+          </li>
+        );
+      })}
+      {items.length > 1 && (items[0].value ?? 0) > 0 && (
+        <li className="pt-2 text-center text-[0.78em] text-muted-foreground tabular-nums">
+          整体转化 {nf.format(((items[items.length - 1].value ?? 0) / (items[0].value ?? 1)) * 100)}%
+        </li>
+      )}
+    </ol>
+  );
+}
+
+/** 完成度：数值 / 目标，超额用实心标出 */
+function Progress({ items, unit }: { items: VisualItem[]; unit?: string }) {
+  return (
+    <ul className="space-y-3">
+      {items.map((it, i) => {
+        const v = it.value ?? 0;
+        const t = it.target || 1;
+        const pct = (v / t) * 100;
+        const done = pct >= 100;
+        return (
+          <li key={it.label}>
+            <div className="mb-1 flex items-baseline gap-2 text-[0.86em]">
+              <span className="min-w-0 flex-1 truncate text-foreground/80">{it.label}</span>
+              <span className="tabular-nums">
+                <span className="font-semibold">{it.display ?? fmt(v, unit)}</span>
+                <span className="text-muted-foreground"> / {fmt(t, unit)}</span>
+              </span>
+              <span className={cn("w-11 text-right font-semibold tabular-nums", done ? "text-emerald-700" : "text-foreground")}>
+                {Math.round(pct)}%
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn("ai-grow h-full rounded-full", done ? "bg-emerald-600" : "bg-brand")}
+                style={{ width: `${Math.min(100, Math.max(pct > 0 ? 2 : 0, pct))}%`, animationDelay: `${i * 70}ms` }}
+              />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }

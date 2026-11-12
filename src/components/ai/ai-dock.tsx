@@ -13,7 +13,7 @@ import { applyLayout, applyWorkspace, canvasOnPage, canvasSnapshot, type Workspa
 import { AiMascot } from "./ai-mascot";
 import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { RichText, VisualView } from "./ai-visual";
-import { setStageMode, useStage, withStageTransition } from "./ai-stage";
+import { isStageTabs, setStageMode, setStagePane, useStage, withStageTransition } from "./ai-stage";
 import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
@@ -209,6 +209,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const toggle = (next = !open) => {
     // 舞台上没有「收起」：⌘J / 唤起时直接聚焦输入框
     if (stagedRef.current) {
+      setStagePane("chat");
       requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
       return;
     }
@@ -257,6 +258,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         { role: "assistant", text: "", status: "正在思考…", choice: null, links: [], error: null, done: false, mark: 0, cards: [], visuals: [] },
       ]);
       if (first) setStageMode("split");
+      if (stagedRef.current) setStagePane("chat");
     };
     if (first) morph(start);
     else start();
@@ -272,7 +274,9 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           layout: snap.layout,
           active: snap.active,
           page: `${pathname}${query ? `?${query}` : ""}`,
-          onCanvas: canvasOnPage(),
+          // 手机上的工作台在另一个标签页，看不到画布：按「不在工作台」回答，多用对话里的图表卡片
+          onCanvas: canvasOnPage() && !isStageTabs(),
+          narrow: !window.matchMedia("(min-width: 768px)").matches,
           name: prefs.name,
         }),
         signal: ac.signal,
@@ -297,15 +301,19 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           else if (e.t === "text") patchLast((t) => ({ text: t.text + e.text, status: null }));
           else if (e.t === "layout") {
             const here = canvasOnPage();
+            const tabs = isStageTabs();
             applyLayout(e.layout);
-            if (!here) patchLast(() => ({ canvas: true }));
+            if (!here || tabs) patchLast(() => ({ canvas: true }));
+            if (tabs) setStagePane("chat", true);
           } else if (e.t === "choice") patchLast(() => ({ choice: { question: e.question, options: e.options }, status: null }));
           else if (e.t === "action")
             patchLast((t) => ({ cards: [...t.cards, { card: e.card, params: e.card.params, state: "pending" }], status: null }));
           else if (e.t === "workspace") {
             const here = canvasOnPage();
+            const tabs = isStageTabs();
             applyWorkspace(e);
-            if (!here) patchLast(() => ({ canvas: true }));
+            if (!here || tabs) patchLast(() => ({ canvas: true }));
+            if (tabs) setStagePane("chat", true);
           } else if (e.t === "visual") patchLast((t) => ({ visuals: [...(t.visuals ?? []), e.visual], status: null }));
           else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
           else if (e.t === "error") patchLast(() => ({ error: e.message, status: null }));
@@ -440,7 +448,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           key={s}
           type="button"
           onClick={() => void send(s)}
-          className="rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
+          className="shrink-0 rounded-full border bg-card px-3 py-1 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
         >
           {s}
         </button>
@@ -466,6 +474,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             onReply={send}
             onCard={(ci, patch) => patchCard(i, ci, patch)}
             onNavigate={() => setOpen(false)}
+            onShowCanvas={staged ? () => withStageTransition(() => setStagePane("canvas")) : undefined}
           />
         ),
       )}
@@ -493,7 +502,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         placeholder={compose ? "说说想要的效果，比如：更正式、写成西班牙语…" : "说一句话：查数据、摆工作台、起草邮件或报价单…"}
         aria-label="对 AI 说"
         maxLength={2000}
-        style={{ fontSize: big ? Math.max(prefs.size + 1, 15) : Math.max(prefs.size, desktop ? 13 : 16) }}
+        style={{ fontSize: big ? Math.max(prefs.size + 1, desktop ? 15 : 16) : Math.max(prefs.size, desktop ? 13 : 16) }}
         className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
       />
       {busy ? (
@@ -524,7 +533,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     </form>
   );
 
-  // 电脑端工作台：对话界面就是页面主角
+  // 工作台：对话界面就是页面主角（电脑左右分栏，手机分「对话 / 工作台」两页）
   if (staged && stage.slot) {
     return createPortal(
       hasTurns ? (
@@ -555,12 +564,15 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           </div>
         </section>
       ) : (
-        <section aria-label={prefs.name} className="relative mx-auto flex max-w-2xl flex-col items-center pt-[max(0.5rem,calc(33svh-16rem))] pb-10">
+        <section
+          aria-label={prefs.name}
+          className="relative mx-auto flex max-w-2xl flex-col items-center pt-[max(1.5rem,calc(33svh-11rem))] pb-8 text-center lg:pt-[max(0.5rem,calc(33svh-16rem))] lg:pb-10"
+        >
           <span className="absolute top-0 right-0">{settingsButton}</span>
           <span className="size-16 overflow-hidden rounded-full shadow-xl ring-1 ring-black/5 [view-transition-name:ai-mascot]">
             <AiMascot thinking={busy} className="size-full" />
           </span>
-          <h1 className="mt-3 text-[1.65rem] leading-8 tracking-[-0.01em]">{stage.greeting}</h1>
+          <h1 className="mt-3 text-[1.4rem] leading-8 tracking-[-0.01em] md:text-[1.65rem]">{stage.greeting}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {stage.sub ? `${stage.sub} · ` : ""}今天想让{prefs.name}帮你做什么？
           </p>
@@ -574,7 +586,10 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             "mt-5 flex h-14 w-full items-center gap-2 rounded-full border bg-card pr-2 pl-5 shadow-lg ring-1 ring-black/[0.03] transition-shadow focus-within:shadow-xl [view-transition-name:ai-input]",
             true,
           )}
-          {!compose && chips("mt-3 justify-center")}
+          {!compose &&
+            chips(
+              "mt-3 justify-center max-md:-mx-3 max-md:w-[calc(100%+1.5rem)] max-md:flex-nowrap max-md:justify-start max-md:overflow-x-auto max-md:px-3 max-md:[scrollbar-width:none]",
+            )}
         </section>
       ),
       stage.slot,
@@ -670,6 +685,7 @@ function AssistantView({
   onReply,
   onCard,
   onNavigate,
+  onShowCanvas,
 }: {
   turn: AssistantTurn;
   last: boolean;
@@ -677,6 +693,8 @@ function AssistantView({
   onReply: (s: string) => void;
   onCard: (index: number, patch: Partial<CardState>) => void;
   onNavigate: () => void;
+  /** 手机工作台：切到「工作台」标签页，而不是跳转 */
+  onShowCanvas?: () => void;
 }) {
   return (
     <div className="space-y-2.5">
@@ -713,12 +731,18 @@ function AssistantView({
       ))}
       {(turn.links.length > 0 || turn.canvas) && (
         <div className="flex flex-wrap gap-2">
-          {turn.canvas && (
-            <Button asChild size="xs">
-              <Link href="/dashboard" onClick={onNavigate}>
-                到工作台查看 <ArrowRight />
-              </Link>
+          {turn.canvas && onShowCanvas ? (
+            <Button size="xs" onClick={onShowCanvas}>
+              查看工作台 <ArrowRight />
             </Button>
+          ) : (
+            turn.canvas && (
+              <Button asChild size="xs">
+                <Link href="/dashboard" onClick={onNavigate}>
+                  到工作台查看 <ArrowRight />
+                </Link>
+              </Button>
+            )
           )}
           {turn.links.map((l) => (
             <Button key={l.href} asChild size="xs" variant="outline">

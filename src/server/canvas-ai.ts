@@ -62,10 +62,10 @@ const TOOLS: ToolSpec[] = [
             type: "string",
             enum: [...VISUAL_KINDS],
             description:
-              "stats=2～6 个关键数字卡；bars=横向条形对比 / 排名；trend=按时间的走势；donut=占比（≤6 项）；table=多列明细；list=客户 / 报价单 / 会话等条目卡片（可跳转）；timeline=按时间顺序的安排或经过",
+              "stats=2～6 个关键数字卡；bars=横向条形对比 / 排名；trend=按时间的走势；donut=占比（≤6 项）；funnel=转化漏斗（按环节从多到少，如询盘→报价→订单→回款）；progress=完成度（每项给 value 和 target，如目标完成率、回款进度）；table=多列明细；list=客户 / 报价单 / 会话等条目卡片（可跳转）；timeline=按时间顺序的安排或经过",
           },
           title: { type: "string", description: "卡片标题，简短" },
-          unit: { type: "string", description: "bars / trend / donut 的单位，如「元」「个」" },
+          unit: { type: "string", description: "bars / trend / donut / funnel / progress 的单位，如「元」「个」" },
           items: {
             type: "array",
             description: "除 table 外都用它",
@@ -73,7 +73,8 @@ const TOOLS: ToolSpec[] = [
               type: "object",
               properties: {
                 label: { type: "string", description: "名称 / 时间点 / 标题" },
-                value: { type: "number", description: "数值（bars / trend / donut 必填）" },
+                value: { type: "number", description: "数值（bars / trend / donut / funnel / progress 必填）" },
+                target: { type: "number", description: "progress 用：目标值" },
                 display: { type: "string", description: "stats 用：格式化后的展示值，如「¥12.8 万」「23 个」" },
                 hint: { type: "string", description: "stats 用：补充说明，如「比上月 +12%」" },
                 tone: { type: "string", enum: ["up", "down"], description: "stats 用：涨 / 跌" },
@@ -302,7 +303,7 @@ function systemPrompt(
   layout: CanvasLayout,
   spaces: Space[],
   active: string,
-  where: { page: string; onCanvas: boolean },
+  where: { page: string; onCanvas: boolean; narrow: boolean },
   name: string,
 ) {
   const sizeNote = "尺寸 s=4 列（侧边长条）· m=6 列 · l=8 列 · xl=12 列（全宽）；一行 12 列，按顺序自动排，放不下就换行";
@@ -326,6 +327,14 @@ ${
     : "用户不在工作台。问数据、排名、走势、列表时用 show_visual 直接在对话里展示；只有用户明确想「放到工作台 / 打开某个客户或会话」时才 update_canvas（界面会给一个「到工作台查看」按钮）；起草、提醒、问答类不要动画布。"
 }
 
+${
+  where.narrow
+    ? `
+## 用户在用手机
+屏幕窄，大段文字很难读。每次回答都尽量用 show_visual 把内容画出来：数字用 stats，对比排名用 bars，按时间用 trend，占比用 donut，转化环节（询盘→报价→成交）用 funnel，完成度 / 目标用 progress，客户 / 报价单 / 会话用 list（带 href），提醒和安排用 timeline，明细用 table（≤4 列）。一次回答可以给 2～3 张卡片（比如先 stats 总览，再 bars 或 trend 展开），文字只留 1～2 句结论。工作台在另一个标签页，用户这时看不到；除非用户明确说放到工作台，否则不要 update_canvas。
+`
+    : ""
+}
 ## 画布
 ${sizeNote}。
 组件目录：
@@ -369,7 +378,7 @@ type Ctx = {
   spaces: Space[];
   active: string;
   placed?: boolean;
-  where: { page: string; onCanvas: boolean };
+  where: { page: string; onCanvas: boolean; narrow: boolean };
 };
 
 const json = (x: unknown) => JSON.stringify(x);
@@ -711,7 +720,16 @@ async function runTool(ctx: Ctx, call: ToolCall): Promise<unknown> {
 /** 一轮对话：模型可以多步调工具（查数据 → 摆组件 → 总结），事件实时推给前端 */
 export async function runCanvasTurn(
   user: CurrentUser,
-  input: { message: string; history: CanvasTurn[]; layout: unknown; active?: string; page?: string; onCanvas?: boolean; name?: string },
+  input: {
+    message: string;
+    history: CanvasTurn[];
+    layout: unknown;
+    active?: string;
+    page?: string;
+    onCanvas?: boolean;
+    name?: string;
+    narrow?: boolean;
+  },
   emit: (e: CanvasEvent) => void,
   signal?: AbortSignal,
 ) {
@@ -724,7 +742,11 @@ export async function runCanvasTurn(
   ).map((w) => ({ ...w, layout: sanitizeLayout(w.layout) }));
   const active = input.active === OVERVIEW_ID ? "概览" : (spaces.find((w) => w.id === input.active)?.name ?? "概览");
   const page = (input.page ?? "").slice(0, 500);
-  const where = { page: page ? await pageContext(user, page).catch(() => `页面：${page}`) : "", onCanvas: input.onCanvas !== false };
+  const where = {
+    page: page ? await pageContext(user, page).catch(() => `页面：${page}`) : "",
+    onCanvas: input.onCanvas !== false,
+    narrow: !!input.narrow,
+  };
   const ctx: Ctx = { user, layout: sanitizeLayout(input.layout), emit, stop: false, spaces, active, where };
   const name =
     input.name

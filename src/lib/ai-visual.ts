@@ -11,6 +11,8 @@ export type VisualItem = {
   meta?: string;
   href?: string;
   time?: string;
+  /** progress 用：目标值 */
+  target?: number;
 };
 
 export type Visual =
@@ -18,11 +20,13 @@ export type Visual =
   | { kind: "bars"; title?: string; unit?: string; items: VisualItem[] }
   | { kind: "trend"; title?: string; unit?: string; items: VisualItem[] }
   | { kind: "donut"; title?: string; unit?: string; items: VisualItem[] }
+  | { kind: "funnel"; title?: string; unit?: string; items: VisualItem[] }
+  | { kind: "progress"; title?: string; unit?: string; items: VisualItem[] }
   | { kind: "table"; title?: string; columns: string[]; rows: string[][] }
   | { kind: "list"; title?: string; items: VisualItem[] }
   | { kind: "timeline"; title?: string; items: VisualItem[] };
 
-export const VISUAL_KINDS = ["stats", "bars", "trend", "donut", "table", "list", "timeline"] as const;
+export const VISUAL_KINDS = ["stats", "bars", "trend", "donut", "funnel", "progress", "table", "list", "timeline"] as const;
 
 const str = (v: unknown, n: number) => (v === undefined || v === null || v === "" ? undefined : String(v).slice(0, n));
 const num = (v: unknown) => {
@@ -62,21 +66,33 @@ export function sanitizeVisual(raw: Record<string, unknown>): Visual | string {
         meta: str(it.meta, 40),
         href: safeHref(it.href),
         time: str(it.time, 30),
+        target: num(it.target),
       };
     })
     .filter((it) => it.label);
   if (!items.length) return "items 不能为空";
-  if ((kind === "bars" || kind === "trend" || kind === "donut") && items.some((it) => it.value === undefined))
-    return `${kind} 的每一项都要有数字 value`;
+  const numeric = kind === "bars" || kind === "trend" || kind === "donut" || kind === "funnel" || kind === "progress";
+  if (numeric && items.some((it) => it.value === undefined)) return `${kind} 的每一项都要有数字 value`;
+  if (kind === "progress" && items.some((it) => !it.target)) return "progress 的每一项都要有目标值 target";
   if (kind === "stats" && items.some((it) => !it.display && it.value === undefined)) return "stats 的每一项要有 display 或 value";
   const unit = str(raw.unit, 10);
-  if (kind === "bars" || kind === "trend" || kind === "donut") return { kind, title, unit, items };
+  if (numeric) return { kind, title, unit, items } as Visual;
   return { kind, title, items } as Visual;
 }
 
 /** 给模型看的历史里的一句话摘要 */
 export function visualSummary(v: Visual) {
-  const name = { stats: "数字卡", bars: "条形图", trend: "趋势图", donut: "占比图", table: "表格", list: "列表", timeline: "时间线" }[v.kind];
+  const name = {
+    stats: "数字卡",
+    bars: "条形图",
+    trend: "趋势图",
+    donut: "占比图",
+    funnel: "漏斗",
+    progress: "进度",
+    table: "表格",
+    list: "列表",
+    timeline: "时间线",
+  }[v.kind];
   const body =
     v.kind === "table"
       ? `${v.columns.join("/")} 共 ${v.rows.length} 行`
