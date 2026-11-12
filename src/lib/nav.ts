@@ -97,6 +97,7 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
     group: "个人",
     items: [
       { title: "个人资料", href: "/settings/profile" },
+      { title: "AI 记忆", href: "/settings/memory", permission: "ai.use" },
       { title: "邮箱绑定", href: "/settings/mailboxes", permission: "mail.use" },
       { title: "WhatsApp 绑定", href: "/settings/whatsapp", permission: "whatsapp.use" },
     ],

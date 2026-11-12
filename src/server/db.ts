@@ -50,6 +50,8 @@ const TENANT_MODELS = new Set<string>([
   "MailEnrollment",
   "MailSuppression",
   "Workspace",
+  "AiThread",
+  "AiMemory",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([
@@ -87,10 +89,7 @@ export function tenantDb(tenantId: string) {
             a.where = { ...a.where, tenantId };
           } else if (operation === "create") {
             a.data = { ...a.data, tenantId };
-          } else if (
-            operation === "createMany" ||
-            operation === "createManyAndReturn"
-          ) {
+          } else if (operation === "createMany" || operation === "createManyAndReturn") {
             const rows = Array.isArray(a.data) ? a.data : [a.data];
             a.data = rows.map((row: object) => ({ ...row, tenantId }));
           } else if (operation === "upsert") {
