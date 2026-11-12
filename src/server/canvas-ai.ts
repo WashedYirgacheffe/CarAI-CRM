@@ -4,7 +4,8 @@ import { can, type CurrentUser } from "@/server/auth";
 import { getCustomerForUser } from "@/server/customers";
 import { scopeOwnerIds } from "@/server/scope";
 import { MetricError, canMetric, queryMetric, teamSummary } from "@/server/metrics";
-import { aiToolStream, AiError, type ChatMessage, type ToolCall, type ToolSpec } from "@/server/ai";
+import { aiToolStream, AiError, type ChatMessage, type ContentPart, type ToolCall, type ToolSpec } from "@/server/ai";
+import { readWebpage, webSearch, type WebResult } from "@/server/web";
 import { countryName } from "@/lib/crm";
 import { dateInput } from "@/lib/docs";
 import { CHARTS, DIMENSIONS, METRICS, METRIC_DIMS, RANGES, isChart, isDim, isMetric, isRange, metricDef, rangeLabel } from "@/lib/metrics";
@@ -25,7 +26,23 @@ import { TIME_PRESETS } from "@/lib/reminders";
 import { VISUAL_KINDS, sanitizeVisual, type Visual } from "@/lib/ai-visual";
 import { FOLLOW_METHODS } from "@/lib/crm";
 import { prepareAction } from "@/server/canvas-actions";
-import { customerContext, listQuotations, listSequences, listTasks, pageContext, searchProducts } from "@/server/canvas-tools";
+import {
+  customerContext,
+  listCustomers,
+  listLeads,
+  listMail,
+  listOpportunities,
+  listOrders,
+  listQuotations,
+  listSequences,
+  listTasks,
+  listWaChats,
+  pageContext,
+  readMail,
+  readWaChat,
+  searchProducts,
+  waImage,
+} from "@/server/canvas-tools";
 import { saveWorkspaceAction } from "@/app/(app)/dashboard/actions";
 
 /** 发给前端的事件（一行一个 JSON） */
@@ -40,13 +57,20 @@ export type CanvasEvent =
   | { t: "action"; card: ActionCard }
   | { t: "workspace"; op: "open"; id: string; layout: CanvasLayout }
   | { t: "workspace"; op: "saved"; id: string; name: string; layout: CanvasLayout; home: boolean }
+  | { t: "sources"; items: WebResult[] }
   | { t: "step" }
   | { t: "drop" }
   | { t: "done" };
 
 export type CanvasTurn = { role: "user" | "assistant"; content: string };
 
-const MAX_STEPS = 8;
+/** 用户随消息发来的图片、视频（视频在浏览器里抽成几帧） */
+export type Attachment = { kind: "image" | "video"; name: string; frames: string[]; times?: number[]; duration?: number };
+/** 右键「给 AI 看看」带来的页面内容 */
+export type PageSnippet = { label: string; text: string; href?: string };
+
+const MAX_STEPS = 10;
+const IMAGE_URL = /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
 const TOOLS: ToolSpec[] = [
   {
@@ -265,6 +289,148 @@ const TOOLS: ToolSpec[] = [
   {
     type: "function",
     function: {
+      name: "list_mail",
+      description:
+        "看用户自己邮箱里的邮件列表（默认收件箱最近 30 天）：发件人、主题、AI 摘要、意图、优先级、是否未读 / 已处理、归档到的客户。问「有什么新邮件 / 谁来信了 / 某客户发过什么邮件」时用。",
+      parameters: {
+        type: "object",
+        properties: {
+          folder: { type: "string", enum: ["inbox", "sent", "all"] },
+          query: { type: "string", description: "关键词：主题、发件人、正文" },
+          unread: { type: "boolean", description: "只看未读" },
+          priority: { type: "string", enum: ["high", "medium", "low"] },
+          customerId: { type: "string" },
+          days: { type: "number", description: "最近多少天，默认 30" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_mail",
+      description: "读一封邮件的全文、收件人、附件名和同一往来里更早的几封。总结、翻译、回复某封邮件前先读它。",
+      parameters: { type: "object", properties: { mailId: { type: "string" } }, required: ["mailId"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_whatsapp_chats",
+      description: "用户自己的 WhatsApp 会话列表：对方、最后一条消息、未读数、关联的客户。问「WhatsApp 上谁找我 / 有哪些没回」时用。",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "名字、号码、客户名或消息内容" },
+          unread: { type: "boolean", description: "只看有未读的" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_whatsapp_chat",
+      description: "读一个 WhatsApp 会话最近的聊天记录（外文消息附中文翻译）。图片消息会给 imageMessageId，需要时用 view_image 看图。",
+      parameters: {
+        type: "object",
+        properties: { chatId: { type: "string" }, limit: { type: "number", description: "条数，默认 30，最多 60" } },
+        required: ["chatId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "view_image",
+      description: "看 WhatsApp 聊天里的一张图片（产品照片、截图、单据、付款水单等），图片会在下一步给你。",
+      parameters: { type: "object", properties: { imageMessageId: { type: "string" } }, required: ["imageMessageId"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "联网搜索（Bing）。查公司背景、官网、行业新闻、市场行情、汇率政策、港口 / 关税 / 认证规定、展会、竞品等 CRM 里没有的公开信息时用。返回标题、网址、摘要；需要细节再 read_webpage。",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "搜索词；查海外信息时用英文搜效果更好" },
+          lang: { type: "string", enum: ["en", "zh"], description: "结果语言，默认按搜索词判断" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_webpage",
+      description: "打开一个网页读正文（客户官网、新闻、搜索结果里的页面、用户贴的链接）。",
+      parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_customers",
+      description: "按条件找客户：关键词（公司名 / 域名 / 主营产品 / 标签）、国家、多久没联系、星级；可按最近联系、最久没联系、星级、新建排序。",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          country: { type: "string", description: "两位国家代码，如 US、BR" },
+          idleDays: { type: "number", description: "超过多少天没联系" },
+          minStar: { type: "number", description: "最低星级 1～5" },
+          sort: { type: "string", enum: ["recent", "stale", "star", "new"] },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_leads",
+      description: "询盘线索列表（默认还在跟进中的）：公司、联系人、国家、来源、想要的产品、询盘内容、负责人。",
+      parameters: {
+        type: "object",
+        properties: { status: { type: "string", enum: ["NEW", "QUALIFYING", "CONTACTED", "CONVERTED", "INVALID"] }, query: { type: "string" } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_opportunities",
+      description: "商机列表（默认进行中的）：金额、阶段和赢率、预计成交日期、在当前阶段停了几天。",
+      parameters: {
+        type: "object",
+        properties: { stage: { type: "string", enum: ["open", "won", "lost", "all"] }, customerId: { type: "string" } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_orders",
+      description: "订单列表：单号、客户、状态、金额、未收款、交货期。unpaid=true 只看还有欠款的。",
+      parameters: {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            enum: ["DRAFT", "CONFIRMED", "PRODUCING", "SHIPPED", "AWAITING_PAYMENT", "COMPLETED", "AFTER_SALES", "CANCELLED"],
+          },
+          customerId: { type: "string" },
+          unpaid: { type: "boolean" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "save_workspace",
       description: "把当前画布保存成一个工作情景（同名就覆盖），以后一句话就能恢复。asHome=true 同时设为每次打开工作台的默认情景。",
       parameters: {
@@ -366,7 +532,11 @@ ${ACTION_DOC}
 6. 画布上没有组件的功能（新建报价单、看订单列表、设置等）用 open_page 给跳转按钮。可用页面：${PAGES}。
 7. 起草与执行：用户让你发消息、发邮件、发报价单、做报价单、加提醒、写跟进、建线索、加入群发时，先查清楚需要的东西（search_entities → customer_context / search_products / list_quotations），再用 propose_action 起草，用户会在卡片上确认、修改或取消。同时把相关组件摆出来（如 whatsapp(l)+followups(s)）。信息不够（不知道发什么、发给谁、哪个产品、多少数量）就先问，不要乱填。起草对外内容时，交期、报价有效期、付款方式、运费、免费样品、折扣这类承诺，只能用查到的数据（报价单、产品、客户记录）或用户说过的话；没有依据就写成「[交期]」这样的方括号占位让用户补，绝不自己编。删除、转移客户、改权限、导出、改设置你做不了，用 open_page 给对应页面。
 8. 全程只用简体中文，简短直接（一般 1～3 句）。调用工具之前不要说「我来查一下」之类的话，直接调用。可以用少量 Markdown：**加粗** 关键词、「- 」列表列要点、短小标题；不要写 Markdown 表格（要表格就用 show_visual 的 table），不要用 emoji，不要输出 id 和站内路径（要跳转就用 open_page 或 list 卡片的 href），不要复述工具返回的原始数据。
-9. 工作情景：用户说「保存 / 记住这个布局 / 存成 xx 模式」就 save_workspace（没给名字就按画布内容起一个短名字）；说「恢复 / 打开 / 切到 xx」就 open_workspace，名字对不上时用 ask_choice 让用户从已保存的情景里选。`;
+9. 工作情景：用户说「保存 / 记住这个布局 / 存成 xx 模式」就 save_workspace（没给名字就按画布内容起一个短名字）；说「恢复 / 打开 / 切到 xx」就 open_workspace，名字对不上时用 ask_choice 让用户从已保存的情景里选。
+10. 看邮件和 WhatsApp：你能读用户自己邮箱和 WhatsApp 里的内容。「有什么新邮件 / 谁找我 / 哪些没回」→ list_mail(unread) 或 list_whatsapp_chats(unread)，结果用 show_visual 的 list 展示（href 用返回的 href），再用一两句话说最要紧的几件；「这封 / 这个客户说了什么、帮我回」→ read_mail / read_whatsapp_chat 读原文再总结或起草。WhatsApp 里的图片要看就 view_image。
+11. 联网：CRM 里查不到的公开信息（客户公司背景、官网、行业新闻、行情、政策法规、港口、认证、展会、汇率等）用 web_search，需要细节再 read_webpage；用户贴了网址就直接 read_webpage。回答时用自己的话总结，不要大段照抄；网上信息要说明来自哪个网站，拿不准的如实说。背调客户时可以先 search_entities / customer_context 拿到域名再搜。
+12. 看图看视频：用户发来的图片、视频画面、页面内容会直接给你。先说清看到了什么（产品、型号、文字、数字、单据内容），再结合用户的问题和 CRM 数据回答；图上的外文顺手翻译。视频是按时间抽出的几帧画面，据此描述过程。看不清的地方如实说。
+13. 用户在页面上右键「给 AI 看看」时，会附上那一块的文字内容和所在页面：先弄懂那是什么（客户、邮件、消息、报价单、图表、报错…），没说要做什么就简要解释并给出 2～3 个下一步建议（能起草的就直接起草）。`;
 }
 
 type Space = { id: string; name: string; layout: CanvasLayout };
@@ -379,6 +549,10 @@ type Ctx = {
   active: string;
   placed?: boolean;
   where: { page: string; onCanvas: boolean; narrow: boolean };
+  /** 工具取回的图片：这一步的工具结果之后作为一条用户消息给模型看 */
+  images: { url: string; note: string }[];
+  /** 本轮已经展示过的网页来源，免得重复 */
+  sources: Set<string>;
 };
 
 const json = (x: unknown) => JSON.stringify(x);
@@ -566,7 +740,26 @@ const STATUS: Record<string, (a: Record<string, unknown>) => string> = {
   save_workspace: () => "正在保存情景…",
   open_workspace: () => "正在切换情景…",
   show_visual: () => "正在整理成图表…",
+  list_mail: (a) => (a.query ? `正在翻邮件「${String(a.query)}」…` : "正在看邮箱…"),
+  read_mail: () => "正在读邮件…",
+  list_whatsapp_chats: () => "正在看 WhatsApp…",
+  read_whatsapp_chat: () => "正在读聊天记录…",
+  view_image: () => "正在看图片…",
+  web_search: (a) => `正在联网搜索「${String(a.query ?? "")}」…`,
+  read_webpage: (a) => `正在读网页 ${siteName(String(a.url ?? ""))}…`,
+  list_customers: () => "正在筛客户…",
+  list_leads: () => "正在查询盘线索…",
+  list_opportunities: () => "正在查商机…",
+  list_orders: () => "正在查订单…",
 };
+
+function siteName(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
 
 const norm = (s: string) =>
   s
@@ -702,6 +895,75 @@ async function runTool(ctx: Ctx, call: ToolCall): Promise<unknown> {
         ctx.emit({ t: "visual", visual });
         return { ok: true, note: "卡片已展示给用户，文字里不要再重复卡片里的数字明细，只说结论" };
       }
+      case "list_mail":
+        return await listMail(user, {
+          folder: typeof args.folder === "string" ? args.folder : undefined,
+          query: typeof args.query === "string" ? args.query : undefined,
+          unread: args.unread === true,
+          priority: typeof args.priority === "string" ? args.priority : undefined,
+          customerId: typeof args.customerId === "string" ? args.customerId : undefined,
+          days: Number(args.days) || undefined,
+        });
+      case "read_mail":
+        return await readMail(user, String(args.mailId ?? ""));
+      case "list_whatsapp_chats":
+        return await listWaChats(user, { query: typeof args.query === "string" ? args.query : undefined, unread: args.unread === true });
+      case "read_whatsapp_chat":
+        return await readWaChat(user, String(args.chatId ?? ""), Number(args.limit) || 30);
+      case "view_image": {
+        if (ctx.images.length >= 4) return { error: "这一轮看的图片太多了，先回答" };
+        const r = await waImage(user, String(args.imageMessageId ?? ""));
+        if ("error" in r) return r;
+        ctx.images.push(r);
+        return { ok: true, note: "图片会紧跟在工具结果后面给你" };
+      }
+      case "web_search": {
+        try {
+          const results = await webSearch(String(args.query ?? ""), { lang: typeof args.lang === "string" ? args.lang : undefined });
+          const fresh = results.filter((r) => !ctx.sources.has(r.url)).slice(0, 5);
+          for (const r of fresh) ctx.sources.add(r.url);
+          if (fresh.length) ctx.emit({ t: "sources", items: fresh });
+          return results.length ? { results } : { results: [], note: "没搜到结果，换个说法或用英文再搜" };
+        } catch (e) {
+          return { error: `搜索失败：${(e as Error).message}` };
+        }
+      }
+      case "read_webpage": {
+        try {
+          const page = await readWebpage(String(args.url ?? ""));
+          if (!ctx.sources.has(page.url)) {
+            ctx.sources.add(page.url);
+            ctx.emit({ t: "sources", items: [{ title: page.title || page.site, url: page.url, site: page.site, snippet: page.description }] });
+          }
+          return page;
+        } catch (e) {
+          return { error: `打不开这个网页：${(e as Error).message}` };
+        }
+      }
+      case "list_customers":
+        return await listCustomers(user, {
+          query: typeof args.query === "string" ? args.query : undefined,
+          country: typeof args.country === "string" ? args.country : undefined,
+          idleDays: Number(args.idleDays) || undefined,
+          minStar: Number(args.minStar) || undefined,
+          sort: typeof args.sort === "string" ? args.sort : undefined,
+        });
+      case "list_leads":
+        return await listLeads(user, {
+          status: typeof args.status === "string" ? args.status : undefined,
+          query: typeof args.query === "string" ? args.query : undefined,
+        });
+      case "list_opportunities":
+        return await listOpportunities(user, {
+          stage: typeof args.stage === "string" ? args.stage : undefined,
+          customerId: typeof args.customerId === "string" ? args.customerId : undefined,
+        });
+      case "list_orders":
+        return await listOrders(user, {
+          status: typeof args.status === "string" ? args.status : undefined,
+          customerId: typeof args.customerId === "string" ? args.customerId : undefined,
+          unpaid: args.unpaid === true,
+        });
       case "open_page": {
         const path = String(args.path ?? "");
         if (!path.startsWith("/") || path.startsWith("//")) return { error: "path 必须是站内路径" };
@@ -729,6 +991,8 @@ export async function runCanvasTurn(
     onCanvas?: boolean;
     name?: string;
     narrow?: boolean;
+    attachments?: Attachment[];
+    snippet?: PageSnippet;
   },
   emit: (e: CanvasEvent) => void,
   signal?: AbortSignal,
@@ -747,15 +1011,15 @@ export async function runCanvasTurn(
     onCanvas: input.onCanvas !== false,
     narrow: !!input.narrow,
   };
-  const ctx: Ctx = { user, layout: sanitizeLayout(input.layout), emit, stop: false, spaces, active, where };
+  const ctx: Ctx = { user, layout: sanitizeLayout(input.layout), emit, stop: false, spaces, active, where, images: [], sources: new Set() };
   const name =
     input.name
       ?.replace(/[\n\r`"「」]/g, "")
       .trim()
       .slice(0, 16) || "AI 助手";
   const messages: ChatMessage[] = [
-    ...input.history.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }) as ChatMessage),
-    { role: "user", content: input.message.slice(0, 2000) },
+    ...input.history.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }) as ChatMessage),
+    { role: "user", content: userContent(input.message, input.attachments, input.snippet) },
   ];
   try {
     for (let step = 0; step < MAX_STEPS && !ctx.stop; step++) {
@@ -786,10 +1050,51 @@ export async function runCanvasTurn(
         const result = await runTool(ctx, call);
         messages.push({ role: "tool", tool_call_id: call.id, content: json(result).slice(0, 12_000) });
       }
+      if (ctx.images.length) {
+        const parts: ContentPart[] = [];
+        for (const im of ctx.images.splice(0))
+          parts.push({ type: "text", text: `（${im.note}）` }, { type: "image_url", image_url: { url: im.url } });
+        messages.push({ role: "user", content: parts });
+      }
     }
   } catch (e) {
     emit({ t: "error", message: e instanceof AiError ? e.message : "AI 出错了，请重试" });
     if (!(e instanceof AiError)) console.error("[canvas-ai]", e);
   }
   emit({ t: "done" });
+}
+
+/** 这一轮用户说的话 + 右键带来的页面内容 + 图片 / 视频画面，拼成一条多模态消息 */
+function userContent(message: string, attachments: Attachment[] = [], snippet?: PageSnippet): string | ContentPart[] {
+  let text = message.slice(0, 4000);
+  if (snippet?.text) {
+    text = `${text}\n\n【用户在页面上右键「给 AI 看看」的内容】${snippet.label ? `\n位置：${snippet.label.slice(0, 120)}` : ""}${
+      snippet.href ? `\n链接：${snippet.href.slice(0, 300)}` : ""
+    }\n"""\n${snippet.text.slice(0, 5000)}\n"""`;
+  }
+  const parts: ContentPart[] = [];
+  let budget = 12;
+  for (const a of attachments.slice(0, 6)) {
+    const frames = a.frames
+      .filter((f) => typeof f === "string" && f.length < 2_000_000 && IMAGE_URL.test(f))
+      .slice(0, Math.min(budget, a.kind === "video" ? 8 : 1));
+    if (!frames.length) continue;
+    budget -= frames.length;
+    const name = String(a.name ?? "").slice(0, 80);
+    if (a.kind === "video") {
+      parts.push({
+        type: "text",
+        text: `视频「${name}」${a.duration ? `（时长约 ${Math.round(a.duration)} 秒）` : ""}，下面 ${frames.length} 张是按时间顺序抽出的画面：`,
+      });
+      frames.forEach((url, i) => {
+        const t = a.times?.[i];
+        if (t != null) parts.push({ type: "text", text: `第 ${Math.round(t)} 秒：` });
+        parts.push({ type: "image_url", image_url: { url } });
+      });
+    } else {
+      parts.push({ type: "text", text: `图片「${name}」：` }, { type: "image_url", image_url: { url: frames[0] } });
+    }
+    if (budget <= 0) break;
+  }
+  return parts.length ? [{ type: "text", text }, ...parts] : text;
 }

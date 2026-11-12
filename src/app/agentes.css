@@ -427,3 +427,38 @@
     transform: none;
   }
 }
+
+/* 右键「给 AI 看看」：被交给 AI 的那一块亮一下模块色的描边 */
+.ac-ai-look {
+  animation: ac-ai-look 1.3s var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+  border-radius: 10px;
+}
+@keyframes ac-ai-look {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--mod-top, #3b82f6) 0%, transparent);
+  }
+  18% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--mod-top, #3b82f6) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in oklab, var(--mod-top, #3b82f6) 0%, transparent);
+  }
+}
+
+/* AI 输入框里待发送的附件：小方块缩略图，进来时弹一下 */
+.ac-attach {
+  animation: ac-tile-pop 0.32s cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+
+/* 拖文件进对话：整块描一圈虚线 */
+.ac-dropzone {
+  outline: 2px dashed color-mix(in oklab, var(--mod-top, #3b82f6) 70%, transparent);
+  outline-offset: -6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-ai-look,
+  .ac-attach {
+    animation: none;
+  }
+}

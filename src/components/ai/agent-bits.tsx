@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, Copy, ThumbsDown, ThumbsUp, Trash2 } from "@/components/icons";
 import { AgentAvatar, type AgentAppearance } from "@/components/agentes/agent-avatar";
+import { AgentSearching } from "@/components/agentes/searching";
 import { PixelSpinner } from "@/components/agentes/pixel-spinner";
 import { playAgentReaction } from "@/lib/agentes/agent/live";
 import { AGENT_ACCESSORIES, AGENT_COLORS, AGENT_EYES, type AgentAccessory, type AgentEyes } from "@/lib/agentes/tokens/look";
@@ -69,7 +70,8 @@ export function WorkLine({ status, since }: { status: string; since?: number }) 
   const elapsed = since ? Math.max(0, Math.floor((now - since) / 1000)) : 0;
   return (
     <p className="ac-rise flex items-center gap-2 text-[13px] text-muted-foreground" role="status">
-      <PixelSpinner size={13} className="text-brand" />
+      {/* 联网时换成 agentes 举着放大镜找东西的小人 */}
+      {/联网|网页/.test(status) ? <AgentSearching size={1.5} className="shrink-0" /> : <PixelSpinner size={13} className="text-brand" />}
       <span className="ai-shimmer min-w-0 truncate">{status}</span>
       {elapsed >= 2 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">{elapsed}s</span>}
     </p>
