@@ -72,6 +72,8 @@ model Tenant {
   mailEvents        MailEvent[]
   mailSuppressions  MailSuppression[]
   workspaces        Workspace[]
+  aiThreads         AiThread[]
+  aiMemories        AiMemory[]
 }
 
 enum UserStatus {
@@ -119,6 +121,8 @@ model User {
   mailAccounts       MailAccount[]
   waAccounts         WaAccount[]
   workspaces         Workspace[]
+  aiThreads          AiThread[]
+  aiMemories         AiMemory[]
 
   @@index([tenantId])
 }
@@ -273,6 +277,7 @@ model Customer {
   orders        Order[]
   mailMessages  MailMessage[]
   waChats       WaChat[]
+  aiMemories    AiMemory[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -1168,4 +1173,72 @@ model Workspace {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId])
+}
+
+// ───────────────────────── AI 记忆 ─────────────────────────
+
+/// AI 对话：跨设备同步，长了以后旧的部分压成摘要
+model AiThread {
+  id          String   @id
+  tenantId    String
+  userId      String
+  title       String
+  /// 前端的对话轮次（原样存，图片只留缩略图）
+  turns       Json
+  /// 前 summaryUpTo 轮的摘要，给模型接着聊用
+  summary     String?
+  summaryUpTo Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, updatedAt])
+}
+
+/// AI 记住的东西。从不覆盖：改了就新建一版，旧的标 supersededById 并归档
+model AiMemory {
+  id             String    @id @default(cuid())
+  tenantId       String
+  /// personal = 只对本人；customer = 跟着客户（按客户的数据权限）；team = 全公司
+  scope          String
+  /// personal：本人；其他：谁让记的
+  userId         String?
+  customerId     String?
+  /// fact 事实 / preference 偏好 / rule 规则 / decision 决定 / howto 做法
+  kind           String
+  /// 一句话说清楚，给人看
+  title          String
+  content        String
+  /// user_said 用户亲口说的 / ai_found AI 自己发现的 / outside 从邮件、WhatsApp、网页里读来的
+  source         String
+  /// 可信：用户亲口说的、或有人确认过。不可信的只当参考，不能当规则
+  trusted        Boolean   @default(false)
+  /// user = 人写的 / ai = AI 写的（AI 不能覆盖人写的）
+  createdByKind  String    @default("ai")
+  /// active 生效 / proposed 待管理员确认（团队记忆）/ archived 已忘掉或过期 / superseded 被新版取代
+  status         String    @default("active")
+  pinned         Boolean   @default(false)
+  /// 和另一条人写的记忆冲突，等人来定
+  disputed       Boolean   @default(false)
+  supersededById String?
+  /// 合并时出现的次数
+  recurrence     Int       @default(1)
+  useCount       Int       @default(0)
+  lastUsedAt     DateTime?
+  /// 在哪段对话里记下的
+  threadId       String?
+  confirmedById  String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, scope, status])
+  @@index([tenantId, userId, status])
+  @@index([tenantId, customerId, status])
 }

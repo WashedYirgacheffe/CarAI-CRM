@@ -1,5 +1,6 @@
 import { can, getCurrentUser } from "@/server/auth";
 import { aiConfigured } from "@/server/ai";
+import { validThreadId } from "@/server/ai-threads";
 import { runCanvasTurn, type Attachment, type CanvasEvent, type CanvasTurn, type PageSnippet } from "@/server/canvas-ai";
 
 const fail = (message: string, status = 400) => new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
     narrow?: unknown;
     attachments?: unknown;
     snippet?: unknown;
+    threadId?: unknown;
   } | null;
   const attachments: Attachment[] = (Array.isArray(body?.attachments) ? body.attachments : [])
     .filter((a): a is Attachment => !!a && (a.kind === "image" || a.kind === "video") && Array.isArray(a.frames))
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
           onCanvas: body?.onCanvas !== false,
           name: typeof body?.name === "string" ? body.name : undefined,
           narrow: body?.narrow === true,
+          threadId: validThreadId(body?.threadId) ? body.threadId : undefined,
         },
         emit,
         abort.signal,

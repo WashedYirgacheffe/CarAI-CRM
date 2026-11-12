@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowRight, Eye, Globe, History, Paperclip, Play, Send, Settings2, Square, SquarePen, X } from "@/components/icons";
+import { ArrowRight, Eye, Globe, History, NotebookPen, Paperclip, Play, Send, Settings2, Square, SquarePen, Undo2, X } from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
@@ -26,6 +26,8 @@ import { noAutofill } from "@/lib/no-autofill";
 import { filesToAttachments, MAX_ATTACHMENTS, type AiAttachment } from "./ai-media";
 import { AI_LOOK_EVENT, type AiLookDetail, type PageSnippet } from "./ai-context-menu";
 import { PixelSpinner as Busy } from "@/components/agentes/pixel-spinner";
+import type { MemoryNote, MemoryRef } from "@/lib/ai-memory";
+import { undoMemoryAction } from "@/app/(app)/settings/memory/actions";
 
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
 type Source = { title: string; url: string; site: string; snippet: string };
@@ -55,6 +57,10 @@ type AssistantTurn = {
   feedback?: "up" | "down";
   /** 联网查到 / 读过的网页 */
   sources?: Source[];
+  /** 这一轮记下 / 改掉 / 忘掉的记忆（只有用户说的才有回执） */
+  memories?: (MemoryNote & { undone?: boolean })[];
+  /** 这一轮参考了哪些记忆 */
+  recalled?: MemoryRef[];
 };
 type UserTurn = { role: "user"; text: string; media?: UserMedia[]; snippet?: { label: string; text: string } };
 type Turn = UserTurn | AssistantTurn;
@@ -77,6 +83,8 @@ type StreamEvent =
   | { t: "error"; message: string }
   | { t: "action"; card: ActionCard }
   | { t: "sources"; items: Source[] }
+  | { t: "memory"; note: MemoryNote }
+  | { t: "recalled"; items: MemoryRef[] }
   | WorkspaceEvent
   | { t: "step" }
   | { t: "drop" }
@@ -111,6 +119,8 @@ function historyOf(turns: Turn[]) {
     for (const c of t.cards) parts.push(cardSummary(c));
     if (t.links.length) parts.push(`（给了跳转按钮：${t.links.map((l) => `${l.label} ${l.href}`).join("，")}）`);
     if (t.sources?.length) parts.push(`（参考了网页：${t.sources.map((x) => `${x.title} ${x.url}`).join("；")}）`);
+    for (const m of t.memories ?? [])
+      parts.push(m.undone ? `（用户撤销了记忆「${m.title}」）` : `（${m.op === "forgotten" ? "忘掉了" : "记下了"}记忆「${m.title}」#${m.id}）`);
     return { role: "assistant" as const, content: parts.filter(Boolean).join("\n") || "（已调整画布）" };
   });
 }
@@ -265,6 +275,53 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     openRef.current = open;
   }, [open]);
 
+  // 对话也存在服务器上：换电脑、换手机能接着聊。读回本机的之后，再和服务器上的合并
+  const turnsRef = useRef(turns);
+  const threadIdRef = useRef(threadId);
+  useEffect(() => {
+    turnsRef.current = turns;
+    threadIdRef.current = threadId;
+  });
+  const mergeRemote = async (localId: unknown, localTurns: unknown, localArchive: unknown) => {
+    const d = (await fetch("/api/ai/threads", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)) as { threads?: { id: string; turns: unknown; at: number }[] } | null;
+    if (!d?.threads) return;
+    const remote: Thread[] = d.threads.map((t) => ({ id: t.id, turns: revive(t.turns), at: t.at })).filter((t) => t.turns.length);
+    const local: Thread[] = [
+      ...(typeof localId === "string" ? [{ id: localId, turns: revive(localTurns), at: Date.now() }] : []),
+      ...(Array.isArray(localArchive) ? localArchive : []).map((t: { id?: string; turns?: unknown; at?: number }) => ({
+        id: t.id || newId(),
+        turns: revive(t.turns),
+        at: t.at ?? 0,
+      })),
+    ].filter((t) => t.turns.length);
+    // 本机有、服务器没有的（以前只存在本机的）补传上去
+    const known = new Set(remote.map((t) => t.id));
+    // 当前这段由下面的同步负责
+    for (const t of local.filter((x) => !known.has(x.id) && x.id !== localId).slice(0, 10)) void putThread(t.id, t.turns).catch(() => {});
+    const byId = new Map<string, Thread>();
+    for (const t of [...local, ...remote]) {
+      const o = byId.get(t.id);
+      if (!o || t.turns.length > o.turns.length || (t.turns.length === o.turns.length && t.at > o.at)) byId.set(t.id, t);
+    }
+    if (abortRef.current) return; // 已经开始聊了，不打扰
+    const curId = threadIdRef.current;
+    let cur = byId.get(curId);
+    // 本机这段是空的：最近 12 小时在别的设备上聊过的就接着
+    if (!turnsRef.current.length) {
+      const latest = [...byId.values()].sort((a, b) => b.at - a.at)[0];
+      if (latest && Date.now() - latest.at < 12 * 3600_000) cur = latest;
+    }
+    if (cur && cur.turns.length > turnsRef.current.length) {
+      setTurns(cur.turns);
+      setThreadId(cur.id);
+    }
+    const currentId = cur && cur.turns.length > turnsRef.current.length ? cur.id : curId;
+    byId.delete(currentId);
+    setArchive([...byId.values()].sort((a, b) => b.at - a.at).slice(0, MAX_THREADS));
+  };
+
   // 读回上次的对话（只在浏览器里，避免和服务端渲染不一致）
   useEffect(() => {
     try {
@@ -286,6 +343,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           );
         if (saved.open && (window.location.pathname === "/dashboard" || window.matchMedia("(min-width: 768px)").matches)) setOpen(true);
       }
+      void mergeRemote(saved?.id, saved?.turns, saved?.archive);
       const p = JSON.parse(localStorage.getItem(`${storageKey}:prefs`) ?? "null") as Partial<Prefs> | null;
       if (p)
         setPrefs({
@@ -303,6 +361,19 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       localStorage.setItem(storageKey, JSON.stringify({ id: threadId, turns: turns.slice(-MAX_TURNS), archive, open }));
     } catch {}
   }, [ready, turns, threadId, archive, open, busy, storageKey]);
+
+  // 每轮说完（不在生成中）同步到服务器
+  const syncedRef = useRef("");
+  useEffect(() => {
+    if (!ready || busy || !turns.length) return;
+    const key = `${threadId}:${JSON.stringify(turns.slice(-MAX_TURNS))}`;
+    if (syncedRef.current === key) return;
+    const timer = setTimeout(() => {
+      syncedRef.current = key;
+      void putThread(threadId, turns).catch(() => (syncedRef.current = ""));
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [ready, busy, turns, threadId]);
 
   const savePrefs = (next: Prefs) => {
     setPrefs(next);
@@ -415,6 +486,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           name: prefs.name,
           attachments: media.map((m) => ({ kind: m.kind, name: m.name, frames: m.frames, times: m.times, duration: m.duration })),
           snippet: look ?? undefined,
+          threadId,
         }),
         signal: ac.signal,
       });
@@ -455,6 +527,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           } else if (e.t === "visual") patchLast((t) => ({ visuals: [...(t.visuals ?? []), e.visual], status: null }));
           else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
           else if (e.t === "sources") patchLast((t) => ({ sources: [...(t.sources ?? []), ...e.items].slice(0, 8) }));
+          else if (e.t === "memory") patchLast((t) => ({ memories: [...(t.memories ?? []), e.note] }));
+          else if (e.t === "recalled") patchLast(() => ({ recalled: e.items }));
           else if (e.t === "error") patchLast(() => ({ error: e.message, status: null }));
         }
       }
@@ -493,8 +567,20 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       setStageMode("split");
     });
   };
-  const deleteThread = (id: string) => setArchive((a) => a.filter((x) => x.id !== id));
+  const deleteThread = (id: string) => {
+    setArchive((a) => a.filter((x) => x.id !== id));
+    void fetch(`/api/ai/threads/${id}`, { method: "DELETE" }).catch(() => {});
+  };
   const threadMetas: ThreadMeta[] = archive.map((t) => ({ id: t.id, title: titleOf(t.turns), at: t.at, count: t.turns.length }));
+  const undoMemory = async (ti: number, id: string) => {
+    const r = await undoMemoryAction(id);
+    if (!r.ok) return void toast.error(r.message ?? "撤销失败");
+    setTurns((ts) =>
+      ts.map((t, i) =>
+        i === ti && t.role === "assistant" ? { ...t, memories: t.memories?.map((m) => (m.id === id ? { ...m, undone: true } : m)) } : t,
+      ),
+    );
+  };
   const setFeedback = (ti: number, v: "up" | "down" | undefined) =>
     setTurns((ts) => ts.map((t, i) => (i === ti && t.role === "assistant" ? { ...t, feedback: v } : t)));
 
@@ -822,6 +908,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             onReply={send}
             onCard={(ci, patch) => patchCard(i, ci, patch)}
             onFeedback={(v) => setFeedback(i, v)}
+            onUndoMemory={(id) => undoMemory(i, id)}
             onNavigate={() => setOpen(false)}
             onShowCanvas={staged ? () => withStageTransition(() => setStagePane("canvas")) : undefined}
           />
@@ -1132,6 +1219,16 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   );
 }
 
+function putThread(id: string, turns: Turn[]) {
+  return fetch(`/api/ai/threads/${id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ turns: turns.slice(-MAX_TURNS) }),
+  }).then((r) => {
+    if (!r.ok && r.status !== 413) throw new Error(String(r.status));
+  });
+}
+
 type PanelSize = { w: number | null; h: number | null };
 const SIZE_KEY = "crm:ai-dock-size";
 const MIN_W = 360;
@@ -1148,6 +1245,7 @@ function AssistantView({
   onReply,
   onCard,
   onFeedback,
+  onUndoMemory,
   onNavigate,
   onShowCanvas,
 }: {
@@ -1160,6 +1258,7 @@ function AssistantView({
   onReply: (s: string) => void;
   onCard: (index: number, patch: Partial<CardState>) => void;
   onFeedback: (v: "up" | "down" | undefined) => void;
+  onUndoMemory: (id: string) => void;
   onNavigate: () => void;
   /** 手机工作台：切到「工作台」标签页，而不是跳转 */
   onShowCanvas?: () => void;
@@ -1228,6 +1327,8 @@ function AssistantView({
           </div>
         )}
         {turn.sources?.length ? <SourceList items={turn.sources} /> : null}
+        {turn.memories?.length ? <MemoryReceipts items={turn.memories} onUndo={onUndoMemory} onNavigate={onNavigate} /> : null}
+        {turn.done && turn.recalled?.length ? <RecalledLine items={turn.recalled} onNavigate={onNavigate} /> : null}
         {turn.error && <p className="text-destructive">{turn.error}</p>}
         {turn.done && !turn.error && (turn.text.trim() || turn.visuals?.length) ? (
           <Feedback id={turn.id} value={turn.feedback} text={turn.text} onChange={onFeedback} />
@@ -1266,6 +1367,72 @@ function UserView({ turn }: { turn: UserTurn }) {
       ) : null}
       <p className="line-clamp-[12] w-fit rounded-[18px] bg-[var(--own-bubble)] px-3.5 py-[7px] whitespace-pre-wrap text-foreground">{turn.text}</p>
     </div>
+  );
+}
+
+const MEMORY_VERB: Record<MemoryNote["op"], string> = {
+  saved: "记住了",
+  merged: "早就记着",
+  updated: "更新了记忆",
+  disputed: "和之前记的不一致，两条都留着",
+  forgotten: "忘掉了",
+};
+
+/** 记忆回执：用户说的被记下 / 改掉 / 忘掉时一行小字，可撤销 */
+function MemoryReceipts({
+  items,
+  onUndo,
+  onNavigate,
+}: {
+  items: (MemoryNote & { undone?: boolean })[];
+  onUndo: (id: string) => void;
+  onNavigate: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      {items.map((m) => (
+        <p
+          key={`${m.op}${m.id}`}
+          className={cn("flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground", m.undone && "line-through opacity-60")}
+        >
+          <NotebookPen className="size-3.5 shrink-0 text-brand" />
+          <span className="shrink-0">{MEMORY_VERB[m.op]}</span>
+          <Link href="/settings/memory" onClick={onNavigate} className="min-w-0 truncate font-medium text-foreground/85 hover:underline">
+            {m.title}
+          </Link>
+          {m.scope === "team" && <span className="shrink-0">· 团队</span>}
+          {m.scope === "customer" && <span className="shrink-0">· 客户</span>}
+          {!m.undone && m.op !== "forgotten" && m.op !== "merged" && (
+            <button
+              type="button"
+              onClick={() => onUndo(m.id)}
+              className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted hover:text-foreground"
+            >
+              <Undo2 className="size-3" />
+              撤销
+            </button>
+          )}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** 这一轮参考了哪些记忆：一行小字，悬停看标题 */
+function RecalledLine({ items, onNavigate }: { items: MemoryRef[]; onNavigate: () => void }) {
+  return (
+    <Link
+      href="/settings/memory"
+      onClick={onNavigate}
+      title={items.map((m) => `· ${m.title}`).join("\n")}
+      className="flex w-fit max-w-full items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground"
+    >
+      <NotebookPen className="size-3.5 shrink-0" />
+      <span className="truncate">
+        参考了记忆：{items[0].title}
+        {items.length > 1 ? ` 等 ${items.length} 条` : ""}
+      </span>
+    </Link>
   );
 }
 

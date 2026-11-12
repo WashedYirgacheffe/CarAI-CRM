@@ -6,6 +6,7 @@ import { syncMailAccount } from "@/server/mail/sync";
 import { aiConfigured, analyzeMail } from "@/server/ai";
 import { recyclePool } from "@/server/pool";
 import { runSequences } from "@/server/sequences";
+import { expireStaleMemories } from "@/server/ai-memory";
 import { reconcileWhatsapp, refreshWaAvatars, shutdownWhatsapp } from "@/server/whatsapp/runtime.mjs";
 
 const MAIL_EVERY = Number(process.env.MAIL_SYNC_MINUTES || 3) * 60_000;
@@ -91,6 +92,11 @@ async function recycle() {
   }
 }
 
+async function expireMemories() {
+  const n = await expireStaleMemories();
+  if (n) log("[memory]", `归档 ${n} 条 30 天没用过的 AI 记忆`);
+}
+
 log("worker started");
 const timers = [
   every(30_000, "mail", syncMail),
@@ -99,6 +105,7 @@ const timers = [
   every(20_000, "wa-avatar", refreshWaAvatars),
   every(60 * 60_000, "pool", recycle),
   every(60_000, "sequences", () => runSequences(log)),
+  every(6 * 60 * 60_000, "memory", expireMemories),
 ];
 
 async function stop() {
