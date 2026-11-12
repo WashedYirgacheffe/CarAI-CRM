@@ -442,33 +442,45 @@ html {
   100% { transform: translateX(300%); }
 }
 
-/* ── AI 浮窗小角色 ── */
+/* ── AI 浮窗小角色：深色圆脸 + 两只会动的眼睛 ── */
 .ai-mascot .ai-mascot-eye {
   transform-box: fill-box;
   transform-origin: center;
-  animation: ai-blink 4.8s infinite;
+  animation: ai-blink 5.2s infinite;
+}
+.ai-mascot .ai-mascot-eye + .ai-mascot-eye {
+  animation-delay: 0.04s;
+}
+.ai-mascot .ai-mascot-look {
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .ai-mascot .ai-mascot-eyes {
-  transition: transform 0.3s;
+  animation: ai-glance 9s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 .ai-mascot.is-thinking .ai-mascot-eyes {
-  animation: ai-look 1.6s ease-in-out infinite;
+  animation: ai-look 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
-.ai-mascot.is-thinking .ai-mascot-bulb {
-  animation: ai-bulb 0.9s ease-in-out infinite;
+.ai-mascot.is-thinking .ai-mascot-eye {
+  animation: ai-squint 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 @keyframes ai-blink {
-  0%, 94%, 100% { transform: scaleY(1); }
-  97% { transform: scaleY(0.1); }
+  0%, 93%, 100% { transform: scaleY(1); }
+  95.5% { transform: scaleY(0.08); }
+}
+@keyframes ai-glance {
+  0%, 18%, 100% { transform: translate(0, 0); }
+  22%, 34% { transform: translate(-3.5px, -1px); }
+  38%, 52% { transform: translate(0, 0); }
+  56%, 66% { transform: translate(3.5px, 1.5px); }
+  70%, 82% { transform: translate(0, -2px); }
 }
 @keyframes ai-look {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-3px); }
-  75% { transform: translateX(3px); }
+  0%, 100% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
 }
-@keyframes ai-bulb {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+@keyframes ai-squint {
+  0%, 100% { transform: scaleY(0.55); }
+  50% { transform: scaleY(0.8); }
 }
 /* 展开时小角色往左「推」一下对话条 */
 @keyframes ai-push {
@@ -482,8 +494,7 @@ html {
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-mascot .ai-mascot-eye,
-  .ai-mascot.is-thinking .ai-mascot-eyes,
-  .ai-mascot.is-thinking .ai-mascot-bulb,
+  .ai-mascot .ai-mascot-eyes,
   .ai-push {
     animation: none;
   }

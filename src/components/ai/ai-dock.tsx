@@ -101,7 +101,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as { turns?: unknown; open?: boolean } | null;
       if (saved) {
         setTurns(revive(saved.turns));
-        if (saved.open) setOpen(true);
+        if (saved.open && window.location.pathname === "/dashboard") setOpen(true);
       }
     } catch {}
     loaded.current = true;
@@ -246,11 +246,19 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 只在工作台首页常驻；其他页面只有「让 AI …」按钮唤起时出现，收起就消失
+  const home = pathname === "/dashboard";
+  useEffect(() => {
+    if (pathname !== "/dashboard") setOpen(false);
+  }, [pathname]);
+
   const suggestions = suggestionsFor(pathname, sp);
   // 有底部输入框的页面（聊天、写信）把角色抬高一点，别挡住发送按钮
   const lifted = pathname.startsWith("/whatsapp") || pathname.startsWith("/mail/compose");
   // 客户详情在手机上底部有「写跟进」操作条
   const liftMobile = /^\/customers\/(?!new)[^/]+$/.test(pathname);
+
+  if (!home && !open) return null;
 
   return (
     <div
@@ -376,7 +384,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           aria-expanded={open}
           title={open ? "收起（⌘J）" : "AI 助手（⌘J）"}
           className={cn(
-            "pointer-events-auto relative size-14 shrink-0 rounded-full bg-popover p-1 shadow-xl ring-1 ring-black/5 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+            "pointer-events-auto relative size-14 shrink-0 rounded-full shadow-xl ring-1 ring-black/5 dark:ring-white/15 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
             push > 0 && "ai-push",
           )}
         >
