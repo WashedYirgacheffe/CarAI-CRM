@@ -23,8 +23,11 @@ export type AiOptions = { system?: string; messages: Msg[]; maxTokens?: number; 
 
 /** 带工具调用的对话消息（OpenAI 格式） */
 export type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
+/** 多模态内容：文字 + 图片（data URL 或 https 链接） */
+export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 export type ChatMessage =
-  | { role: "user" | "system"; content: string }
+  | { role: "user"; content: string | ContentPart[] }
+  | { role: "system"; content: string }
   | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 export type ToolSpec = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
@@ -39,7 +42,11 @@ function withInstructions(system: string | undefined, messages: ChatMessage[]): 
   const i = messages.findIndex((m) => m.role === "user");
   const wrap = (body: string) => `<instructions>\n${system}\n</instructions>\n\n${body}`;
   if (i < 0) return [{ role: "user", content: wrap("") }, ...messages];
-  return messages.map((m, j) => (j === i ? { ...m, content: wrap(m.content as string) } : m)) as ChatMessage[];
+  return messages.map((m, j) => {
+    if (j !== i) return m;
+    const c = m.content as string | ContentPart[];
+    return { ...m, content: typeof c === "string" ? wrap(c) : [{ type: "text", text: wrap("") }, ...c] };
+  }) as ChatMessage[];
 }
 
 /** 网关偶尔抽风（Cloudflare 502 / 限流），这些状态自动重试 */

@@ -1,6 +1,6 @@
 import { can, getCurrentUser } from "@/server/auth";
 import { aiConfigured } from "@/server/ai";
-import { runCanvasTurn, type CanvasEvent, type CanvasTurn } from "@/server/canvas-ai";
+import { runCanvasTurn, type Attachment, type CanvasEvent, type CanvasTurn, type PageSnippet } from "@/server/canvas-ai";
 
 const fail = (message: string, status = 400) => new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 
@@ -19,9 +19,26 @@ export async function POST(request: Request) {
     onCanvas?: unknown;
     name?: unknown;
     narrow?: unknown;
+    attachments?: unknown;
+    snippet?: unknown;
   } | null;
+  const attachments: Attachment[] = (Array.isArray(body?.attachments) ? body.attachments : [])
+    .filter((a): a is Attachment => !!a && (a.kind === "image" || a.kind === "video") && Array.isArray(a.frames))
+    .slice(0, 6)
+    .map((a) => ({
+      kind: a.kind,
+      name: String(a.name ?? ""),
+      frames: a.frames.filter((f) => typeof f === "string"),
+      times: Array.isArray(a.times) ? a.times.map(Number) : undefined,
+      duration: Number(a.duration) || undefined,
+    }));
+  const sn = body?.snippet as Partial<PageSnippet> | undefined;
+  const snippet: PageSnippet | undefined =
+    sn && typeof sn.text === "string" && sn.text.trim()
+      ? { label: String(sn.label ?? ""), text: sn.text, href: typeof sn.href === "string" ? sn.href : undefined }
+      : undefined;
   const message = typeof body?.message === "string" ? body.message.trim() : "";
-  if (!message) return fail("请输入内容");
+  if (!message && !attachments.length && !snippet) return fail("请输入内容");
   const history: CanvasTurn[] = (Array.isArray(body?.history) ? body.history : [])
     .filter((m): m is CanvasTurn => !!m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && !!m.content)
     .slice(-12);
@@ -41,8 +58,10 @@ export async function POST(request: Request) {
       await runCanvasTurn(
         user,
         {
-          message,
+          message: message || (attachments.length ? "帮我看看这个" : "帮我看看这是什么"),
           history,
+          attachments,
+          snippet,
           layout: body?.layout,
           active: typeof body?.active === "string" ? body.active : undefined,
           page: typeof body?.page === "string" ? body.page : undefined,

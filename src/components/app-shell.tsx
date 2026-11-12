@@ -31,6 +31,7 @@ import { GlobalSearch } from "@/components/global-search";
 import { UserMenu } from "@/components/user-menu";
 import { AiDock } from "@/components/ai/ai-dock";
 import { SelectionToolbar } from "@/components/ai/selection-toolbar";
+import { AiContextMenu } from "@/components/ai/ai-context-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -189,6 +190,7 @@ export function AppShell({
           <Suspense>
             <AiDock storageKey={ai} />
             <SelectionToolbar />
+            <AiContextMenu />
           </Suspense>
         )}
 

@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowRight, History, Send, Settings2, Square, SquarePen, X } from "@/components/icons";
+import { ArrowRight, Eye, Globe, History, Paperclip, Play, Send, Settings2, Square, SquarePen, X } from "@/components/icons";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
 import type { ActionCard } from "@/lib/ai-actions";
@@ -22,8 +23,14 @@ import { isStageTabs, setStageMode, setStagePane, useStage, withStageTransition 
 import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
+import { filesToAttachments, MAX_ATTACHMENTS, type AiAttachment } from "./ai-media";
+import { AI_LOOK_EVENT, type AiLookDetail, type PageSnippet } from "./ai-context-menu";
+import { PixelSpinner as Busy } from "@/components/agentes/pixel-spinner";
 
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
+type Source = { title: string; url: string; site: string; snippet: string };
+/** 用户这句话带的图片 / 视频（只留缩略图，存得下）和右键给 AI 看的页面内容 */
+type UserMedia = { kind: "image" | "video"; name: string; thumb: string };
 type AssistantTurn = {
   role: "assistant";
   /** 用来让这条回复旁边的助手做表情（旧记录没有，读回时补上） */
@@ -46,8 +53,11 @@ type AssistantTurn = {
   startedAt?: number;
   endedAt?: number;
   feedback?: "up" | "down";
+  /** 联网查到 / 读过的网页 */
+  sources?: Source[];
 };
-type Turn = { role: "user"; text: string } | AssistantTurn;
+type UserTurn = { role: "user"; text: string; media?: UserMedia[]; snippet?: { label: string; text: string } };
+type Turn = UserTurn | AssistantTurn;
 type Thread = { id: string; turns: Turn[]; at: number };
 const MAX_THREADS = 20;
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -66,6 +76,7 @@ type StreamEvent =
   | { t: "visual"; visual: Visual }
   | { t: "error"; message: string }
   | { t: "action"; card: ActionCard }
+  | { t: "sources"; items: Source[] }
   | WorkspaceEvent
   | { t: "step" }
   | { t: "drop" }
@@ -78,18 +89,28 @@ function suggestionsFor(path: string, sp: URLSearchParams) {
   if (path === "/mail" && sp.get("id")) return ["帮我起草这封邮件的回复", "把发件人建成线索", "后天提醒我处理这封邮件"];
   if (path.startsWith("/quotations")) return ["最近的报价单哪些还没成交", "给 Acme 做一份报价单"];
   if (path.startsWith("/marketing")) return ["我有哪些营销序列", "把最近的询盘客户加入序列"];
-  return ["今天有哪些提醒", "团队本月业绩怎么样", "最近 30 天成交额走势", "把当前布局存成默认情景"];
+  if (path.startsWith("/mail")) return ["有哪些未读邮件要先处理", "总结一下这周的询盘邮件", "最近谁问过价格"];
+  if (path.startsWith("/whatsapp")) return ["WhatsApp 上谁还在等我回复", "总结一下今天的 WhatsApp 对话", "看看客户发来的图片是什么"];
+  if (path.startsWith("/leads")) return ["哪些询盘还没人跟进", "联网查一下最新询盘公司的背景"];
+  return ["今天有哪些事要处理", "有哪些未读邮件和 WhatsApp", "团队本月业绩怎么样", "联网查一下最近的汽车出口行情"];
 }
 
 /** 把一轮回复压成给模型看的历史（选项里的 reply 带着 id，下一轮要用） */
 function historyOf(turns: Turn[]) {
   return turns.slice(-10).map((t) => {
-    if (t.role === "user") return { role: "user" as const, content: t.text };
+    if (t.role === "user") {
+      const extra = [
+        t.media?.length ? `（我发了${t.media.map((m) => `${m.kind === "video" ? "视频" : "图片"}「${m.name}」`).join("、")}）` : "",
+        t.snippet ? `（我右键给你看了「${t.snippet.label}」：${t.snippet.text.slice(0, 1200)}）` : "",
+      ].filter(Boolean);
+      return { role: "user" as const, content: [t.text, ...extra].join("\n") };
+    }
     const parts = [t.text.trim()];
     if (t.choice) parts.push(`（我问了：${t.choice.question}；选项：${t.choice.options.map((o) => `${o.label} → ${o.reply}`).join("；")}）`);
     for (const v of t.visuals ?? []) parts.push(visualSummary(v));
     for (const c of t.cards) parts.push(cardSummary(c));
     if (t.links.length) parts.push(`（给了跳转按钮：${t.links.map((l) => `${l.label} ${l.href}`).join("，")}）`);
+    if (t.sources?.length) parts.push(`（参考了网页：${t.sources.map((x) => `${x.title} ${x.url}`).join("；")}）`);
     return { role: "assistant" as const, content: parts.filter(Boolean).join("\n") || "（已调整画布）" };
   });
 }
@@ -150,6 +171,12 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // 待发送的图片 / 视频、右键带来的页面内容、正在处理（抽帧、下载）的个数、是否有文件拖进来
+  const [files, setFiles] = useState<AiAttachment[]>([]);
+  const [snippet, setSnippet] = useState<PageSnippet | null>(null);
+  const [preparing, setPreparing] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   // 划词唤起的「润色 / 仿写 / 裂变」：先问想要什么效果
   const [compose, setCompose] = useState<{ text: string; kind: ComposeKind } | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
@@ -280,9 +307,15 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       return [...ts.slice(0, -1), { ...last, ...fn(last) }];
     });
 
-  const send = async (raw: string) => {
-    const message = raw.trim();
+  const send = async (raw: string, extra?: { attachments?: AiAttachment[]; snippet?: PageSnippet | null }) => {
+    const media = extra?.attachments ?? files;
+    const look = extra && "snippet" in extra ? (extra.snippet ?? null) : snippet;
+    const message = raw.trim() || (media.length || look ? (media.length ? "帮我看看这个" : "帮我看看这是什么") : "");
     if (!message || busy) return;
+    if (!extra) {
+      setFiles([]);
+      setSnippet(null);
+    }
     const history = historyOf(turns);
     const snap = canvasSnapshot();
     const query = sp.toString();
@@ -292,7 +325,12 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       setBusy(true);
       setTurns((ts) => [
         ...ts.slice(-(MAX_TURNS - 2)),
-        { role: "user", text: message },
+        {
+          role: "user",
+          text: message,
+          ...(media.length ? { media: media.map((m) => ({ kind: m.kind, name: m.name, thumb: m.thumb })) } : {}),
+          ...(look ? { snippet: { label: look.label, text: look.text.slice(0, 2000) } } : {}),
+        },
         {
           role: "assistant",
           id: newId(),
@@ -330,6 +368,8 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           onCanvas: canvasOnPage() && !isStageTabs(),
           narrow: !window.matchMedia("(min-width: 768px)").matches,
           name: prefs.name,
+          attachments: media.map((m) => ({ kind: m.kind, name: m.name, frames: m.frames, times: m.times, duration: m.duration })),
+          snippet: look ?? undefined,
         }),
         signal: ac.signal,
       });
@@ -369,6 +409,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             if (tabs) setStagePane("chat", true);
           } else if (e.t === "visual") patchLast((t) => ({ visuals: [...(t.visuals ?? []), e.visual], status: null }));
           else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
+          else if (e.t === "sources") patchLast((t) => ({ sources: [...(t.sources ?? []), ...e.items].slice(0, 8) }));
           else if (e.t === "error") patchLast(() => ({ error: e.message, status: null }));
         }
       }
@@ -429,7 +470,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         ? "正在回复…"
         : agentState === "waiting"
           ? `有 ${pending} 件事等你确认`
-          : "能查数据、摆工作台、起草消息和单据，确认后才执行";
+          : "能看邮件和 WhatsApp、联网、看图看视频，起草的事你确认后才执行";
 
   const stop = () => {
     abortRef.current?.abort();
@@ -454,11 +495,34 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       setCompose({ text: d.text.slice(0, 4000), kind: d.kind });
       toggle(true);
     };
+    // 右键「给 AI 看看」：带着那一块内容打开；图片 / 视频处理好了再放进来；带了 message 就直接发
+    const onLook = (e: Event) => {
+      const d = (e as CustomEvent<AiLookDetail>).detail;
+      if (!d) return;
+      toggle(true);
+      setCompose(null);
+      if (d.message) {
+        const go = (items: AiAttachment[]) => void sendRef.current(d.message!, { attachments: items, snippet: d.snippet ?? null });
+        if (d.pending) {
+          setPreparing((n) => n + 1);
+          void d.pending.then(go).finally(() => setPreparing((n) => n - 1));
+        } else go(d.attachments ?? []);
+        return;
+      }
+      setSnippet(d.snippet ?? null);
+      if (d.attachments?.length) setFiles((f) => [...f, ...d.attachments!].slice(-MAX_ATTACHMENTS));
+      if (d.pending) {
+        setPreparing((n) => n + 1);
+        void d.pending.then((items) => setFiles((f) => [...f, ...items].slice(-MAX_ATTACHMENTS))).finally(() => setPreparing((n) => n - 1));
+      }
+    };
     window.addEventListener("crm:ai-ask", onAsk);
     window.addEventListener(AI_COMPOSE_EVENT, onCompose);
+    window.addEventListener(AI_LOOK_EVENT, onLook);
     return () => {
       window.removeEventListener("crm:ai-ask", onAsk);
       window.removeEventListener(AI_COMPOSE_EVENT, onCompose);
+      window.removeEventListener(AI_LOOK_EVENT, onLook);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -481,6 +545,145 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   const lifted = pathname.startsWith("/whatsapp") || pathname.startsWith("/mail/compose");
   // 客户详情在手机上底部有「写跟进」操作条
   const liftMobile = /^\/customers\/(?!new)[^/]+$/.test(pathname);
+
+  /** 选的、粘贴的、拖进来的图片和视频 */
+  const addFiles = async (list: FileList | File[] | null) => {
+    const arr = [...(list ?? [])].filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+    if (!arr.length) return false;
+    const room = MAX_ATTACHMENTS - files.length;
+    if (room <= 0) {
+      toast.error(`一次最多 ${MAX_ATTACHMENTS} 个图片或视频`);
+      return true;
+    }
+    setPreparing((n) => n + 1);
+    try {
+      const { items, skipped } = await filesToAttachments(arr.slice(0, room));
+      setFiles((f) => [...f, ...items].slice(0, MAX_ATTACHMENTS));
+      if (skipped) toast.error(`有 ${skipped} 个文件读不了，已跳过`);
+      if (arr.length > room) toast.error(`一次最多 ${MAX_ATTACHMENTS} 个，多出的没有加上`);
+    } finally {
+      setPreparing((n) => n - 1);
+    }
+    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+    return true;
+  };
+  const dropProps = {
+    onDragOver: (e: React.DragEvent) => {
+      if (![...e.dataTransfer.items].some((i) => i.kind === "file")) return;
+      e.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!e.dataTransfer.files.length) return;
+      e.preventDefault();
+      setDragging(false);
+      void addFiles(e.dataTransfer.files);
+    },
+  };
+  const staging = files.length > 0 || !!snippet || preparing > 0;
+  /** 输入框上方：待发的页面内容、图片、视频，和几个顺手的问法 */
+  const tray = staging && (
+    <div className="flex flex-col gap-2 pt-1.5 pb-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {snippet && (
+          <span className="ac-attach flex h-12 max-w-[16rem] min-w-0 items-center gap-2 rounded-[10px] border border-line bg-muted/60 py-1 pr-1 pl-2 text-left">
+            <span className="ac-tile size-6 shrink-0" style={{ borderRadius: "30% 30% 30% 9%" }}>
+              <Eye className="size-3.5" strokeWidth={2.2} />
+            </span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate text-[12.5px] font-medium">{snippet.label || "页面内容"}</span>
+              <span className="block truncate text-[11.5px] text-muted-foreground">{snippet.text.replace(/\s+/g, " ").slice(0, 80)}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSnippet(null)}
+              aria-label="去掉页面内容"
+              className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+            >
+              <X className="size-3.5" />
+            </button>
+          </span>
+        )}
+        {files.map((f) => (
+          <span
+            key={f.id}
+            className="ac-attach group relative size-12 shrink-0 overflow-hidden rounded-[10px] border border-line bg-muted"
+            title={f.name}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={f.thumb} alt={f.name} className="size-full object-cover" />
+            {f.kind === "video" && (
+              <span className="absolute bottom-0.5 left-0.5 flex items-center gap-0.5 rounded bg-black/60 px-1 text-[10px] text-white">
+                <Play className="size-2.5 fill-current" />
+                {f.frames.length} 帧
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setFiles((x) => x.filter((y) => y.id !== f.id))}
+              aria-label={`去掉 ${f.name}`}
+              className="absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-md bg-black/55 text-white opacity-90 hover:bg-black/75 md:opacity-0 md:group-hover:opacity-100"
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        {preparing > 0 && (
+          <span
+            className="grid size-12 place-items-center rounded-[10px] border border-dashed border-line text-muted-foreground"
+            aria-label="正在处理"
+          >
+            <Busy size={14} className="text-brand" />
+          </span>
+        )}
+      </div>
+      {!input.trim() && (
+        <div className="flex flex-wrap gap-1.5">
+          {(files.length
+            ? ["这是什么", "图里的文字和数字帮我整理出来", "结合客户资料，我该怎么回复"]
+            : ["这是什么，帮我解释", "总结要点", "接下来我该做什么"]
+          ).map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled={busy || preparing > 0}
+              onClick={() => void send(q)}
+              className="h-7 rounded-md border border-line bg-card px-2.5 text-[12px] text-foreground/80 transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  const attachButton = (
+    <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          void addFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        aria-label="发图片或视频"
+        title="发图片或视频（也可以直接粘贴、拖进来）"
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <Paperclip className="size-[18px]" />
+      </button>
+    </>
+  );
 
   const live = open || staged;
   const iconBtn =
@@ -561,12 +764,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     <div ref={logRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pt-4 pb-3" style={{ fontSize: prefs.size }} aria-live="polite">
       {turns.map((t, i) =>
         t.role === "user" ? (
-          <p
-            key={i}
-            className="ac-rise ml-auto line-clamp-[12] w-fit max-w-[85%] rounded-[18px] bg-[var(--own-bubble)] px-3.5 py-[7px] whitespace-pre-wrap text-foreground"
-          >
-            {t.text}
-          </p>
+          <UserView key={i} turn={t} />
         ) : (
           <AssistantView
             key={t.id ?? i}
@@ -602,6 +800,13 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       rows={1}
       tabIndex={live ? 0 : -1}
       onChange={(e) => setInput(e.target.value)}
+      onPaste={(e) => {
+        const pasted = [...e.clipboardData.files];
+        if (pasted.some((f) => f.type.startsWith("image/") || f.type.startsWith("video/"))) {
+          e.preventDefault();
+          void addFiles(pasted);
+        }
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault();
@@ -611,9 +816,11 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       placeholder={
         compose
           ? "说说想要的效果，比如：更正式、写成西班牙语…"
-          : big || !hasTurns
-            ? "说一句话：查数据、摆工作台、起草邮件或报价单…"
-            : "接着说，或让我做点别的…"
+          : staging
+            ? "想让我看什么？比如：这是什么、帮我回复…"
+            : big || !hasTurns
+              ? "说一句话：查数据、看邮件和 WhatsApp、联网查资料、发图给我看…"
+              : "接着说，或让我做点别的…"
       }
       aria-label={`对${prefs.name}说`}
       maxLength={2000}
@@ -634,7 +841,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         type="submit"
         size={big ? "icon" : "icon-sm"}
         variant="brand"
-        disabled={!input.trim()}
+        disabled={(!input.trim() && !files.length && !snippet) || preparing > 0}
         aria-label="发送"
         title="发送（回车）"
         tabIndex={live ? 0 : -1}
@@ -648,9 +855,15 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   };
   /** 对话里的输入框（贴底） */
   const form = (className: string) => (
-    <form aria-hidden={!live} className={className} onSubmit={onSubmit}>
-      {field(false)}
-      <span className="flex shrink-0 items-center self-end pb-1">{sendButton(false)}</span>
+    <form aria-hidden={!live} className={cn(className, dragging && "ac-dropzone")} onSubmit={onSubmit} {...dropProps}>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {tray}
+        <div className="flex min-w-0 items-end">{field(false)}</div>
+      </div>
+      <span className="flex shrink-0 items-center gap-0.5 self-end pb-1">
+        {attachButton}
+        {sendButton(false)}
+      </span>
     </form>
   );
   const header = (
@@ -742,11 +955,17 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           <form
             aria-hidden={!live}
             onSubmit={onSubmit}
-            className="mt-5 w-full rounded-[14px] border border-[var(--line-strong)] bg-card px-4 pt-3 pb-2.5 text-left shadow-e3 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/20 [view-transition-name:ai-input]"
+            {...dropProps}
+            className={cn(
+              "mt-5 w-full rounded-[14px] border border-[var(--line-strong)] bg-card px-4 pt-3 pb-2.5 text-left shadow-e3 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/20 [view-transition-name:ai-input]",
+              dragging && "ac-dropzone",
+            )}
           >
+            {tray}
             <div className="flex">{field(true)}</div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="text-xs text-muted-foreground max-md:hidden">回车发送 · Shift+回车换行 · ⌘J 随时叫我</span>
+              {attachButton}
+              <span className="text-xs text-muted-foreground max-md:hidden">回车发送 · 可以粘贴或拖进图片、视频 · 页面上右键「给 AI 看看」</span>
               <span className="ml-auto">{sendButton(true)}</span>
             </div>
           </form>
@@ -924,10 +1143,80 @@ function AssistantView({
             ))}
           </div>
         )}
+        {turn.sources?.length ? <SourceList items={turn.sources} /> : null}
         {turn.error && <p className="text-destructive">{turn.error}</p>}
         {turn.done && !turn.error && (turn.text.trim() || turn.visuals?.length) ? (
           <Feedback id={turn.id} value={turn.feedback} text={turn.text} onChange={onFeedback} />
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function UserView({ turn }: { turn: UserTurn }) {
+  return (
+    <div className="ac-rise ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
+      {turn.snippet && (
+        <span
+          className="flex max-w-full items-center gap-1.5 rounded-[10px] border border-line bg-card px-2 py-1 text-[12px] text-muted-foreground"
+          title={turn.snippet.text}
+        >
+          <Eye className="size-3.5 shrink-0" />
+          <span className="truncate">给 AI 看了：{turn.snippet.label || "页面内容"}</span>
+        </span>
+      )}
+      {turn.media?.length ? (
+        <span className="flex flex-wrap justify-end gap-1.5">
+          {turn.media.map((m, i) => (
+            <span key={i} className="relative size-16 overflow-hidden rounded-[10px] border border-line bg-muted" title={m.name}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={m.thumb} alt={m.name} className="size-full object-cover" />
+              {m.kind === "video" && (
+                <span className="absolute inset-0 grid place-items-center bg-black/20 text-white">
+                  <Play className="size-4 fill-current" />
+                </span>
+              )}
+            </span>
+          ))}
+        </span>
+      ) : null}
+      <p className="line-clamp-[12] w-fit rounded-[18px] bg-[var(--own-bubble)] px-3.5 py-[7px] whitespace-pre-wrap text-foreground">{turn.text}</p>
+    </div>
+  );
+}
+
+/** 联网查到的网页：站点图标 + 标题 + 域名，点开新标签页 */
+function SourceList({ items }: { items: Source[] }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Globe className="size-3.5" />
+        参考了 {items.length} 个网页
+      </p>
+      <div className="ac-stagger flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+        {items.map((x) => (
+          <a
+            key={x.url}
+            href={x.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={x.snippet || x.title}
+            className="ac-lift flex w-52 shrink-0 flex-col gap-1 rounded-[10px] border border-line bg-card px-2.5 py-2 text-left shadow-e1 transition-colors hover:bg-muted"
+          >
+            <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://icons.duckduckgo.com/ip3/${x.site}.ico`}
+                alt=""
+                className="size-3.5 shrink-0 rounded-sm"
+                loading="lazy"
+                onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+              />
+              <span className="truncate">{x.site}</span>
+            </span>
+            <span className="line-clamp-2 text-[12.5px] leading-snug font-medium text-foreground">{x.title}</span>
+          </a>
+        ))}
       </div>
     </div>
   );
