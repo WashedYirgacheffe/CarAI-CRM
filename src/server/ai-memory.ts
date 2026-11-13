@@ -1,6 +1,6 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
-import { prisma, tenantDb } from "@/server/db";
+import { tenantDb } from "@/server/db";
 import { can, type CurrentUser } from "@/server/auth";
 import { getCustomerForUser } from "@/server/customers";
 import { scopeOwnerIds } from "@/server/scope";

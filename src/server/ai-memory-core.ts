@@ -2,7 +2,7 @@ import "server-only";
 import { prisma, tenantDb } from "@/server/db";
 import { aiConfigured, aiJson } from "@/server/ai";
 import { cosine, embed, embedModel } from "@/server/ai-embed";
-import { MEMORY_KINDS, type MemoryKind, type MemoryScope, type MemorySource } from "@/lib/ai-memory";
+import { type MemoryKind, type MemoryScope, type MemorySource } from "@/lib/ai-memory";
 
 /*
  * AI 记忆里不依赖登录用户的部分：守卫、相似度、写入（合并 / 更新 / 冲突）、后台维护。
