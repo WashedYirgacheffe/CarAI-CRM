@@ -6,7 +6,6 @@ import { syncMailAccount } from "@/server/mail/sync";
 import { aiConfigured, analyzeMail } from "@/server/ai";
 import { recyclePool } from "@/server/pool";
 import { runSequences } from "@/server/sequences";
-import { expireStaleMemories } from "@/server/ai-memory";
 import { reconcileWhatsapp, refreshWaAvatars, shutdownWhatsapp } from "@/server/whatsapp/runtime.mjs";
 
 const MAIL_EVERY = Number(process.env.MAIL_SYNC_MINUTES || 3) * 60_000;
@@ -92,8 +91,13 @@ async function recycle() {
   }
 }
 
+/** AI 自己发现、30 天没用过、没人确认的记忆自动归档（不引 ai-memory：它连带引入页面代码，worker 里跑不了） */
 async function expireMemories() {
-  const n = await expireStaleMemories();
+  const before = new Date(Date.now() - 30 * 86_400_000);
+  const { count: n } = await prisma.aiMemory.updateMany({
+    where: { status: "active", trusted: false, pinned: false, updatedAt: { lt: before }, OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: before } }] },
+    data: { status: "archived", archivedAt: new Date() },
+  });
   if (n) log("[memory]", `归档 ${n} 条 30 天没用过的 AI 记忆`);
 }
 
