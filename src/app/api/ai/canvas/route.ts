@@ -1,4 +1,6 @@
+import { after } from "next/server";
 import { can, getCurrentUser } from "@/server/auth";
+import { learnFromTurn, type TurnDigest } from "@/server/ai-learn";
 import { aiConfigured } from "@/server/ai";
 import { validThreadId } from "@/server/ai-threads";
 import { runCanvasTurn, type Attachment, type CanvasEvent, type CanvasTurn, type PageSnippet } from "@/server/canvas-ai";
@@ -47,6 +49,13 @@ export async function POST(request: Request) {
 
   const enc = new TextEncoder();
   const abort = new AbortController();
+  // 回答发完以后，在后台看看这一轮有没有该记住、AI 却没记的
+  let finished: (d: TurnDigest | null) => void = () => {};
+  const digest = new Promise<TurnDigest | null>((r) => (finished = r));
+  after(async () => {
+    const d = await digest;
+    if (d) await learnFromTurn(user, d).catch((e) => console.error("[ai-learn]", e));
+  });
   const stream = new ReadableStream<Uint8Array>({
     async start(c) {
       const emit = (e: CanvasEvent) => {
@@ -57,7 +66,7 @@ export async function POST(request: Request) {
           abort.abort();
         }
       };
-      await runCanvasTurn(
+      const d = await runCanvasTurn(
         user,
         {
           message: message || (attachments.length ? "帮我看看这个" : "帮我看看这是什么"),
@@ -74,11 +83,13 @@ export async function POST(request: Request) {
         },
         emit,
         abort.signal,
-      );
+      ).catch(() => null);
+      finished(d);
       if (!abort.signal.aborted) c.close();
     },
     cancel() {
       abort.abort();
+      finished(null);
     },
   });
   return new Response(stream, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" } });

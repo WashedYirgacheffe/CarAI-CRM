@@ -9,6 +9,7 @@ import { customerOptions } from "@/server/customer-list";
 import { asAddresses, asAttachments } from "@/server/mail/store";
 import { CustomerDetail } from "./customer-detail";
 import { CustomerInsights } from "./customer-insights";
+import { CustomerMemories, type CustomerMemory } from "./customer-memories";
 
 export async function generateMetadata({ params }: PageProps<"/customers/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -50,6 +51,14 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
 
   const canAi = can(user, "ai.use");
   const waEnabled = can(user, "whatsapp.use");
+  const memories = canAi
+    ? await db.aiMemory.findMany({
+        where: { customerId: id, status: "active" },
+        orderBy: [{ trusted: "desc" }, { pinned: "desc" }, { updatedAt: "desc" }],
+        take: 30,
+        select: { id: true, kind: true, title: true, content: true, trusted: true, source: true, disputed: true },
+      })
+    : null;
   const [mailAccounts, mails, waChats, insights] = await Promise.all([
     db.mailAccount.findMany({ where: { userId: user.id, status: { not: "PAUSED" } }, select: { id: true } }),
     db.mailMessage.findMany({
@@ -89,6 +98,15 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
   return (
     <CustomerDetail
       tz={user.timezone}
+      memories={
+        memories && (
+          <CustomerMemories
+            customerId={id}
+            canEdit={found.access.view}
+            items={memories.map((m) => ({ ...m, kind: m.kind as CustomerMemory["kind"], content: m.content === m.title ? "" : m.content }))}
+          />
+        )
+      }
       insights={<CustomerInsights tenantId={user.tenantId} customerId={id} tz={user.timezone} quotations={quotations} orders={orders} />}
       access={access}
       perms={{

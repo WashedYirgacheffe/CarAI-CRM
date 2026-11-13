@@ -5,9 +5,15 @@ import { z } from "zod";
 import { tenantDb } from "@/server/db";
 import { can, requireUser, type CurrentUser } from "@/server/auth";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
-import { canEditMemory, isMemoryAdmin, remember, visibleWhere } from "@/server/ai-memory";
+import { canEditMemory, isMemoryAdmin, promoteMemory, remember, retirePromoted, visibleWhere } from "@/server/ai-memory";
+import { extractCustomerMemories } from "@/server/ai-extract";
+import { getCustomerForUser } from "@/server/customers";
 
 const PATH = "/settings/memory";
+const touch = (customerId?: string | null) => {
+  revalidatePath(PATH);
+  if (customerId) revalidatePath(`/customers/${customerId}`);
+};
 const NONE: ActionState = { ok: false, message: "没有这条记忆，或没有权限" };
 
 /** 读一条能改的记忆 */
@@ -28,7 +34,7 @@ export async function undoMemoryAction(id: string): Promise<ActionState> {
     data: { status: "active", supersededById: null, archivedAt: null },
   });
   await db.aiMemory.updateMany({ where: { disputed: true, scope: m.scope, userId: m.userId, customerId: m.customerId }, data: { disputed: false } });
-  revalidatePath(PATH);
+  touch(m.customerId);
   return { ok: true, message: "已撤销" };
 }
 
@@ -37,7 +43,7 @@ export async function forgetMemoryAction(id: string): Promise<ActionState> {
   const m = await editable(user, id, ["active", "proposed"]);
   if (!m) return NONE;
   await tenantDb(user.tenantId).aiMemory.updateMany({ where: { id }, data: { status: "archived", archivedAt: new Date() } });
-  revalidatePath(PATH);
+  touch(m.customerId);
   return { ok: true, message: "已忘掉，可以在「已忘掉」里恢复" };
 }
 
@@ -47,7 +53,7 @@ export async function restoreMemoryAction(id: string): Promise<ActionState> {
   if (!m) return NONE;
   // 恢复的同时更新时间，免得第二天又被当成 30 天没用过归档
   await tenantDb(user.tenantId).aiMemory.updateMany({ where: { id }, data: { status: "active", archivedAt: null, updatedAt: new Date() } });
-  revalidatePath(PATH);
+  touch(m.customerId);
   return { ok: true, message: "已恢复" };
 }
 
@@ -71,7 +77,7 @@ export async function confirmMemoryAction(id: string): Promise<ActionState> {
       },
       data: { status: "superseded", supersededById: id, archivedAt: new Date(), disputed: false },
     });
-  revalidatePath(PATH);
+  touch(m.customerId);
   return { ok: true, message: "已确认" };
 }
 
@@ -80,7 +86,7 @@ export async function pinMemoryAction(id: string, pinned: boolean): Promise<Acti
   const m = await editable(user, id);
   if (!m) return NONE;
   await tenantDb(user.tenantId).aiMemory.updateMany({ where: { id }, data: { pinned } });
-  revalidatePath(PATH);
+  touch(m.customerId);
   return { ok: true, message: pinned ? "已置顶，每次对话都会带上" : "已取消置顶" };
 }
 
@@ -94,8 +100,30 @@ export async function reviewMemoryAction(id: string, approve: boolean): Promise<
     data: approve ? { status: "active", confirmedById: user.id } : { status: "archived", archivedAt: new Date() },
   });
   if (!r.count) return NONE;
+  if (approve) await retirePromoted(user.tenantId, id);
   revalidatePath(PATH);
   return { ok: true, message: approve ? "已生效，全公司的 AI 都会照着做" : "已驳回" };
+}
+
+/** 自己的规矩提议给全公司 */
+export async function promoteMemoryAction(id: string): Promise<ActionState> {
+  const user = await requireUser();
+  const r = await promoteMemory(user, id);
+  if ("error" in r) return { ok: false, message: r.error };
+  revalidatePath(PATH);
+  return { ok: true, message: r.active ? "已加到团队记忆，全公司的 AI 都会照着做" : "已提交，等管理员确认后对全公司生效" };
+}
+
+/** 客户页：让 AI 现在就读一遍最近 30 天的往来 */
+export async function extractCustomerMemoriesAction(customerId: string): Promise<ActionState> {
+  const user = await requireUser();
+  if (!can(user, "ai.use")) return { ok: false, message: "没有使用 AI 的权限" };
+  const c = await getCustomerForUser(user, customerId);
+  if (!c) return NONE;
+  const n = await extractCustomerMemories(user.tenantId, customerId, { since: new Date(Date.now() - 30 * 86_400_000) });
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath(PATH);
+  return { ok: true, message: n ? `从往来里记下了 ${n} 条，确认后才算数` : "最近的往来里没发现新的长期信息" };
 }
 
 const editSchema = z.object({
