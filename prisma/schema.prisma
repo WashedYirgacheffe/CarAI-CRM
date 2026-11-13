@@ -220,48 +220,50 @@ model CustomerGroup {
 
 /// 客户（公司）。ownerId 为空 = 在公海。
 model Customer {
-  id             String    @id @default(cuid())
-  tenantId       String
-  name           String
+  id              String    @id @default(cuid())
+  tenantId        String
+  name            String
   /// 规范化名称（小写、去空格和标点、去公司后缀），企业内唯一，用于防撞单
-  nameKey        String
-  country        String?
-  website        String?
+  nameKey         String
+  country         String?
+  website         String?
   /// 官网或邮箱域名，用于查重和邮件自动匹配
-  domain         String?
-  address        String?
-  source         String?
-  customerType   String?
-  mainProducts   String?
-  annualVolume   String?
-  star           Int       @default(0)
-  statusId       String?
-  groupId        String?
-  tags           String[]
-  remark         String?
-  ownerId        String?
-  assignedAt     DateTime?
+  domain          String?
+  address         String?
+  source          String?
+  customerType    String?
+  mainProducts    String?
+  annualVolume    String?
+  star            Int       @default(0)
+  statusId        String?
+  groupId         String?
+  tags            String[]
+  remark          String?
+  ownerId         String?
+  assignedAt      DateTime?
   /// 最近联系：任何往来（收发邮件、WhatsApp、跟进）
-  lastContactAt  DateTime?
+  lastContactAt   DateTime?
   /// 最近跟进：销售手写的跟进记录
-  lastFollowAt   DateTime?
-  lastMailRecvAt DateTime?
-  lastMailSentAt DateTime?
-  lastWaAt       DateTime?
-  nextFollowAt   DateTime?
-  poolEnteredAt  DateTime?
-  poolReason     String?
+  lastFollowAt    DateTime?
+  lastMailRecvAt  DateTime?
+  lastMailSentAt  DateTime?
+  lastWaAt        DateTime?
+  nextFollowAt    DateTime?
+  poolEnteredAt   DateTime?
+  poolReason      String?
   /// 累计进入公海次数
-  poolCount      Int       @default(0)
+  poolCount       Int       @default(0)
   /// 上一任负责人（进公海或转移前）
-  prevOwnerId    String?
+  prevOwnerId     String?
   /// 按公海规则算出的下次自动进公海时间（worker 每小时刷新）
-  poolDueAt      DateTime?
+  poolDueAt       DateTime?
   /// 已发过进公海提醒的时间；下次进公海时间推后会清空
-  poolWarnedAt   DateTime?
-  createdById    String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  poolWarnedAt    DateTime?
+  /// AI 上次从邮件 / WhatsApp 里提炼客户记忆的时间
+  memoryScannedAt DateTime?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   owner         User?           @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
@@ -1231,6 +1233,13 @@ model AiMemory {
   threadId       String?
   confirmedById  String?
   archivedAt     DateTime?
+  /// 中英文检索关键词（客户邮件多是英文、用户用中文问，靠它跨语言匹配）
+  keywords       String    @default("")
+  /// 向量（配置了 EMBED_* 才有）；embedModel 记是哪个模型算的，换模型后重算
+  embedding      Float[]
+  embedModel     String?
+  /// 从哪来的：mail:<id> / wa:<chatId> / thread:<id> / learn:<threadId> / promote:<ids>
+  origin         String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

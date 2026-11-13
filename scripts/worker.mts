@@ -1,4 +1,4 @@
-// 后台 worker：邮件定时同步 + 新邮件 AI 分析 + WhatsApp 会话 + 公海回收。
+// 后台 worker：邮件定时同步 + 新邮件 AI 分析 + WhatsApp 会话 + 公海回收 + AI 记忆整理。
 // 本地：pnpm worker；Docker：worker 服务（见 docker-compose.yml）
 import "dotenv/config";
 import { prisma } from "@/server/db";
@@ -6,6 +6,8 @@ import { syncMailAccount } from "@/server/mail/sync";
 import { aiConfigured, analyzeMail } from "@/server/ai";
 import { recyclePool } from "@/server/pool";
 import { runSequences } from "@/server/sequences";
+import { embedPending, expireStaleMemories, suggestTeamPromotions } from "@/server/ai-memory-core";
+import { scanCustomerMemories } from "@/server/ai-extract";
 import { reconcileWhatsapp, refreshWaAvatars, shutdownWhatsapp } from "@/server/whatsapp/runtime.mjs";
 
 const MAIL_EVERY = Number(process.env.MAIL_SYNC_MINUTES || 3) * 60_000;
@@ -91,14 +93,19 @@ async function recycle() {
   }
 }
 
-/** AI 自己发现、30 天没用过、没人确认的记忆自动归档（不引 ai-memory：它连带引入页面代码，worker 里跑不了） */
 async function expireMemories() {
-  const before = new Date(Date.now() - 30 * 86_400_000);
-  const { count: n } = await prisma.aiMemory.updateMany({
-    where: { status: "active", trusted: false, pinned: false, updatedAt: { lt: before }, OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: before } }] },
-    data: { status: "archived", archivedAt: new Date() },
-  });
+  const n = await expireStaleMemories();
   if (n) log("[memory]", `归档 ${n} 条 30 天没用过的 AI 记忆`);
+  const t = await suggestTeamPromotions();
+  if (t) log("[memory]", `提议 ${t} 条团队记忆（多位同事都记过）`);
+}
+
+/** 从客户往来里提炼记忆 + 补向量 */
+async function learnMemories() {
+  const n = await scanCustomerMemories();
+  if (n) log("[memory]", `从往来邮件 / WhatsApp 提炼 ${n} 条客户记忆`);
+  const e = await embedPending();
+  if (e) log("[memory]", `补了 ${e} 条向量`);
 }
 
 log("worker started");
@@ -110,6 +117,7 @@ const timers = [
   every(60 * 60_000, "pool", recycle),
   every(60_000, "sequences", () => runSequences(log)),
   every(6 * 60 * 60_000, "memory", expireMemories),
+  every(10 * 60_000, "memory-learn", learnMemories),
 ];
 
 async function stop() {

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, Check, MoreHorizontal, Pencil, Pin, Plus, Trash2, TriangleAlert, X } from "@/components/icons";
+import { ArchiveRestore, Check, MoreHorizontal, Pencil, Pin, Plus, Trash2, TriangleAlert, Users, X } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,15 @@ import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
 import { MEMORY_KINDS, type MemoryKind, type MemoryScope, type MemorySource } from "@/lib/ai-memory";
 import { cn } from "@/lib/utils";
-import { confirmMemoryAction, forgetMemoryAction, pinMemoryAction, restoreMemoryAction, reviewMemoryAction, saveMemoryAction } from "./actions";
+import {
+  confirmMemoryAction,
+  forgetMemoryAction,
+  pinMemoryAction,
+  promoteMemoryAction,
+  restoreMemoryAction,
+  reviewMemoryAction,
+  saveMemoryAction,
+} from "./actions";
 
 export type MemoryItem = {
   id: string;
@@ -30,6 +38,8 @@ export type MemoryItem = {
   status: "active" | "proposed" | "archived";
   useCount: number;
   updatedAt: string;
+  /** 多位同事都记过、系统提议成团队记忆的：几位 */
+  promotedFrom: number;
   customer: { id: string; name: string } | null;
   mine: boolean;
   canEdit: boolean;
@@ -49,7 +59,9 @@ const fmt = (iso: string) => {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 };
 
-export function MemoryManager({ items, admin }: { items: MemoryItem[]; admin: boolean }) {
+export type MemoryStats = { live: number; used: number; idle: number; unconfirmed: number };
+
+export function MemoryManager({ items, admin, stats }: { items: MemoryItem[]; admin: boolean; stats: MemoryStats }) {
   const [tab, setTab] = useState<Tab>("personal");
   const [adding, setAdding] = useState(false);
   const groups = useMemo(() => {
@@ -84,6 +96,17 @@ export function MemoryManager({ items, admin }: { items: MemoryItem[]; admin: bo
           )}
         </div>
 
+        {stats.live > 0 && (
+          <p className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground tabular-nums">
+            <span>
+              在用 <b className="font-medium text-foreground">{stats.live}</b> 条
+            </span>
+            <span>近 30 天用上 {stats.used} 条</span>
+            {stats.unconfirmed > 0 && <span title="AI 发现的、从往来消息里看到的，只作参考，确认后才算数">待你确认 {stats.unconfirmed} 条</span>}
+            {stats.idle > 0 && <span title="30 天都没用上的 AI 发现会自动放进「已忘掉」">一周多没用上 {stats.idle} 条</span>}
+          </p>
+        )}
+
         {disputed > 0 && tab !== "archived" && (
           <p className="mb-3 flex items-start gap-2 rounded-[10px] bg-warn-soft px-3 py-2 text-[13px] text-warn">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />有 {disputed} 条记忆前后说法不一致。点对的那条的「确认」，另一条会自动放下。
@@ -116,12 +139,22 @@ export function MemoryManager({ items, admin }: { items: MemoryItem[]; admin: bo
 const count = (n: number) => (n ? <span className="tabular-nums text-muted-foreground">{n}</span> : null);
 
 function sourceBadge(m: MemoryItem) {
-  if (m.status === "proposed") return <Badge variant="warning">待管理员确认</Badge>;
+  if (m.status === "proposed")
+    return (
+      <>
+        <Badge variant="warning">待管理员确认</Badge>
+        {m.promotedFrom > 1 && (
+          <Badge variant="outline">
+            <Users /> {m.promotedFrom} 位同事都记过
+          </Badge>
+        )}
+      </>
+    );
   if (m.confirmed) return <Badge variant="success">已确认</Badge>;
   if (m.source === "user_said") return <Badge variant="brand">你说的</Badge>;
   return (
     <Badge variant="outline" title="AI 只把它当参考，不会当规矩。确认后才算数">
-      {m.source === "outside" ? "从邮件 / 网页看到的" : "AI 发现的"}
+      {m.source === "outside" ? "从邮件 / 消息看到的" : "AI 发现的"}
     </Badge>
   );
 }
@@ -193,6 +226,11 @@ function MemoryRow({ m, admin }: { m: MemoryItem; admin: boolean }) {
                   {m.status === "active" && (
                     <DropdownMenuItem onSelect={() => runAction(pinMemoryAction(m.id, !m.pinned))}>
                       <Pin /> {m.pinned ? "取消置顶" : "置顶（每次对话都带上）"}
+                    </DropdownMenuItem>
+                  )}
+                  {m.scope === "personal" && m.mine && m.trusted && m.status === "active" && ["rule", "preference", "howto"].includes(m.kind) && (
+                    <DropdownMenuItem onSelect={() => runAction(promoteMemoryAction(m.id))}>
+                      <Users /> {admin ? "加到团队记忆" : "提议给全公司"}
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
