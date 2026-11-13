@@ -173,12 +173,14 @@ export function CustomerDetail({
   comms,
   insights,
   memories,
+  research,
 }: {
   tz: string;
   /** 往来概况（服务端渲染的图表块） */
   insights?: React.ReactNode;
   /** AI 记得的这个客户的事 */
   memories?: React.ReactNode;
+  research?: React.ReactNode;
   access: CustomerAccess;
   perms: Perms;
   members: { id: string; name: string }[];
@@ -384,6 +386,8 @@ export function CustomerDetail({
           <div className="max-xl:order-3">
             <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
           </div>
+
+          {research && <div className="max-xl:order-6">{research}</div>}
 
           {memories && <div className="max-xl:order-6">{memories}</div>}
 

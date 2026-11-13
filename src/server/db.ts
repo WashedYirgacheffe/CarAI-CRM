@@ -23,6 +23,7 @@ const TENANT_MODELS = new Set<string>([
   "Department",
   "Role",
   "Customer",
+  "AiResearch",
   "CustomerStatus",
   "CustomerGroup",
   "Contact",
