@@ -10,12 +10,32 @@ import { asAddresses, asAttachments } from "@/server/mail/store";
 import { CustomerDetail } from "./customer-detail";
 import { CustomerInsights } from "./customer-insights";
 import { CustomerMemories, type CustomerMemory } from "./customer-memories";
+import { CustomerResearch, type ResearchView } from "./customer-research";
+import { RESEARCH_STALE_DAYS, type ResearchReport, type ResearchStep } from "@/lib/ai-research";
+import { formatDate } from "@/lib/crm";
 
 export async function generateMetadata({ params }: PageProps<"/customers/[id]">): Promise<Metadata> {
   const { id } = await params;
   const user = await requireUser();
   const found = await getCustomerForUser(user, id);
   return { title: found?.customer.name ?? "客户" };
+}
+
+/** 最近一次穿透（页面外算「是否过时」，组件里不能读当前时间） */
+function researchView(
+  row: { id: string; status: string; steps: unknown; error: string | null; report: unknown; createdAt: Date } | null,
+  tz: string,
+): ResearchView | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    steps: (row.steps as ResearchStep[]) ?? [],
+    error: row.error,
+    report: (row.report as ResearchReport | null) ?? null,
+    date: formatDate(row.createdAt, tz),
+    stale: Date.now() - row.createdAt.getTime() > RESEARCH_STALE_DAYS * 86_400_000,
+  };
 }
 
 export default async function CustomerPage({ params }: PageProps<"/customers/[id]">) {
@@ -59,6 +79,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         select: { id: true, kind: true, title: true, content: true, trusted: true, source: true, disputed: true },
       })
     : null;
+  const research = canAi ? await db.aiResearch.findFirst({ where: { customerId: id }, orderBy: { createdAt: "desc" } }) : null;
   const [mailAccounts, mails, waChats, insights] = await Promise.all([
     db.mailAccount.findMany({ where: { userId: user.id, status: { not: "PAUSED" } }, select: { id: true } }),
     db.mailMessage.findMany({
@@ -104,6 +125,23 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
             customerId={id}
             canEdit={found.access.view}
             items={memories.map((m) => ({ ...m, kind: m.kind as CustomerMemory["kind"], content: m.content === m.title ? "" : m.content }))}
+          />
+        )
+      }
+      research={
+        canAi && (
+          <CustomerResearch
+            customerId={id}
+            canEdit={access.edit}
+            latest={researchView(research, user.timezone)}
+            current={{
+              country: customer.country,
+              website: customer.website,
+              customerType: customer.customerType,
+              mainProducts: customer.mainProducts,
+              annualVolume: customer.annualVolume,
+              address: customer.address,
+            }}
           />
         )
       }

@@ -117,7 +117,8 @@ function privateIp(ip: string): boolean {
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19)) ||
+    // 198.18/15 是测试网段；本机开发时代理软件（fake-ip）会把所有域名解析到这里，放行
+    (a === 198 && (b === 18 || b === 19) && process.env.NODE_ENV === "production") ||
     a >= 224
   );
 }
@@ -152,14 +153,14 @@ export function htmlToText(html: string) {
   return { title: title ? stripTags(title) : "", description: desc ? decodeEntities(desc).trim() : "", text };
 }
 
-export async function readWebpage(raw: string, max = 8000) {
+/** 打开公网网页拿原始 HTML（自己跟随跳转，每一跳都检查是不是公网） */
+export async function fetchHtml(raw: string, timeoutMs = 15_000) {
   let u: URL;
   try {
     u = new URL(raw.trim());
   } catch {
     throw new Error("网址格式不对");
   }
-  // 自己跟随跳转，每一跳都检查是不是公网
   let res: Response | null = null;
   for (let hop = 0; hop < 5; hop++) {
     await assertPublic(u);
@@ -170,7 +171,7 @@ export async function readWebpage(raw: string, max = 8000) {
         accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
         "accept-language": "en-US,en;q=0.9,zh-CN;q=0.8",
       },
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const loc = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     if (!loc) break;
@@ -202,7 +203,31 @@ export async function readWebpage(raw: string, max = 8000) {
   } catch {
     html = new TextDecoder().decode(Buffer.concat(chunks));
   }
+  return { url: u.toString(), site: siteOf(u.toString()), type, html };
+}
+
+/** 页面里的链接（绝对地址 + 链接文字），去重 */
+export function pageLinks(html: string, base: string) {
+  const out: { url: string; text: string }[] = [];
+  const seen = new Set<string>();
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#]+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    let url: string;
+    try {
+      url = new URL(decodeEntities(m[1]), base).toString();
+    } catch {
+      continue;
+    }
+    if (!/^https?:/.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, text: stripTags(m[2]).slice(0, 80) });
+    if (out.length >= 400) break;
+  }
+  return out;
+}
+
+export async function readWebpage(raw: string, max = 8000) {
+  const { url, site, type, html } = await fetchHtml(raw);
   const page = /html|xml/.test(type) ? htmlToText(html) : { title: "", description: "", text: html };
   const text = page.text.length > max ? `${page.text.slice(0, max)}\n…（网页太长，后面的内容已省略）` : page.text;
-  return { url: u.toString(), site: siteOf(u.toString()), title: page.title, description: page.description, text };
+  return { url, site, title: page.title, description: page.description, text };
 }

@@ -74,6 +74,7 @@ model Tenant {
   workspaces        Workspace[]
   aiThreads         AiThread[]
   aiMemories        AiMemory[]
+  aiResearches      AiResearch[]
 }
 
 enum UserStatus {
@@ -280,6 +281,7 @@ model Customer {
   mailMessages  MailMessage[]
   waChats       WaChat[]
   aiMemories    AiMemory[]
+  aiResearches  AiResearch[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -1250,4 +1252,35 @@ model AiMemory {
   @@index([tenantId, scope, status])
   @@index([tenantId, userId, status])
   @@index([tenantId, customerId, status])
+}
+
+/// AI 穿透：一次对客户公司的公开信息调查（官网、搜索、域名、注册信息、进口统计 + 我们自己的往来）
+model AiResearch {
+  id          String    @id @default(cuid())
+  tenantId    String
+  /// 对应的客户；在 AI 助手里查一家还不是客户的公司时为空
+  customerId  String?
+  /// 查的是什么：公司名 / 域名 / 邮箱
+  query       String
+  domain      String?
+  /// running 进行中 / done 完成 / failed 失败
+  status      String    @default("running")
+  /// 各步进度：[{key,label,state:"wait"|"run"|"done"|"skip"|"fail",note?}]
+  steps       Json      @default("[]")
+  /// 报告：每一条都带来源、可信度
+  report      Json?
+  /// 0～100 匹配度
+  score       Int?
+  summary     String?
+  error       String?
+  createdById String?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, customerId, createdAt])
+  @@index([tenantId, createdAt])
 }
