@@ -59,6 +59,7 @@ import { TaskForm, TaskList, type TaskItem } from "@/components/crm/tasks";
 import type { CustomerAccess } from "@/server/customers";
 import { CustomerDocsCard, type CustomerDocRow } from "./customer-docs";
 import { PaneEmpty, PaneToolbar, Panel } from "./detail-ui";
+import { ShareViewRow } from "./share-view-row";
 import {
   addFollowUpAction,
   claimCustomersAction,
@@ -111,6 +112,7 @@ type ActivityView = {
   userName: string;
   opportunityName: string | null;
   createdAt: string;
+  refKey: string | null;
 };
 
 type OpportunityView = {
@@ -512,7 +514,7 @@ export function CustomerDetail({
               </div>
               <div className="p-4 md:p-5">
                 <TabsContent value="timeline">
-                  <Timeline activities={activities} tz={tz} />
+                  <Timeline activities={activities} tz={tz} customerId={c.id} />
                 </TabsContent>
                 {perms.viewOpportunity && (
                   <TabsContent value="opps">
@@ -840,22 +842,24 @@ const METHOD_ICON: Record<string, React.ReactNode> = {
 
 const MAIL_EVENTS = new Set(["mail_out", "mail_in", "mail_linked"]);
 const CHAT_EVENTS = new Set(["wa_out", "wa_linked"]);
-type ActivityKind = "follow" | "mail" | "chat" | "other";
+type ActivityKind = "follow" | "mail" | "chat" | "view" | "other";
 const ACTIVITY_KINDS: { key: ActivityKind | "all"; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "follow", label: "跟进" },
   { key: "mail", label: "邮件" },
   { key: "chat", label: "聊天" },
+  { key: "view", label: "客户查看" },
   { key: "other", label: "其他" },
 ];
 
 function kindOf(a: ActivityView): ActivityKind {
+  if (a.event === "share_view" || a.event === "quote_viewed") return "view";
   if (a.event && MAIL_EVENTS.has(a.event)) return "mail";
   if (a.event && CHAT_EVENTS.has(a.event)) return "chat";
   return a.type === "FOLLOW_UP" ? "follow" : "other";
 }
 
-function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }) {
+function Timeline({ activities, tz, customerId }: { activities: ActivityView[]; tz: string; customerId: string }) {
   const [kind, setKind] = useState<ActivityKind | "all">("all");
   if (!activities.length) {
     return <PaneEmpty>还没有动态</PaneEmpty>;
@@ -900,6 +904,8 @@ function Timeline({ activities, tz }: { activities: ActivityView[]; tz: string }
                   <p className="mt-1.5 rounded-xl bg-muted/50 px-3 py-2 text-sm whitespace-pre-wrap">{a.content}</p>
                 </div>
               </li>
+            ) : a.event === "share_view" && a.refKey ? (
+              <ShareViewRow key={a.id} customerId={customerId} refKey={a.refKey} content={a.content} at={a.createdAt} tz={tz} />
             ) : (
               <li key={a.id} className="relative flex gap-3 text-xs text-muted-foreground">
                 <span className="z-10 mt-1 ml-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/40 ring-4 ring-card" />

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
+  Inbox,
   Download,
   Forward,
   Languages,
@@ -33,6 +34,7 @@ import {
   analyzeMailAction,
   linkMailAction,
   mailToLeadAction,
+  notJunkAction,
   searchCustomersAction,
   setMailDoneAction,
   setSeenAction,
@@ -45,7 +47,7 @@ type Addr = { name?: string | null; address: string };
 
 export type ReaderMessage = {
   id: string;
-  folder: "INBOX" | "SENT";
+  folder: "INBOX" | "SENT" | "JUNK";
   accountEmail: string;
   fromAddr: string;
   fromName: string | null;
@@ -276,7 +278,7 @@ export function MailReader({
             tz={tz}
             context="mail"
             customerId={m.customer?.id}
-            link={`/mail?box=${m.folder === "SENT" ? "sent" : "inbox"}&id=${m.id}`}
+            link={`/mail?box=${m.folder === "SENT" ? "sent" : m.folder === "JUNK" ? "junk" : "inbox"}&id=${m.id}`}
             subject={m.subject ? `「${m.subject.slice(0, 40)}」` : undefined}
             variant="ghost"
             className="max-sm:px-2"
@@ -310,6 +312,22 @@ export function MailReader({
 
           {m.track && <TrackPanel track={m.track} tz={tz} />}
 
+          {m.folder === "JUNK" && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-warn-soft px-3 py-2 text-[13px]">
+              <span className="min-w-0 flex-1 text-pretty">这封邮件在邮箱的垃圾邮件文件夹里。里面的链接和附件先别点，确认是正常来信再处理。</span>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={async () => {
+                  const r = await runAction(notJunkAction(m.id));
+                  if (r.ok) router.push(backHref, { scroll: false });
+                }}
+              >
+                <Inbox /> 不是垃圾邮件
+              </Button>
+            </div>
+          )}
+
           {/* 归档 */}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {m.customer ? (
@@ -330,7 +348,7 @@ export function MailReader({
                   </Link>
                 ) : (
                   canLead &&
-                  m.folder === "INBOX" && (
+                  m.folder !== "SENT" && (
                     <Button size="xs" variant="outline" onClick={() => runAction(mailToLeadAction(m.id))}>
                       <UserPlus /> 建为线索
                     </Button>
@@ -445,7 +463,7 @@ export function MailReader({
         <div className="flex flex-wrap items-center gap-2 border-t px-4 py-4 md:px-5">
           <Button asChild>
             <Link href={`/mail/compose?reply=${m.id}`}>
-              <Reply /> 回复{m.folder === "INBOX" ? ` ${m.fromName || m.fromAddr}` : ""}
+              <Reply /> 回复{m.folder !== "SENT" ? ` ${m.fromName || m.fromAddr}` : ""}
             </Link>
           </Button>
           {canAi && m.folder === "INBOX" && (
@@ -469,7 +487,7 @@ export function MailReader({
           {linking && (
             <LinkCustomer
               messageId={m.id}
-              hint={m.folder === "INBOX" ? m.fromAddr.split("@")[1] : m.to[0]?.address.split("@")[1]}
+              hint={m.folder !== "SENT" ? m.fromAddr.split("@")[1] : m.to[0]?.address.split("@")[1]}
               onDone={() => setLinking(false)}
             />
           )}

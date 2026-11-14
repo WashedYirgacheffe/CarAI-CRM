@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "@/components/crm/empty-state";
-import { Inbox, Mail, Paperclip, PenSquare, Search, Send, Star, UserRound, Sparkles } from "@/components/icons";
+import { Inbox, Mail, MailWarning, Paperclip, PenSquare, Search, Send, Star, UserRound, Sparkles } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { WaAvatar } from "@/components/crm/wa-avatar";
 import { waListTime } from "@/lib/wa-time";
@@ -17,6 +17,7 @@ import { MailReader } from "./mail-reader";
 import { MailShortcuts } from "./mail-shortcuts";
 import { SyncButton } from "./sync-button";
 import { MailSwipe } from "./mail-swipe";
+import { MarkAllRead } from "./mark-all-read";
 import { noAutofill } from "@/lib/no-autofill";
 import { SkyGlow } from "@/components/agentes/sky";
 
@@ -26,6 +27,7 @@ const BOXES = [
   { key: "inbox", label: "收件箱", icon: Inbox },
   { key: "sent", label: "已发送", icon: Send },
   { key: "starred", label: "星标邮件", icon: Star },
+  { key: "junk", label: "垃圾邮件", icon: MailWarning },
 ] as const;
 
 const TAGS = [
@@ -77,7 +79,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
   const contains = { contains: q, mode: "insensitive" as const };
   const where: Prisma.MailMessageWhereInput = {
     accountId: { in: accountIds },
-    ...(box === "inbox" ? { folder: "INBOX" } : box === "sent" ? { folder: "SENT" } : { starred: true }),
+    ...(box === "inbox" ? { folder: "INBOX" } : box === "sent" ? { folder: "SENT" } : box === "junk" ? { folder: "JUNK" } : { starred: true }),
     ...(tag === "unread" ? { seen: false } : {}),
     ...(tag === "customer" ? { customerId: { not: null } } : {}),
     ...(tag === "lead" ? { leadId: { not: null } } : {}),
@@ -87,7 +89,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
   };
 
   const inboxOf = { accountId: { in: accountIds }, folder: "INBOX" as const };
-  const [total, rows, unread, urgent, selected] = await Promise.all([
+  const [total, rows, unread, urgent, junkUnread, boxUnread, selected] = await Promise.all([
     db.mailMessage.count({ where }),
     db.mailMessage.findMany({
       where,
@@ -119,6 +121,17 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
     }),
     db.mailMessage.count({ where: { accountId: { in: accounts.map((a) => a.id) }, folder: "INBOX", seen: false } }),
     db.mailMessage.count({ where: { ...inboxOf, seen: false, aiPriority: "high" } }),
+    db.mailMessage.count({ where: { accountId: { in: accounts.map((a) => a.id) }, folder: "JUNK", seen: false } }),
+    // 当前文件夹（按所选邮箱）的未读数，给「全部已读」用
+    box === "sent"
+      ? 0
+      : db.mailMessage.count({
+          where: {
+            accountId: { in: accountIds },
+            seen: false,
+            ...(box === "junk" ? { folder: "JUNK" } : box === "starred" ? { starred: true } : { folder: "INBOX" }),
+          },
+        }),
     selectedId
       ? db.mailMessage.findFirst({
           where: { id: selectedId, accountId: { in: accounts.map((a) => a.id) } },
@@ -159,6 +172,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                   {unread}
                 </span>
               )}
+              {b.key === "junk" && junkUnread > 0 && <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{junkUnread}</span>}
             </Link>
           ))}
         </nav>
@@ -231,6 +245,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                 className="h-9 w-full rounded-full bg-muted/70 pr-3 pl-9 text-sm outline-none ring-1 ring-transparent transition placeholder:text-muted-foreground focus:bg-card focus:ring-primary/40"
               />
             </form>
+            <MarkAllRead key={`${box}-${acc}`} box={box} acc={acc || null} count={boxUnread} />
             <MailShortcuts list={rows.map((m) => ({ id: m.id, href: href({ id: m.id }) }))} selectedId={selectedId} listHref={href({ id: null })} />
           </div>
           <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 [scrollbar-width:none] lg:flex-wrap">

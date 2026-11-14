@@ -13,7 +13,7 @@ import { PaneEmpty, PaneToolbar, Panel } from "./detail-ui";
 
 export type CustomerMailRow = {
   id: string;
-  folder: "INBOX" | "SENT";
+  folder: "INBOX" | "SENT" | "JUNK";
   peer: string;
   subject: string;
   snippet: string;

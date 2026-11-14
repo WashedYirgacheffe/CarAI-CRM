@@ -273,6 +273,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         userName: a.user?.name ?? "系统",
         opportunityName: a.opportunity?.name ?? null,
         createdAt: a.createdAt.toISOString(),
+        refKey: a.refKey,
       }))}
       opportunities={opportunities.map((o) => ({
         id: o.id,

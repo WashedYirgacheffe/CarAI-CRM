@@ -4,14 +4,7 @@ import { prisma } from "@/server/db";
 import { archiveMail } from "@/server/mail/archive";
 import { onInboundMail } from "@/server/mail/track";
 import { configOf, friendlyError, imapClient } from "@/server/mail/client";
-import {
-  MAX_ATTACHMENT_BYTES,
-  htmlToText,
-  makeSnippet,
-  saveAttachment,
-  type MailAddress,
-  type MailAttachmentMeta,
-} from "@/server/mail/store";
+import { MAX_ATTACHMENT_BYTES, htmlToText, makeSnippet, saveAttachment, type MailAddress, type MailAttachmentMeta } from "@/server/mail/store";
 import type { MailFolder } from "@/generated/prisma/client";
 
 /** 首次同步只拉最近 N 天、最多 M 封，避免老邮箱一次拉几万封 */
@@ -38,12 +31,7 @@ function addresses(v: AddressObject | AddressObject[] | undefined): MailAddress[
 function isAutomated(p: ParsedMail) {
   const h = p.headers;
   const auto = String(h.get("auto-submitted") ?? "");
-  return (
-    h.has("list-unsubscribe") ||
-    h.has("list-id") ||
-    (auto !== "" && auto !== "no") ||
-    /bulk|list|junk/i.test(String(h.get("precedence") ?? ""))
-  );
+  return h.has("list-unsubscribe") || h.has("list-id") || (auto !== "" && auto !== "no") || /bulk|list|junk/i.test(String(h.get("precedence") ?? ""));
 }
 
 /** 同步一个邮箱的收件箱和已发送。会抢占租约，正在同步时直接返回 skipped。 */
@@ -65,10 +53,11 @@ export async function syncMailAccount(accountId: string): Promise<SyncResult> {
     await client.connect();
     const boxes = await client.list();
     const sent =
-      boxes.find((b) => b.specialUse === "\\Sent") ??
-      boxes.find((b) => /^(sent|sent items|sent messages|已发送|已发送邮件)$/i.test(b.name));
+      boxes.find((b) => b.specialUse === "\\Sent") ?? boxes.find((b) => /^(sent|sent items|sent messages|已发送|已发送邮件)$/i.test(b.name));
     const folders: [string, MailFolder][] = [["INBOX", "INBOX"]];
     if (sent) folders.push([sent.path, "SENT"]);
+    const junk = junkBox(boxes);
+    if (junk) folders.push([junk.path, "JUNK"]);
 
     for (const [path, folder] of folders) {
       added += await syncFolder(client, account, path, folder, state);
@@ -93,13 +82,7 @@ export async function syncMailAccount(accountId: string): Promise<SyncResult> {
 
 type Account = Awaited<ReturnType<typeof prisma.mailAccount.findUniqueOrThrow>>;
 
-async function syncFolder(
-  client: ReturnType<typeof imapClient>,
-  account: Account,
-  path: string,
-  folder: MailFolder,
-  state: SyncState,
-) {
+async function syncFolder(client: ReturnType<typeof imapClient>, account: Account, path: string, folder: MailFolder, state: SyncState) {
   const lock = await client.getMailboxLock(path);
   try {
     const mailbox = client.mailbox;
@@ -136,7 +119,9 @@ async function syncFolder(
       if (!m) continue;
       const exists = await prisma.mailMessage.findFirst({ where: { accountId: account.id, folderPath: path, uid }, select: { id: true } });
       if (!exists) {
-        const msg = await client.fetchOne(String(uid), m.size > 40 * 1024 * 1024 ? { uid: true, envelope: true } : { uid: true, source: true }, { uid: true });
+        const msg = await client.fetchOne(String(uid), m.size > 40 * 1024 * 1024 ? { uid: true, envelope: true } : { uid: true, source: true }, {
+          uid: true,
+        });
         if (msg) {
           const ok = await storeMessage(account, path, folder, uid, m, msg.source ?? null, msg.envelope ?? null);
           if (ok) added++;
@@ -167,7 +152,11 @@ async function storeMessage(
       parsed = null;
     }
   }
-  const from = parsed ? addresses(parsed.from)[0] : envelope?.from?.[0]?.address ? { name: envelope.from[0].name ?? null, address: envelope.from[0].address.toLowerCase() } : undefined;
+  const from = parsed
+    ? addresses(parsed.from)[0]
+    : envelope?.from?.[0]?.address
+      ? { name: envelope.from[0].name ?? null, address: envelope.from[0].address.toLowerCase() }
+      : undefined;
   const messageId = parsed?.messageId ?? envelope?.messageId ?? null;
 
   // 本系统发出的邮件：已经存过一份（folderPath 为空），这里只补上 IMAP 位置
@@ -200,7 +189,8 @@ async function storeMessage(
     accountId: account.id,
     userId: account.userId,
     ownAddress: account.email,
-    autoLead: account.autoLead,
+    // 垃圾邮件里的陌生人不自动建线索，已有客户照样归档
+    autoLead: folder === "JUNK" ? false : account.autoLead,
     direction,
     from: fromAddr,
     to,
@@ -250,6 +240,62 @@ async function storeMessage(
     }).catch(() => {});
   }
   return true;
+}
+
+type Box = { path: string; name: string; specialUse?: string };
+
+/** 垃圾邮件文件夹：优先看服务器标注，其次看常见名字 */
+export function junkBox(boxes: Box[]) {
+  return boxes.find((b) => b.specialUse === "\\Junk") ?? boxes.find((b) => /^(junk|spam|junk e-?mail|bulk mail|垃圾邮件|垃圾箱)$/i.test(b.name));
+}
+
+/** 批量在服务器上标记已读（按文件夹分组，失败不影响本地） */
+export async function markManySeenOnServer(accountId: string, byPath: Map<string, number[]>) {
+  const account = await prisma.mailAccount.findUnique({ where: { id: accountId } });
+  if (!account || !byPath.size) return;
+  const client = imapClient(configOf(account));
+  client.on("error", () => {});
+  try {
+    await client.connect();
+    for (const [path, uids] of byPath) {
+      if (!uids.length) continue;
+      const lock = await client.getMailboxLock(path);
+      try {
+        for (let i = 0; i < uids.length; i += 500) {
+          await client.messageFlagsAdd(uids.slice(i, i + 500).join(","), ["\\Seen"], { uid: true });
+        }
+      } finally {
+        lock.release();
+      }
+    }
+    await client.logout();
+  } catch {
+    client.close();
+  }
+}
+
+/** 「不是垃圾邮件」：在服务器上移回收件箱，返回新的 UID（拿不到就是 null） */
+export async function moveToInboxOnServer(accountId: string, path: string, uid: number): Promise<number | null> {
+  const account = await prisma.mailAccount.findUnique({ where: { id: accountId } });
+  if (!account) return null;
+  const client = imapClient(configOf(account));
+  client.on("error", () => {});
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(path);
+    let newUid: number | null = null;
+    try {
+      const r = await client.messageMove(String(uid), "INBOX", { uid: true });
+      newUid = r ? (r.uidMap?.get(uid) ?? null) : null;
+    } finally {
+      lock.release();
+    }
+    await client.logout();
+    return newUid;
+  } catch {
+    client.close();
+    return null;
+  }
 }
 
 /** 在服务器上标记已读（失败不影响本地） */

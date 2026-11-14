@@ -8,7 +8,7 @@ import { can, requireUser, type CurrentUser } from "@/server/auth";
 import { decryptSecret, encryptSecret } from "@/server/crypto";
 import { testMailConfig } from "@/server/mail/client";
 import { sendMail } from "@/server/mail/send";
-import { markSeenOnServer, syncMailAccount } from "@/server/mail/sync";
+import { markManySeenOnServer, markSeenOnServer, moveToInboxOnServer, syncMailAccount } from "@/server/mail/sync";
 import { MAX_ATTACHMENT_BYTES, asAttachments, readAttachment, type MailAddress } from "@/server/mail/store";
 import { AiError, aiConfigured, aiJson, analyzeMail } from "@/server/ai";
 import { googleTranslateMany } from "@/server/translate";
@@ -240,6 +240,47 @@ export async function setSeenAction(id: string, seen: boolean): Promise<ActionSt
   }
   revalidatePath("/mail", "layout");
   return { ok: true };
+}
+
+/** 一键已读：当前文件夹（收件箱 / 垃圾邮件 / 星标）里所有未读，同时在邮箱服务器上标记 */
+export async function markAllReadAction(box: string, acc: string | null): Promise<ActionState> {
+  const user = await requireMailUser();
+  if (!user) return denied();
+  const db = tenantDb(user.tenantId);
+  const accounts = await db.mailAccount.findMany({ where: { userId: user.id }, select: { id: true } });
+  const ids = acc && accounts.some((a) => a.id === acc) ? [acc] : accounts.map((a) => a.id);
+  const where = {
+    accountId: { in: ids },
+    seen: false,
+    ...(box === "junk" ? { folder: "JUNK" as const } : box === "starred" ? { starred: true } : { folder: "INBOX" as const }),
+  };
+  const rows = await db.mailMessage.findMany({ where, select: { id: true, accountId: true, folderPath: true, uid: true } });
+  if (!rows.length) return { ok: true, message: "没有未读邮件" };
+  await db.mailMessage.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { seen: true } });
+  // 服务器上按邮箱、文件夹分批标记，后台进行
+  const byAccount = new Map<string, Map<string, number[]>>();
+  for (const r of rows) {
+    if (!r.folderPath || !r.uid) continue;
+    const paths = byAccount.get(r.accountId) ?? new Map<string, number[]>();
+    paths.set(r.folderPath, [...(paths.get(r.folderPath) ?? []), r.uid]);
+    byAccount.set(r.accountId, paths);
+  }
+  for (const [accountId, paths] of byAccount) void markManySeenOnServer(accountId, paths);
+  revalidatePath("/mail", "layout");
+  return { ok: true, message: `已把 ${rows.length} 封标为已读` };
+}
+
+/** 不是垃圾邮件：在服务器上移回收件箱，本地跟着改 */
+export async function notJunkAction(id: string): Promise<ActionState> {
+  const user = await requireMailUser();
+  if (!user) return denied();
+  const m = await ownMessage(user, id);
+  if (!m || m.folder !== "JUNK") return denied("邮件不存在");
+  const uid = m.folderPath && m.uid ? await moveToInboxOnServer(m.accountId, m.folderPath, m.uid) : null;
+  // 拿到新 UID 就记上；拿不到时位置留空，下次同步时按 Message-ID 认出来
+  await prisma.mailMessage.update({ where: { id: m.id }, data: { folder: "INBOX", folderPath: uid ? "INBOX" : null, uid } });
+  revalidatePath("/mail", "layout");
+  return { ok: true, message: "已移到收件箱" };
 }
 
 export async function setStarredAction(id: string, starred: boolean): Promise<ActionState> {

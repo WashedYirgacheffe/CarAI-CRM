@@ -5,7 +5,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
  * 发给客户的公开链接（报价单、表单、图片）：客户不用登录，链接里带签名，改了 id 就打不开。
  * 签名密钥由 APP_SECRET 派生；APP_SECRET 改了，之前发出去的链接会失效。
  */
-export type ShareKind = "q" | "inquiry" | "shipping" | "img";
+/** q 报价单 / inquiry、shipping 表单 / img 图片 / p 产品卡 / v 访问记录上报 */
+export type ShareKind = "q" | "inquiry" | "shipping" | "img" | "p" | "v";
 
 function key() {
   const secret = process.env.APP_SECRET;
@@ -42,6 +43,12 @@ export const quotationShareUrl = (id: string) => `${appUrl()}/s/q/${shareToken("
 /** 表单链接：绑在 WhatsApp 会话上，客户提交后回到这个会话的负责人 */
 export const formShareUrl = (kind: "inquiry" | "shipping", chatId: string) =>
   `${appUrl()}/s/${kind === "inquiry" ? "i" : "ship"}/${shareToken(kind, chatId)}`;
+
+/**
+ * 产品卡链接（像独立站的产品页）。payload 由 share-track 的 productPayload 生成：
+ * 产品 id，可带发给哪个 WhatsApp 会话 / 哪个客户，客户打开时记到对应客户的跟进里。
+ */
+export const productShareUrl = (payload: string) => `${appUrl()}/s/p/${shareToken("p", payload)}`;
 
 /** 公开页面上的图片：/api/files/<tenantId>/<name> → /s/img/<签名> */
 export function publicImageUrl(fileUrl: string | null | undefined) {
