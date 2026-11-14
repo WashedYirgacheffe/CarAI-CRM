@@ -11,7 +11,7 @@ import { SHARE_FORMS, type ShareFormKind } from "./forms";
 export function PublicPrintBar({ label }: { label: string }) {
   return (
     <div className="mx-auto mb-4 flex max-w-[210mm] justify-end px-2 print:hidden">
-      <Button size="sm" onClick={() => window.print()}>
+      <Button size="sm" data-track-click="print" onClick={() => window.print()}>
         <Printer /> {label}
       </Button>
     </div>
@@ -32,7 +32,7 @@ export function ShareForm({ kind, token, seller }: { kind: ShareFormKind; token:
     );
   }
   return (
-    <form action={submit} className="mx-auto max-w-lg rounded-2xl bg-card p-6 shadow-card sm:p-8">
+    <form action={submit} data-track-section="form" className="mx-auto max-w-lg rounded-2xl bg-card p-6 shadow-card sm:p-8">
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{seller}</p>
       <h1 className="mt-1 text-2xl font-normal tracking-tight">{form.title}</h1>
       <p className="mt-1.5 text-sm text-muted-foreground">{form.intro}</p>
@@ -52,7 +52,7 @@ export function ShareForm({ kind, token, seller }: { kind: ShareFormKind; token:
         ))}
       </div>
       {state.message && <p className="mt-4 text-sm text-destructive">{state.message}</p>}
-      <Button type="submit" className="mt-6 w-full" disabled={pending}>
+      <Button type="submit" data-track-click="submit" className="mt-6 w-full" disabled={pending}>
         {pending ? "Submitting…" : "Submit"}
       </Button>
     </form>

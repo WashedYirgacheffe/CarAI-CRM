@@ -158,13 +158,9 @@ export function ProductTable({
               key={p.id}
               leading={<Thumb src={p.imageUrl} alt={p.name} />}
               title={
-                manage ? (
-                  <button type="button" className="text-left" onClick={() => setEditing(p)}>
-                    {p.name}
-                  </button>
-                ) : (
-                  p.name
-                )
+                <Link href={`/products/${p.id}`} className="text-left">
+                  {p.name}
+                </Link>
               }
               sub={
                 <>
@@ -224,14 +220,9 @@ export function ProductTable({
                     <div className="flex items-center gap-3">
                       <Thumb src={p.imageUrl} alt={p.name} />
                       <div className="min-w-0">
-                        <button
-                          type="button"
-                          className="block max-w-64 truncate text-left font-medium hover:text-primary disabled:hover:text-foreground"
-                          onClick={() => setEditing(p)}
-                          disabled={!manage}
-                        >
+                        <Link href={`/products/${p.id}`} className="block max-w-64 truncate font-medium hover:text-primary">
                           {p.name}
-                        </button>
+                        </Link>
                         <p className="max-w-64 truncate text-xs text-muted-foreground">
                           <span className="tabular-nums">{p.sku}</span>
                           {p.nameEn && ` · ${p.nameEn}`}
@@ -287,7 +278,7 @@ export function ProductTable({
   );
 }
 
-function ProductForm({ product: p, categories, onDone }: { product: Partial<ProductRow>; categories: Category[]; onDone: () => void }) {
+export function ProductForm({ product: p, categories, onDone }: { product: Partial<ProductRow>; categories: Category[]; onDone: () => void }) {
   const [state, submit, pending] = useActionForm(saveProductAction, onDone);
   return (
     <form onSubmit={submit}>

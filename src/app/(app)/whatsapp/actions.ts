@@ -11,7 +11,8 @@ import { aiConfigured, aiJson, clip } from "@/server/ai";
 import { looksChinese, looksForeign } from "@/lib/lang";
 import { formatMoney, formatDate } from "@/lib/crm";
 import { REMINDER_KINDS, TIME_PRESETS, presetDate, type TimePreset } from "@/lib/reminders";
-import { formShareUrl, quotationShareUrl } from "@/server/share";
+import { formShareUrl, productShareUrl, quotationShareUrl } from "@/server/share";
+import { productPayload } from "@/server/share-track";
 import { MIME_OF } from "@/server/uploads";
 
 const denied = (message = "没有操作权限"): ActionState => ({ ok: false, message });
@@ -446,6 +447,8 @@ export async function sendProductAction(chatId: string, productId: string, withP
     withPrice && Number(p.price) > 0 && `Price: ${formatMoney(p.price.toString(), p.currency)} / ${p.unit}`,
     p.moq && `MOQ: ${p.moq} ${p.unit}`,
     p.cartonQty && `Packing: ${p.cartonQty} ${p.unit}/carton${p.cartonSize ? `, ${p.cartonSize}` : ""}`,
+    // 产品卡链接：客户打开、看了多久会记到这个客户的跟进里
+    `Details & photos: ${productShareUrl(productPayload(p.id, { chatId: chat.id, price: withPrice }))}`,
   ].filter(Boolean);
   const body = lines.join("\n");
   const key = /^\/api\/files\/(.+)$/.exec(p.imageUrl ?? "")?.[1];

@@ -75,6 +75,7 @@ model Tenant {
   aiThreads         AiThread[]
   aiMemories        AiMemory[]
   aiResearches      AiResearch[]
+  shareVisits       ShareVisit[]
 }
 
 enum UserStatus {
@@ -282,6 +283,7 @@ model Customer {
   waChats       WaChat[]
   aiMemories    AiMemory[]
   aiResearches  AiResearch[]
+  shareVisits   ShareVisit[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -464,6 +466,8 @@ model Activity {
   method        FollowMethod?
   content       String
   userId        String?
+  /// 同一件事合并成一条记录用的键（如分享链接被反复打开：share_view 对应 ShareVisit.refKey）
+  refKey        String?
   createdAt     DateTime      @default(now())
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -473,6 +477,54 @@ model Activity {
 
   @@index([tenantId, customerId, createdAt])
   @@index([tenantId, userId, event, createdAt])
+  @@index([tenantId, refKey])
+}
+
+/// 客户打开我们发出的链接（报价单、表单、产品卡）的每一次访问，用于跟进记录和产品数据分析
+model ShareVisit {
+  id         String   @id @default(cuid())
+  tenantId   String
+  /// quotation 报价单 / inquiry 询价表单 / shipping 收货信息表单 / product 产品卡
+  kind       String
+  /// 报价单 id / 会话 id / 产品 id
+  targetId   String
+  /// 同一个链接发给同一个对象算一组，跟进记录按它合并
+  refKey     String
+  customerId String?
+  /// WhatsApp 会话（表单、产品卡从会话里发出时）
+  chatId     String?
+  productId  String?
+  /// 同一访客 30 分钟内的重复打开算同一次（IP + 浏览器的哈希）
+  visitorKey String
+  ip         String?
+  country    String?
+  region     String?
+  city       String?
+  /// mobile / tablet / desktop
+  device     String?
+  os         String?
+  browser    String?
+  ua         String?
+  referrer   String?
+  startedAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  /// 页面在前台的累计时长（毫秒）
+  activeMs   Int      @default(0)
+  /// 最深滚动到页面的百分比
+  maxScroll  Int      @default(0)
+  /// 各区块停留毫秒：{"gallery": 12000, "specs": 8000}
+  sections   Json     @default("{}")
+  /// 时间轴：[{t: 距开始毫秒, type: "open"|"section"|"click"|"hide"|"show", name?}]
+  events     Json     @default("[]")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, refKey, startedAt])
+  @@index([tenantId, productId, startedAt])
+  @@index([tenantId, customerId, startedAt])
+  @@index([tenantId, visitorKey, lastSeenAt])
 }
 
 /// 日程 / 跟进任务
@@ -526,45 +578,52 @@ enum ProductStatus {
 }
 
 model Product {
-  id          String        @id @default(cuid())
-  tenantId    String
+  id               String        @id @default(cuid())
+  tenantId         String
   /// 产品编号 / 货号，企业内唯一
-  sku         String
-  name        String
+  sku              String
+  name             String
   /// 英文品名，报价单 / PI 上优先用它
-  nameEn      String?
-  categoryId  String?
-  model       String?
+  nameEn           String?
+  categoryId       String?
+  model            String?
   /// 规格描述（材质、尺寸、颜色等），会带到单据明细
-  spec        String?
-  unit        String        @default("pcs")
-  price       Decimal       @default(0) @db.Decimal(14, 4)
-  currency    String        @default("USD")
+  spec             String?
+  unit             String        @default("pcs")
+  price            Decimal       @default(0) @db.Decimal(14, 4)
+  currency         String        @default("USD")
   /// 成本价（人民币），只在内部可见
-  costPrice   Decimal?      @db.Decimal(14, 4)
-  moq         Int?
-  hsCode      String?
+  costPrice        Decimal?      @db.Decimal(14, 4)
+  moq              Int?
+  hsCode           String?
   /// 包装：每箱数量、外箱尺寸、毛重 / 净重（kg）
-  cartonQty   Int?
-  cartonSize  String?
-  grossWeight Decimal?      @db.Decimal(10, 3)
-  netWeight   Decimal?      @db.Decimal(10, 3)
+  cartonQty        Int?
+  cartonSize       String?
+  grossWeight      Decimal?      @db.Decimal(10, 3)
+  netWeight        Decimal?      @db.Decimal(10, 3)
   /// 主图（列表缩略图、单据明细用）
-  imageUrl    String?
+  imageUrl         String?
   /// 更多图片（/api/files/... URL，最多 8 张）
-  images      String[]      @default([])
+  images           String[]      @default([])
   /// 产品视频
-  videoUrl    String?
-  status      ProductStatus @default(ACTIVE)
-  remark      String?
-  createdById String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  videoUrl         String?
+  status           ProductStatus @default(ACTIVE)
+  remark           String?
+  /// 产品卡（客户看到的页面）用的标题、卖点、详细描述、关键词，AI 可以帮忙优化
+  listingTitle     String?
+  bullets          String[]      @default([])
+  listingDesc      String?
+  keywords         String?
+  listingUpdatedAt DateTime?
+  createdById      String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   category       ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   quotationItems QuotationItem[]
   orderItems     OrderItem[]
+  visits         ShareVisit[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, categoryId])
@@ -823,6 +882,8 @@ model MailAccount {
 enum MailFolder {
   INBOX
   SENT
+  /// 服务器上的垃圾邮件文件夹
+  JUNK
 }
 
 /// 邮件。只同步收件箱和已发送；正文存纯文本和 HTML，附件存到上传目录。

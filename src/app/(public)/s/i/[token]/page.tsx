@@ -5,6 +5,7 @@ import { getSeller } from "@/server/documents";
 import { readShareToken } from "@/server/share";
 import { SHARE_FORMS } from "../../forms";
 import { ShareForm } from "../../public-bits";
+import { ViewTracker } from "../../view-tracker";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: { absolute: SHARE_FORMS.inquiry.title }, robots: { index: false } };
@@ -18,6 +19,7 @@ export default async function Page({ params }: PageProps<"/s/i/[token]">) {
   const seller = await getSeller(chat.tenantId);
   return (
     <div className="px-4">
+      <ViewTracker kind="inquiry" token={token} />
       <ShareForm kind="inquiry" token={token} seller={seller.name} />
     </div>
   );
