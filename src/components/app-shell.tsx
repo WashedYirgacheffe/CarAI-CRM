@@ -24,6 +24,7 @@ import {
   Package,
   Send,
   Settings,
+  Sparkles,
   type LucideIcon,
 } from "@/components/icons";
 import { Brand, BrandMark } from "@/components/brand";
@@ -32,7 +33,7 @@ import { NavProgress, usePendingPath } from "@/components/nav-progress";
 import { UserMenu } from "@/components/user-menu";
 import { AiDock } from "@/components/ai/ai-dock";
 import { SelectionToolbar } from "@/components/ai/selection-toolbar";
-import { AiContextMenu } from "@/components/ai/ai-context-menu";
+import { AI_OPEN_EVENT, AiContextMenu } from "@/components/ai/ai-context-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -111,11 +112,11 @@ export function AppShell({
 
   return (
     <ModuleColorContext.Provider value={color}>
-      <div className="min-h-svh" style={{ ...moduleVars(color), ...selVars(color) }}>
+      <div data-shell className="min-h-svh" style={{ ...moduleVars(color), ...selVars(color) }}>
         <Suspense>
           <NavProgress />
         </Suspense>
-        <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur md:border-b-0 md:bg-background/90 [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
+        <header data-shell-top className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur md:border-b-0 md:bg-background/90 [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
           <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
             <span className="hidden w-[72px] shrink-0 justify-center md:flex">
               <BrandMark className="size-9" />
@@ -128,7 +129,18 @@ export function AppShell({
           <div className="flex flex-1 justify-end md:justify-center">
             <GlobalSearch />
           </div>
-          <div className="flex items-center gap-1 md:gap-2">
+          <div className="flex items-center gap-0.5 md:gap-2">
+            {ai && (
+              // 手机上 AI 的固定入口：每个页面同一个位置，点开从底部拉起对话（电脑端是右下角的助手）
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event(AI_OPEN_EVENT))}
+                aria-label="AI 助手"
+                className="flex size-9 items-center justify-center rounded-full text-brand-ink transition-colors active:bg-brand-soft md:hidden"
+              >
+                <Sparkles className="size-[19px]" />
+              </button>
+            )}
             <Reminders modules={modules} badges={badges} reload={reloadBadges} />
             <UserMenu {...user} />
           </div>
@@ -292,6 +304,7 @@ function TabBar({
   return (
     <nav
       aria-label="主导航"
+      data-shell-tabs
       className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(3.75rem+env(safe-area-inset-bottom))] border-t border-sidebar-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
     >
       {tabs.map((m) => {
@@ -465,7 +478,7 @@ function Reminders({ modules, badges, reload }: { modules: NavModule[]; badges: 
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="relative flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground/75 transition-colors hover:bg-muted hover:text-foreground aria-expanded:bg-brand-soft aria-expanded:text-brand-ink md:size-10"
+          className="relative flex size-9 items-center justify-center rounded-full text-foreground/75 md:border md:border-border md:bg-card transition-colors hover:bg-muted hover:text-foreground aria-expanded:bg-brand-soft aria-expanded:text-brand-ink md:size-10"
           aria-label={total ? `提醒，${total} 条未处理` : "提醒"}
         >
           <Bell className={cn("size-[18px]", (badges.tasks ?? 0) > 0 && "text-foreground")} />

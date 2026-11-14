@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,7 +16,11 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Sparkles,
 } from "@/components/icons";
+import { aiTargetOf, sendToAi } from "@/components/ai/ai-context-menu";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useLongPress } from "@/hooks/use-long-press";
 import { WaAvatar } from "@/components/crm/wa-avatar";
 import { ContextActions, DropdownActions, type MenuEntry } from "@/components/crm/action-menu";
 import { ActionSheet, SwipeRow } from "@/components/crm/swipe-row";
@@ -42,8 +46,11 @@ export type ChatRow = {
   customer: { id: string; name: string } | null;
 };
 
-/** 会话列表的一行：桌面右键或悬停小箭头出菜单；手机左右滑（右滑已读 / 置顶，左滑归档 / 更多） */
-export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) {
+/** 会话列表的一行：桌面右键或悬停小箭头出菜单；手机左右滑（右滑已读 / 置顶，左滑归档 / 更多），长按出菜单（第一项是 AI） */
+export function ChatListItem({ c, backHref, ai }: { c: ChatRow; backHref: string; ai?: boolean }) {
+  const isMobile = useIsMobile();
+  const press = useLongPress();
+  const rowRef = useRef<HTMLLIElement>(null);
   const router = useRouter();
   const [linking, setLinking] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -89,7 +96,7 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
   const chatAi = [{ label: "AI 总结这段对话", message: "读一下这个 WhatsApp 对话：总结聊到哪了、对方在等我什么，再起草下一条回复" }];
 
   return (
-    <li className="group/item relative" data-ai-context data-ai-label={`WhatsApp 会话 · ${c.name}`}>
+    <li ref={rowRef} className="group/item relative" data-ai-context data-ai-label={`WhatsApp 会话 · ${c.name}`}>
       <SwipeRow
         contentClassName="bg-card"
         left={[
@@ -116,9 +123,11 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
           { label: "更多", icon: MoreHorizontal, tone: "neutral", onAction: () => setSheet(true) },
         ]}
       >
-        <ContextActions items={items} aiActions={chatAi}>
+        <ContextActions items={items} aiActions={chatAi} disabled={isMobile}>
           <Link
             href={c.href}
+            data-long-press
+            {...press(() => setSheet(true))}
             className={cn(
               "flex items-center gap-3 px-4 py-2.5 transition-colors md:rounded-xl md:px-2.5",
               c.active ? "bg-accent" : "hover:bg-muted/60",
@@ -128,7 +137,15 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
             <WaAvatar src={c.avatar} name={c.rawName} phone={c.phone} className="size-12" />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
-                <span className={cn("min-w-0 flex-1 truncate text-[15px]", unread ? "font-medium" : "font-medium")}>{c.name}</span>
+                <span className="min-w-0 truncate text-[15px] font-medium">{c.name}</span>
+                {/* 关联的客户跟在名字后面，不另占一行 */}
+                {c.customer ? (
+                  <span className="inline-flex max-w-[45%] min-w-0 shrink items-center gap-1 self-center rounded-md bg-primary/8 px-1.5 py-px text-[11px] text-primary">
+                    <Building2 className="size-3 shrink-0" />
+                    <span className="truncate">{c.customer.name}</span>
+                  </span>
+                ) : null}
+                <span className="flex-1" />
                 <span className={cn("shrink-0 text-xs tabular-nums", unread ? "font-medium text-emerald-600" : "text-muted-foreground")}>
                   {c.time}
                 </span>
@@ -145,17 +162,28 @@ export function ChatListItem({ c, backHref }: { c: ChatRow; backHref: string }) 
                 {/* 给悬停箭头留位置 */}
                 <span className="w-0 shrink-0 transition-[width] group-hover/item:w-5" aria-hidden />
               </div>
-              {c.customer && (
-                <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-md bg-primary/8 px-2 py-0.5 text-[11px] text-primary">
-                  <Building2 className="size-3 shrink-0" />
-                  <span className="truncate">{c.customer.name}</span>
-                </span>
-              )}
             </div>
           </Link>
         </ContextActions>
       </SwipeRow>
-      <ActionSheet open={sheet} onOpenChange={setSheet} title={c.name} items={items} />
+      <ActionSheet
+        open={sheet}
+        onOpenChange={setSheet}
+        title={c.name}
+        items={[
+          ...(ai
+            ? ([
+                {
+                  label: chatAi[0].label,
+                  icon: Sparkles,
+                  onSelect: () => rowRef.current && sendToAi(aiTargetOf(rowRef.current), chatAi[0].message),
+                },
+                "sep",
+              ] satisfies MenuEntry[])
+            : []),
+          ...items,
+        ]}
+      />
       <div
         className={cn(
           "absolute top-9 right-3 opacity-0 max-md:hidden transition-opacity group-hover/item:opacity-100 focus-within:opacity-100",

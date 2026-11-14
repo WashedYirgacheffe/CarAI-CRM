@@ -24,7 +24,8 @@ import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
 import { filesToAttachments, MAX_ATTACHMENTS, type AiAttachment } from "./ai-media";
-import { AI_LOOK_EVENT, type AiLookDetail, type PageSnippet } from "./ai-context-menu";
+import { AI_LOOK_EVENT, AI_OPEN_EVENT, type AiLookDetail, type PageSnippet } from "./ai-context-menu";
+import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { PixelSpinner as Busy } from "@/components/agentes/pixel-spinner";
 import type { MemoryNote, MemoryRef } from "@/lib/ai-memory";
 import { undoMemoryAction } from "@/app/(app)/settings/memory/actions";
@@ -647,10 +648,13 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         void d.pending.then((items) => setFiles((f) => [...f, ...items].slice(-MAX_ATTACHMENTS))).finally(() => setPreparing((n) => n - 1));
       }
     };
+    const onOpen = () => toggle(true);
+    window.addEventListener(AI_OPEN_EVENT, onOpen);
     window.addEventListener("crm:ai-ask", onAsk);
     window.addEventListener(AI_COMPOSE_EVENT, onCompose);
     window.addEventListener(AI_LOOK_EVENT, onLook);
     return () => {
+      window.removeEventListener(AI_OPEN_EVENT, onOpen);
       window.removeEventListener("crm:ai-ask", onAsk);
       window.removeEventListener(AI_COMPOSE_EVENT, onCompose);
       window.removeEventListener(AI_LOOK_EVENT, onLook);
@@ -659,7 +663,6 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   }, []);
 
   // 电脑端每个页面都常驻；手机端只在工作台常驻，其他页面由「让 AI …」按钮唤起，换页就收起
-  const home = pathname === "/dashboard";
   useEffect(() => {
     // 直接问浏览器宽度：刚加载时 desktop 状态还没同步，用它会把电脑上本该开着的浮窗关掉
     if (pathname !== "/dashboard" && !window.matchMedia("(min-width: 768px)").matches) setOpen(false);
@@ -1041,13 +1044,14 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       hasTurns ? (
         <section
           aria-label={prefs.name}
-          className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20px] bg-card shadow-e2 [view-transition-name:ai-panel]"
+          // 手机上贴边铺满，不再是「卡片套卡片」
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20px] bg-card shadow-e2 [view-transition-name:ai-panel] max-md:-mx-3 max-md:rounded-none max-md:border-y max-md:border-line max-md:shadow-none"
         >
           {header}
           {prefsPanel}
           {composeBox}
           {log}
-          <div className="p-3 pt-1">
+          <div className="p-3 pt-1 max-md:px-2.5 max-md:pb-2">
             {form(
               "flex items-end gap-2 rounded-xl border border-[var(--line-strong)] bg-background py-1 pr-1.5 pl-3.5 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25 [view-transition-name:ai-input]",
             )}
@@ -1111,7 +1115,35 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     );
   }
 
-  if (!home && !open && !desktop) return null;
+  // 手机：顶栏的 AI 按钮拉起底部面板，几乎全屏；输入框贴着键盘
+  if (!desktop) {
+    if (!open) return null;
+    return (
+      <MobileSheet onClose={() => toggle(false)} label={prefs.name}>
+        {header}
+        {prefsPanel}
+        {composeBox}
+        {turns.length === 0 ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5">
+            {!compose && (
+              <>
+                <p className="mb-2.5 text-sm text-muted-foreground">可以这样问我：</p>
+                {chips()}
+                <p className="mt-5 text-xs leading-relaxed text-muted-foreground">小技巧：在任何页面长按一行、一张卡片或一条消息，就能直接交给 AI。</p>
+              </>
+            )}
+          </div>
+        ) : (
+          log
+        )}
+        <div className="px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          {form(
+            "flex items-end gap-2 rounded-[14px] border border-[var(--line-strong)] bg-background py-1 pr-1.5 pl-3.5 transition-[border-color] focus-within:border-ring",
+          )}
+        </div>
+      </MobileSheet>
+    );
+  }
 
   return (
     <div
@@ -1216,6 +1248,65 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** 手机上的 AI 面板：从底部升起，下拉顶部或点空白处收起；高度跟着键盘走 */
+function MobileSheet({ onClose, label, children }: { onClose: () => void; label: string; children: React.ReactNode }) {
+  const vv = useVisualViewport();
+  const [dy, setDy] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ y: number; id: number } | null>(null);
+  return createPortal(
+    <div
+      className="fixed inset-x-0 top-0 z-[60] flex h-dvh flex-col justify-end"
+      style={vv ? { top: vv.top, height: vv.height } : undefined}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+    >
+      <button
+        type="button"
+        aria-label="收起"
+        tabIndex={-1}
+        onClick={onClose}
+        className="absolute inset-0 animate-in bg-black/35 duration-200 fade-in-0"
+      />
+      <section
+        role="dialog"
+        aria-modal
+        aria-label={label}
+        style={{ transform: dy ? `translateY(${dy}px)` : undefined, transition: dragging ? "none" : "transform 240ms cubic-bezier(0.22,1,0.36,1)" }}
+        className="relative flex h-[calc(100%-max(2.75rem,env(safe-area-inset-top)+0.75rem))] animate-in flex-col overflow-hidden rounded-t-[20px] bg-popover shadow-e3 duration-300 slide-in-from-bottom"
+      >
+        {/* 拖这条把手往下拉，收起面板 */}
+        <div
+          className="flex h-5 shrink-0 touch-none items-center justify-center"
+          onPointerDown={(e) => {
+            drag.current = { y: e.clientY, id: e.pointerId };
+            setDragging(true);
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (drag.current?.id === e.pointerId) setDy(Math.max(0, e.clientY - drag.current.y));
+          }}
+          onPointerUp={() => {
+            const far = dy > 110;
+            drag.current = null;
+            setDragging(false);
+            setDy(0);
+            if (far) onClose();
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+            setDragging(false);
+            setDy(0);
+          }}
+        >
+          <span className="h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+        </div>
+        {children}
+      </section>
+    </div>,
+    document.body,
   );
 }
 

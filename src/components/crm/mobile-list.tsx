@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { SELECT_EVENT } from "@/components/ai/ai-context-menu";
 import Link from "next/link";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,15 @@ export function MobileCard({
     press.current.t = null;
   };
   const on = selected || select?.checked;
+  const selectRef = useRef<HTMLDivElement>(null);
+  const onSelect = select?.onChange;
+  useEffect(() => {
+    const el = selectRef.current;
+    if (!el || !onSelect) return;
+    const go = () => onSelect(true);
+    el.addEventListener(SELECT_EVENT, go);
+    return () => el.removeEventListener(SELECT_EVENT, go);
+  }, [onSelect]);
 
   const body = (
     <div
@@ -76,8 +86,12 @@ export function MobileCard({
         on && "bg-accent",
         className,
       )}
+      ref={selectRef}
+      data-selectable={select && !selecting ? "" : undefined}
+      data-long-press={selecting ? "" : undefined}
       onPointerDown={(e) => {
-        if (!select || e.pointerType !== "touch") return;
+        // 没在多选时，长按交给全局 AI 菜单（菜单里有「多选」）
+        if (!select || !selecting || e.pointerType !== "touch") return;
         press.current = { t: null, x: e.clientX, y: e.clientY, fired: false };
         press.current.t = setTimeout(() => {
           press.current.fired = true;
