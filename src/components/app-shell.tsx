@@ -28,6 +28,7 @@ import {
 } from "@/components/icons";
 import { Brand, BrandMark } from "@/components/brand";
 import { GlobalSearch } from "@/components/global-search";
+import { NavProgress, usePendingPath } from "@/components/nav-progress";
 import { UserMenu } from "@/components/user-menu";
 import { AiDock } from "@/components/ai/ai-dock";
 import { SelectionToolbar } from "@/components/ai/selection-toolbar";
@@ -93,7 +94,9 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [badges, reloadBadges] = useBadges(pathname);
-  const active = activeNav(modules, pathname);
+  // 点了还没换过去时，菜单先高亮要去的模块
+  const pendingPath = usePendingPath();
+  const active = activeNav(modules, pendingPath ?? pathname);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -109,6 +112,9 @@ export function AppShell({
   return (
     <ModuleColorContext.Provider value={color}>
       <div className="min-h-svh" style={{ ...moduleVars(color), ...selVars(color) }}>
+        <Suspense>
+          <NavProgress />
+        </Suspense>
         <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-sidebar-border bg-card/95 pt-[env(safe-area-inset-top)] pr-2 pl-3 backdrop-blur md:border-b-0 md:bg-background/90 [box-sizing:content-box] md:h-14 md:gap-3 md:pr-4 md:pl-0">
           <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 md:w-[17rem]">
             <span className="hidden w-[72px] shrink-0 justify-center md:flex">
