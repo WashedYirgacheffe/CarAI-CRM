@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Sparkles } from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,8 @@ import { AI_LANGUAGES, AI_TONES } from "@/lib/mail";
 import { cn } from "@/lib/utils";
 import { streamAiWrite } from "./stream-write";
 
-type Mode = "compose" | "reply" | "polish" | "translate";
+export type AiWriteMode = "compose" | "reply" | "polish" | "translate";
+type Mode = AiWriteMode;
 
 /**
  * AI 写作工具条：读取当前草稿，生成结果后预览，确认后替换草稿。邮件和 WhatsApp 共用。
@@ -20,6 +21,9 @@ export function AiWriter({
   onApply,
   original,
   compact,
+  scroll,
+  extra,
+  request,
 }: {
   channel: "email" | "whatsapp";
   getDraft: () => string;
@@ -27,13 +31,19 @@ export function AiWriter({
   /** 回复时的来信原文；有它才显示「生成回复」 */
   original?: string;
   compact?: boolean;
+  /** 手机上：所有按钮排成一行，左右滑 */
+  scroll?: boolean;
+  /** 跟在按钮后面的东西（如 WhatsApp 的「中→外」开关） */
+  extra?: ReactNode;
+  /** 外面直接发起一次（如长按某条消息「AI 帮我回复」）：id 变了就跑 */
+  request?: { id: number; mode: Mode; original?: string } | null;
 }) {
   const [language, setLanguage] = useState("");
   const [tone, setTone] = useState("");
   const [busy, setBusy] = useState<Mode | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
-  async function run(mode: Mode) {
+  async function run(mode: Mode, source = original) {
     setBusy(mode);
     setResult(null);
     const draft = getDraft();
@@ -42,7 +52,7 @@ export function AiWriter({
         mode,
         // 回复时只把引用线以上的部分当要点
         draft: draft.split(/\n\n\n.{0,80}(写道：|wrote:)|\n\n\n---------- 转发的邮件/)[0],
-        original,
+        original: source,
         language: language || (mode === "translate" ? "English" : undefined),
         tone: tone || undefined,
         channel,
@@ -57,6 +67,19 @@ export function AiWriter({
     }
   }
 
+  const runRef = useRef(run);
+  useEffect(() => {
+    runRef.current = run;
+  });
+  const reqId = request?.id;
+  useEffect(() => {
+    if (!request) return;
+    const t = setTimeout(() => void runRef.current(request.mode, request.original ?? original), 0);
+    return () => clearTimeout(t);
+    // 只看 id：同一个请求不重复跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqId]);
+
   const btn = (mode: Mode, label: string) => (
     <Button type="button" size="xs" variant="outline" disabled={!!busy} onClick={() => run(mode)}>
       {busy === mode ? "生成中…" : label}
@@ -65,7 +88,12 @@ export function AiWriter({
 
   return (
     <div className={cn("space-y-2 rounded-2xl bg-brand-soft/40 p-2.5", compact && "p-1.5")}>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div
+        className={cn(
+          "flex items-center gap-1.5",
+          scroll ? "-mx-1.5 overflow-x-auto px-1.5 [scrollbar-width:none] [&>*]:shrink-0" : "flex-wrap",
+        )}
+      >
         <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-ink">
           <Sparkles className="size-3.5" /> AI
         </span>
@@ -89,6 +117,7 @@ export function AiWriter({
             </option>
           ))}
         </NativeSelect>
+        {extra}
       </div>
       {result && (
         <div className="rounded-md border bg-background p-2">

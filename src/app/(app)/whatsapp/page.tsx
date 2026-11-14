@@ -84,20 +84,26 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
 
   return (
     // 手机上像微信一样贴边铺满：抵消 main 的内边距，上贴顶栏、下贴标签栏（3.75rem），去掉圆角和阴影；桌面仍是白卡片
-    <div className="-mx-3 -mt-3 -mb-4 flex h-[calc(100svh-6.75rem-1px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface rounded-none shadow-none md:m-0 md:h-[calc(100svh-6.5rem)] md:min-h-[34rem] md:rounded-2xl md:shadow-[var(--card-shadow)]">
+    <div
+      className={cn(
+        "-mx-3 -mt-3 -mb-4 flex h-[calc(100svh-6.75rem-1px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface rounded-none shadow-none md:m-0 md:h-[calc(100svh-6.5rem)] md:min-h-[34rem] md:rounded-2xl md:shadow-[var(--card-shadow)]",
+        // 打开会话时聊天在手机上是整屏 fixed：外层不能有 transform / 裁切，否则会被困在这个框里
+        chat && "max-md:![transform:none] max-md:!overflow-visible",
+      )}
+    >
       {s("phone") && <StartFromParams phone={s("phone")} customerId={s("customerId") || undefined} />}
       {/* 会话页自己每 4 秒刷新；只看列表时，同步中刷得快一些 */}
       {!chat && <LiveRefresh ms={syncing ? 3000 : 10_000} />}
 
       {/* ── 会话列表 ── */}
       <section className={cn("flex w-full min-w-0 flex-col border-r border-border/70 md:w-[22rem] md:shrink-0", chat && "hidden md:flex")}>
-        <header className="flex items-center gap-3 px-4 pt-4 pb-3">
+        <header className="flex items-center gap-3 px-4 pt-4 pb-3 max-md:pt-3 max-md:pb-2.5">
           <span className="relative">
             <WaAvatar
               src={account.avatarKey ? `/api/whatsapp/avatar/me?v=${account.avatarAt?.getTime() ?? 0}` : null}
               name={account.name}
               phone={account.phone}
-              className="size-10 text-sm"
+              className="size-10 text-sm max-md:size-9"
             />
             <span
               className={cn(
@@ -140,7 +146,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
           </div>
         )}
 
-        <div className="space-y-2.5 px-4 pb-3">
+        <div className="space-y-2.5 px-4 pb-3 max-md:space-y-2 max-md:pb-2">
           <form action="/whatsapp" className="relative">
             {f && <input type="hidden" name="f" value={f} />}
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -159,8 +165,8 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
                 href={href({ f: x.key })}
                 aria-current={f === x.key ? "page" : undefined}
                 className={cn(
-                  "inline-flex h-8 items-center gap-1 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors md:h-auto md:px-3 md:py-1 md:text-xs",
-                  f === x.key ? "bg-emerald-100 text-emerald-800" : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground",
+                  "inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] font-medium transition-colors md:h-auto md:px-3 md:py-1 md:text-xs",
+                  f === x.key ? "bg-[#d9fdd3] text-[#0a5c45]" : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 {x.label}
@@ -204,6 +210,7 @@ export default async function WhatsappPage({ searchParams }: PageProps<"/whatsap
           {chats.map((c) => (
             <ChatListItem
               key={c.id}
+              ai={canAi}
               backHref={href({ chat: null })}
               c={{
                 id: c.id,

@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +17,7 @@ import {
   Clock,
   Copy,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   Forward,
@@ -37,6 +39,7 @@ import {
   Reply,
   RotateCcw,
   Send,
+  Sparkles,
   Star,
   StarOff,
   Trash2,
@@ -49,7 +52,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { AiWriter } from "@/components/ai/ai-writer";
+import { AiWriter, type AiWriteMode } from "@/components/ai/ai-writer";
+import { aiTargetOf, sendToAi } from "@/components/ai/ai-context-menu";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useLongPress } from "@/hooks/use-long-press";
+import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
 import { WaLightbox, type LightboxImage } from "@/components/crm/wa-lightbox";
 import { ContextActions, DropdownActions, type MenuEntry } from "@/components/crm/action-menu";
@@ -201,6 +208,13 @@ export function ChatView({
   const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>("follow");
   const [sheet, setSheet] = useState(false);
+  // 手机：输入框里的 ✨ 展开 AI 工具条；长按消息浮起的菜单
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiReq, setAiReq] = useState<{ id: number; mode: AiWriteMode; original?: string } | null>(null);
+  const [pressed, setPressed] = useState<{ m: Msg; rect: DOMRect; ai: PressAi[]; items: MenuEntry[] } | null>(null);
+  const isMobile = useIsMobile();
+  const vv = useVisualViewport(isMobile);
+  const press = useLongPress();
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
@@ -303,6 +317,31 @@ export function ChatView({
     requestAnimationFrame(() => input.current?.focus());
   }
 
+  /** 长按「帮我回复」：引用这条，AI 按这条起草，结果出现在输入框上方 */
+  function aiReply(m: Msg) {
+    setReplyTo(m);
+    setAiOpen(true);
+    setAiReq((r) => ({ id: (r?.id ?? 0) + 1, mode: "reply", original: waCaption(m.body, m.media) || snippet(m, 2000) }));
+  }
+
+  /** 长按「翻译」：打开自动翻译，并马上翻这一条 */
+  function translateOne(m: Msg) {
+    if (!trOn) toggleTrOn();
+    if (m.translation || trPending.has(m.id)) return;
+    trAsked.current.add(m.id);
+    setTrPending((x) => new Set(x).add(m.id));
+    void translateWaAction(chat.id, [m.id]).then((r) => {
+      setTrPending((x) => {
+        const n = new Set(x);
+        n.delete(m.id);
+        return n;
+      });
+      if (r.ok && r.count) router.refresh();
+      else if (r.ok) toast.info("这条看起来不用翻译");
+      else toast.error(r.message ?? "翻译失败");
+    });
+  }
+
   const willTranslate = canAi && outTr && !trFrom && looksChinese(text);
 
   async function send() {
@@ -383,6 +422,8 @@ export function ChatView({
   ];
 
   const chatMenu: MenuEntry[] = [
+    { label: "客户资料、跟进与快捷发送", icon: PanelRight, hidden: !isMobile, onSelect: () => setSheet(true) },
+    "sep",
     { label: chat.customer ? "更换关联客户" : "关联客户", icon: Link2, onSelect: () => setLinking(true) },
     {
       label: "取消关联客户",
@@ -440,6 +481,91 @@ export function ChatView({
     .map((m) => m.body)
     .join("\n");
 
+  const outTrToggle = (
+    <button
+      type="button"
+      onClick={toggleOutTr}
+      aria-pressed={outTr}
+      title="开启后，用中文写的消息会先按客户的语言翻译好放回输入框，确认后再发送"
+      className={cn(
+        "mb-0.5 ml-2 inline-flex h-5 shrink-0 items-center rounded-md px-2 text-[11px] font-medium whitespace-nowrap transition-colors",
+        "max-md:mb-0 max-md:ml-0 max-md:h-6 max-md:border max-md:border-border max-md:bg-card",
+        outTr ? "bg-primary/10 text-primary max-md:border-primary/30 max-md:bg-primary/10" : "text-muted-foreground hover:bg-muted",
+      )}
+    >
+      中→外{outTr ? " 已开" : ""}
+    </button>
+  );
+
+  /** 气泡里的内容（列表里和长按浮起的预览共用） */
+  const bubbleBody = (m: Msg, caption: string) => (
+    <>
+      {m.quoted && (
+        <button
+          type="button"
+          onClick={() => jumpTo(m.quoted!.id)}
+          className={cn(
+            "mb-1 flex w-full min-w-40 flex-col rounded-md border-l-4 px-2 py-1 text-left text-[13px]",
+            m.fromMe ? "bg-[#cfe9c7]" : "bg-[#f0f2f5]",
+            m.quoted.fromMe ? "border-emerald-600" : "border-violet-500",
+          )}
+        >
+          <span className={cn("text-xs font-medium", m.quoted.fromMe ? "text-emerald-700" : "text-violet-600")}>{m.quoted.fromMe ? "你" : title}</span>
+          <span className="line-clamp-2 text-[#54656f]">{snippet(m.quoted, 120) || "消息"}</span>
+        </button>
+      )}
+      <WaMedia id={m.id} media={m.media} onOpen={() => openImage(m.id)} />
+      {caption &&
+        (trOn && !m.fromMe && m.translation ? (
+          <>
+            <span className="break-words whitespace-pre-wrap">{m.translation}</span>
+            <span className="mt-1 block border-t border-black/5 pt-1 text-[12.5px] leading-snug break-words whitespace-pre-wrap text-[#667781]">
+              {caption}
+            </span>
+          </>
+        ) : (
+          <span className="break-words whitespace-pre-wrap">{caption}</span>
+        ))}
+      {trOn && trPending.has(m.id) && (
+        <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[#667781]">
+          <LoaderCircle className="size-3 animate-spin" /> 正在翻译…
+        </span>
+      )}
+      <span className={cn("float-right ml-2.5 inline-flex translate-y-1 items-center gap-0.5 text-[11px] text-[#667781] tabular-nums", !caption && "mt-1")}>
+        {m.starred && <Star className="size-3 fill-current" aria-label="星标" />}
+        {waClock(m.timestamp, tz)}
+        {m.fromMe && m.status === "QUEUED" && <Clock className="size-3" aria-label="发送中" />}
+        {m.fromMe && m.status === "SENT" && <Check className="size-3.5" aria-label="已发送" />}
+      </span>
+      {m.status === "FAILED" && (
+        <button
+          type="button"
+          className="clear-both flex items-center gap-1 pt-1 text-xs text-rose-600 hover:underline"
+          title={m.error ?? ""}
+          onClick={() => runAction(retryWaMessageAction(m.id))}
+        >
+          <AlertCircle className="size-3.5" /> 发送失败，点击重试
+        </button>
+      )}
+    </>
+  );
+
+  /** 长按消息时，菜单上方那条 AI 快捷操作 */
+  const pressAi = (m: Msg, el: HTMLElement): PressAi[] => {
+    if (!canAi) return [];
+    const caption = waCaption(m.body, m.media);
+    return m.fromMe
+      ? [
+          { label: "翻成中文", icon: Languages, hidden: !caption || looksChinese(caption), onSelect: () => sendToAi(aiTargetOf(el), "把这条消息翻译成中文") },
+          { label: "问 AI", icon: Eye, onSelect: () => sendToAi(aiTargetOf(el)) },
+        ]
+      : [
+          { label: "帮我回复", icon: Sparkles, onSelect: () => aiReply(m) },
+          { label: "翻译", icon: Languages, hidden: !caption || !looksForeign(caption, 2) || (trOn && !!m.translation), onSelect: () => translateOne(m) },
+          { label: "问 AI", icon: Eye, onSelect: () => sendToAi(aiTargetOf(el)) },
+        ];
+  };
+
   const panelEl = (
     <ChatPanel
       data={panel}
@@ -462,7 +588,10 @@ export function ChatView({
   return (
     <>
       <section
-        className="relative flex min-w-0 flex-1 flex-col"
+        // 手机：像 WhatsApp 一样整屏（顶栏和底部标签栏由 data-immersive 隐藏），高度跟着键盘走
+        data-immersive
+        className="relative flex min-w-0 flex-1 flex-col max-md:fixed max-md:inset-x-0 max-md:top-0 max-md:z-30 max-md:h-dvh max-md:bg-card"
+        style={isMobile && vv ? { top: vv.top, height: vv.height } : undefined}
         onDragEnter={(e) => {
           if (e.dataTransfer.types.includes("Files")) setDragging(true);
         }}
@@ -478,14 +607,19 @@ export function ChatView({
           addFiles(e.dataTransfer.files);
         }}
       >
-        <header className="flex items-center gap-2 border-b border-border/70 px-3 py-2.5 sm:px-4">
-          <Button asChild variant="ghost" size="icon-sm" className="-ml-1 md:hidden" aria-label="返回">
+        <header className="flex items-center gap-2 border-b border-border/70 px-3 py-2.5 max-md:gap-1 max-md:px-1.5 max-md:pt-[max(0.5rem,env(safe-area-inset-top))] max-md:pb-2 sm:px-4">
+          <Button asChild variant="ghost" size="icon" className="md:hidden" aria-label="返回">
             <Link href={backHref}>
               <ChevronLeft />
             </Link>
           </Button>
-          <button type="button" onClick={() => openSend("info")} className="flex min-w-0 flex-1 items-center gap-3 text-left" title="查看资料">
-            <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className="size-10 text-sm" />
+          <button
+            type="button"
+            onClick={() => openSend("info")}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left max-md:gap-2.5"
+            title="查看资料"
+          >
+            <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className="size-10 text-sm max-md:size-9" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
                 <span className="truncate font-medium">{title}</span>
@@ -523,7 +657,7 @@ export function ChatView({
           <Button
             size="icon-sm"
             variant="ghost"
-            className="xl:hidden"
+            className="max-md:hidden xl:hidden"
             onClick={() => setSheet(true)}
             aria-label="客户面板"
             title="跟进、待办、快捷发送"
@@ -566,7 +700,6 @@ export function ChatView({
             const caption = waCaption(m.body, m.media);
             const items = messageMenu(m);
             const aiActions = m.fromMe ? undefined : replyAi;
-            const bubbleBg = m.fromMe ? "bg-[#d9fdd3]" : "bg-white";
             return (
               <Fragment key={m.id}>
                 {newDay && (
@@ -575,19 +708,20 @@ export function ChatView({
                   </div>
                 )}
                 <div id={`m-${m.id}`} className={cn("flex scroll-my-20", m.fromMe ? "justify-end" : "justify-start", grouped ? "mt-0.5" : "mt-2.5")}>
-                  <ContextActions items={items} aiActions={aiActions}>
+                  <ContextActions items={items} aiActions={aiActions} disabled={isMobile}>
                     <div
                       data-ai-context
+                      data-long-press
                       data-ai-label={`WhatsApp · ${m.fromMe ? `我发给 ${title} 的消息` : `${title} 发来的消息`}`}
                       onDoubleClick={(e) => {
                         if (!(e.target as HTMLElement).closest("a,button,video,audio")) startReply(m);
                       }}
+                      {...press((el) => setPressed({ m, rect: el.getBoundingClientRect(), ai: pressAi(m, el), items: messageMenu(m) }))}
                       className={cn(
-                        "group/msg relative max-w-[min(78%,36rem)] rounded-xl px-2.5 pt-1.5 pb-1 text-[14.5px] leading-snug text-[#111b21] shadow-[0_1px_0.5px_oklch(0_0_0/0.13)] transition-shadow duration-300",
-                        bubbleBg,
-                        !grouped && (m.fromMe ? "rounded-tr-none" : "rounded-tl-none"),
-                        m.status === "FAILED" && "ring-1 ring-rose-300",
+                        bubbleClass(m, grouped),
+                        "max-md:select-none",
                         highlight === m.id && "ring-4 ring-amber-300/80",
+                        pressed?.m.id === m.id && "opacity-0",
                       )}
                     >
                       {!grouped && <BubbleTail fromMe={m.fromMe} />}
@@ -599,68 +733,15 @@ export function ChatView({
                             type="button"
                             aria-label="消息操作"
                             className={cn(
-                              "absolute top-0.5 right-0.5 z-[1] flex size-6 items-center justify-center rounded-full text-[#667781] opacity-0 transition-opacity group-hover/msg:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
-                              bubbleBg,
+                              "absolute top-0.5 right-0.5 z-[1] flex size-6 items-center justify-center rounded-full text-[#667781] opacity-0 transition-opacity group-hover/msg:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 max-md:hidden",
+                              m.fromMe ? "bg-[#d9fdd3]" : "bg-white",
                             )}
                           >
                             <ChevronDown className="size-4" />
                           </button>
                         }
                       />
-                      {m.quoted && (
-                        <button
-                          type="button"
-                          onClick={() => jumpTo(m.quoted!.id)}
-                          className={cn(
-                            "mb-1 flex w-full min-w-40 flex-col rounded-md border-l-4 px-2 py-1 text-left text-[13px]",
-                            m.fromMe ? "bg-[#cfe9c7]" : "bg-[#f0f2f5]",
-                            m.quoted.fromMe ? "border-emerald-600" : "border-violet-500",
-                          )}
-                        >
-                          <span className={cn("text-xs font-medium", m.quoted.fromMe ? "text-emerald-700" : "text-violet-600")}>
-                            {m.quoted.fromMe ? "你" : title}
-                          </span>
-                          <span className="line-clamp-2 text-[#54656f]">{snippet(m.quoted, 120) || "消息"}</span>
-                        </button>
-                      )}
-                      <WaMedia id={m.id} media={m.media} onOpen={() => openImage(m.id)} />
-                      {caption &&
-                        (trOn && !m.fromMe && m.translation ? (
-                          <>
-                            <span className="break-words whitespace-pre-wrap">{m.translation}</span>
-                            <span className="mt-1 block border-t border-black/5 pt-1 text-[12.5px] leading-snug break-words whitespace-pre-wrap text-[#667781]">
-                              {caption}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="break-words whitespace-pre-wrap">{caption}</span>
-                        ))}
-                      {trOn && trPending.has(m.id) && (
-                        <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[#667781]">
-                          <LoaderCircle className="size-3 animate-spin" /> 正在翻译…
-                        </span>
-                      )}
-                      <span
-                        className={cn(
-                          "float-right ml-2.5 inline-flex translate-y-1 items-center gap-0.5 text-[11px] text-[#667781] tabular-nums",
-                          !caption && "mt-1",
-                        )}
-                      >
-                        {m.starred && <Star className="size-3 fill-current" aria-label="星标" />}
-                        {waClock(m.timestamp, tz)}
-                        {m.fromMe && m.status === "QUEUED" && <Clock className="size-3" aria-label="发送中" />}
-                        {m.fromMe && m.status === "SENT" && <Check className="size-3.5" aria-label="已发送" />}
-                      </span>
-                      {m.status === "FAILED" && (
-                        <button
-                          type="button"
-                          className="clear-both flex items-center gap-1 pt-1 text-xs text-rose-600 hover:underline"
-                          title={m.error ?? ""}
-                          onClick={() => runAction(retryWaMessageAction(m.id))}
-                        >
-                          <AlertCircle className="size-3.5" /> 发送失败，点击重试
-                        </button>
-                      )}
+                      {bubbleBody(m, caption)}
                     </div>
                   </ContextActions>
                 </div>
@@ -691,13 +772,34 @@ export function ChatView({
           </div>
         )}
 
-        <footer className="space-y-2 border-t border-border/70 bg-[#f7f8fa] px-3 py-3 sm:px-4">
+        <footer
+          className="space-y-2 border-t border-border/70 bg-[#f7f8fa] px-3 py-3 max-md:space-y-1.5 max-md:px-2 max-md:pt-1.5 max-md:pb-[max(0.375rem,env(safe-area-inset-bottom))] sm:px-4"
+          // 键盘弹起时底部没有横条，不用再留安全区
+          style={isMobile && vv && window.innerHeight - vv.height > 150 ? { paddingBottom: 6 } : undefined}
+        >
           {!connected && (
             <p className="flex items-center gap-1.5 text-xs text-amber-700">
               <AlertCircle className="size-3.5" /> WhatsApp 未连接，消息暂时发不出去。
             </p>
           )}
-          {canAi && <AiWriter channel="whatsapp" compact original={lastIncoming || undefined} getDraft={() => text} onApply={setText} />}
+          {canAi && (
+            // 电脑上常驻；手机上点输入框里的 ✨ 才出来，不占聊天区域
+            <div className={cn(!aiOpen && "max-md:hidden")}>
+              <AiWriter
+                channel="whatsapp"
+                compact
+                scroll={isMobile}
+                request={aiReq}
+                original={lastIncoming || undefined}
+                getDraft={() => text}
+                onApply={(v) => {
+                  setText(v);
+                  if (isMobile) setAiOpen(false);
+                }}
+                extra={isMobile ? outTrToggle : undefined}
+              />
+            </div>
+          )}
           {trFrom && (
             <div className="flex items-center gap-2 rounded-xl bg-primary/5 px-3 py-1.5 text-xs ring-1 ring-primary/20">
               <Languages className="size-3.5 shrink-0 text-primary" />
@@ -741,7 +843,7 @@ export function ChatView({
               </Button>
             </div>
           )}
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 max-md:gap-1.5">
             <DropdownActions
               items={attachMenu}
               align="start"
@@ -749,24 +851,26 @@ export function ChatView({
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="size-10 shrink-0 rounded-full text-muted-foreground"
+                  className="size-10 shrink-0 rounded-full text-muted-foreground max-md:text-foreground/70"
                   aria-label="附件"
                   title="发送图片、文件、商品、报价单"
                 >
-                  <Plus className="size-5" />
+                  <Plus className="size-5 max-md:size-6" />
                 </Button>
               }
             />
-            <div className="flex min-w-0 flex-1 items-end rounded-3xl bg-card px-4 py-2 shadow-xs ring-1 ring-border/70 focus-within:ring-primary/40">
+            <div className="flex min-w-0 flex-1 items-end rounded-3xl bg-card px-4 py-2 shadow-xs ring-1 ring-border/70 focus-within:ring-primary/40 max-md:min-h-10 max-md:py-1.5 max-md:pr-1.5 max-md:pl-3.5">
               <textarea
                 ref={input}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 rows={1}
-                className="field-sizing-content max-h-40 min-h-6 w-full resize-none bg-transparent text-[14.5px] leading-6 outline-none placeholder:text-muted-foreground"
-                placeholder={canAi && outTr ? "用中文写，发送前自动译成客户的语言" : "输入消息"}
+                // 手机上 16px：iOS 小于 16px 的输入框一点就会放大整页
+                className="field-sizing-content max-h-40 min-h-6 w-full resize-none bg-transparent text-[14.5px] leading-6 outline-none placeholder:text-muted-foreground max-md:max-h-32 max-md:py-0.5 max-md:text-base"
+                placeholder={canAi && outTr ? (isMobile ? "用中文写，发前译成客户的语言" : "用中文写，发送前自动译成客户的语言") : "输入消息"}
                 title="Enter 发送，Shift+Enter 换行，可直接粘贴图片"
                 aria-label="消息"
+                enterKeyHint={isMobile ? "send" : undefined}
                 onPaste={(e) => {
                   if (e.clipboardData.files.length) {
                     e.preventDefault();
@@ -778,7 +882,8 @@ export function ChatView({
                     e.preventDefault();
                     setReplyTo(null);
                   }
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  // 手机键盘的回车是换行，发送用右边的按钮（和 WhatsApp 一样）
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !isMobile) {
                     e.preventDefault();
                     void send();
                   }
@@ -787,23 +892,25 @@ export function ChatView({
               {canAi && (
                 <button
                   type="button"
-                  onClick={toggleOutTr}
-                  aria-pressed={outTr}
-                  title="开启后，用中文写的消息会先按客户的语言翻译好放回输入框，确认后再发送"
+                  onClick={() => setAiOpen((v) => !v)}
+                  aria-pressed={aiOpen}
+                  aria-label="AI 写作：生成回复、润色、翻译"
                   className={cn(
-                    "mb-0.5 ml-2 inline-flex h-5 shrink-0 items-center rounded-md px-2 text-[11px] font-medium whitespace-nowrap transition-colors",
-                    outTr ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+                    "relative ml-1 grid size-8 shrink-0 place-items-center rounded-full transition-colors md:hidden",
+                    aiOpen ? "bg-brand-soft text-brand-ink" : "text-brand-ink/80 active:bg-brand-soft",
                   )}
                 >
-                  中→外
+                  <Sparkles className="size-[19px]" />
+                  {outTr && !aiOpen && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-brand" aria-label="中→外已开" />}
                 </button>
               )}
+              {canAi && <span className="max-md:hidden">{outTrToggle}</span>}
             </div>
             <Button
               onClick={send}
               disabled={sending || translating || !text.trim()}
               size="icon"
-              className="size-10 shrink-0 rounded-full"
+              className="size-10 shrink-0 rounded-full bg-[#00a884] text-white hover:bg-[#029272] disabled:bg-[#00a884]/45 disabled:opacity-100"
               aria-label={willTranslate ? "翻译" : "发送"}
               title={willTranslate ? "先译成客户的语言（不会直接发出）" : "发送"}
             >
@@ -877,7 +984,132 @@ export function ChatView({
         onIndex={(i) => setLightbox((l) => (l ? { ...l, index: i } : l))}
         onClose={() => setLightbox(null)}
       />
+      {pressed && (
+        <PressMenu
+          rect={pressed.rect}
+          fromMe={pressed.m.fromMe}
+          ai={pressed.ai}
+          items={pressed.items}
+          onClose={() => setPressed(null)}
+          preview={
+            <div className={cn(bubbleClass(pressed.m, true), "pointer-events-none max-h-[40svh] max-w-full overflow-hidden")} style={{ width: pressed.rect.width }}>
+              {bubbleBody(pressed.m, waCaption(pressed.m.body, pressed.m.media))}
+            </div>
+          }
+        />
+      )}
     </>
+  );
+}
+
+type PressAi = { label: string; icon: ComponentType<{ className?: string }>; onSelect: () => void; hidden?: boolean };
+
+function bubbleClass(m: Msg, grouped: boolean) {
+  return cn(
+    "group/msg relative max-w-[min(78%,36rem)] rounded-xl px-2.5 pt-1.5 pb-1 text-[14.5px] leading-snug text-[#111b21] shadow-[0_1px_0.5px_oklch(0_0_0/0.13)] transition-shadow duration-300 max-md:max-w-[82%] max-md:text-[15px]",
+    m.fromMe ? "bg-[#d9fdd3]" : "bg-white",
+    !grouped && (m.fromMe ? "rounded-tr-none" : "rounded-tl-none"),
+    m.status === "FAILED" && "ring-1 ring-rose-300",
+  );
+}
+
+/**
+ * 手机长按消息（照 WhatsApp）：背景虚化，消息原地浮起；上面一条 AI 快捷操作（WhatsApp 放表情回应的位置），
+ * 下面是操作菜单。放不下时整体往上挪。
+ */
+function PressMenu({
+  rect,
+  fromMe,
+  ai,
+  items,
+  preview,
+  onClose,
+}: {
+  rect: DOMRect;
+  fromMe: boolean;
+  ai: PressAi[];
+  items: MenuEntry[];
+  preview: ReactNode;
+  onClose: () => void;
+}) {
+  const col = useRef<HTMLDivElement>(null);
+  const [top, setTop] = useState<number | null>(null);
+  const aiShown = ai.filter((a) => !a.hidden);
+  const list = items.filter((x) => x === "sep" || !x.hidden);
+  const shown = list.filter((x, i) => x !== "sep" || (i > 0 && i < list.length - 1 && list[i - 1] !== "sep"));
+
+  useLayoutEffect(() => {
+    const h = col.current?.offsetHeight ?? 0;
+    const vh = window.visualViewport?.height ?? window.innerHeight;
+    const lead = aiShown.length ? 52 : 0;
+    setTop(Math.max(12, Math.min(rect.top - lead, vh - h - 12)));
+  }, [rect, aiShown.length]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const run = (fn: () => void) => {
+    onClose();
+    fn();
+  };
+  const side = fromMe ? { right: Math.max(8, window.innerWidth - rect.right), left: 8 } : { left: Math.max(8, rect.left), right: 8 };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal aria-label="消息操作">
+      <button
+        type="button"
+        aria-label="关闭"
+        onClick={onClose}
+        className="absolute inset-0 animate-in bg-black/25 backdrop-blur-md duration-200 fade-in-0"
+      />
+      <div
+        ref={col}
+        className={cn("wa-lift absolute flex flex-col gap-2", fromMe ? "items-end" : "items-start")}
+        style={{ top: top ?? rect.top, ...side, visibility: top === null ? "hidden" : undefined }}
+      >
+        {aiShown.length > 0 && (
+          <div className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-popover p-1 shadow-e3 [scrollbar-width:none]">
+            {aiShown.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => run(a.onSelect)}
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[14px] font-medium active:bg-muted"
+              >
+                <a.icon className="size-4 text-brand" />
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {preview}
+        <ul className="w-60 overflow-hidden rounded-2xl bg-popover shadow-e3">
+          {shown.map((x, i) =>
+            x === "sep" ? (
+              <li key={`s${i}`} className="h-1.5 bg-muted" aria-hidden />
+            ) : (
+              <li key={x.label} className="border-b border-border/60 last:border-b-0 [&:has(+li[aria-hidden])]:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => run(x.onSelect)}
+                  className={cn(
+                    "flex h-11 w-full items-center gap-3 px-4 text-left text-[15px] active:bg-muted",
+                    x.destructive && "text-destructive",
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">{x.label}</span>
+                  {x.hint && <span className="text-xs text-muted-foreground">{x.hint}</span>}
+                  {x.icon && <x.icon className={cn("size-[18px] shrink-0", x.destructive ? "text-destructive" : "text-foreground/70")} />}
+                </button>
+              </li>
+            ),
+          )}
+        </ul>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

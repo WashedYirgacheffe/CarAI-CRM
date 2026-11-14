@@ -381,3 +381,34 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .ai-fade, .ai-grow, .ai-grow-c, .ai-reveal, .ai-pop { animation: none; }
 }
+
+/*
+ * 手机上的沉浸页（打开的 WhatsApp 会话）：像 WhatsApp 一样整屏，不要顶栏和底部标签栏。
+ * 页面里放一个 [data-immersive] 就生效，服务端渲染时就是对的，不会先闪一下顶栏。
+ */
+@media (max-width: 767px) {
+  [data-shell]:has([data-immersive]) [data-shell-top],
+  [data-shell]:has([data-immersive]) [data-shell-tabs] {
+    display: none;
+  }
+  body:has([data-immersive]) {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
+/* 触屏长按是「手机上的右键」：链接、可交给 AI 的块不要弹系统的预览 / 存图菜单 */
+@media (pointer: coarse) {
+  [data-page-root] a,
+  [data-page-root] [data-ai-context],
+  [data-long-press] {
+    -webkit-touch-callout: none;
+  }
+}
+
+/* 长按消息浮起来的菜单 */
+@keyframes wa-lift { from { opacity: 0; transform: scale(0.96); } }
+.wa-lift { animation: wa-lift 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .wa-lift { animation: none; }
+}

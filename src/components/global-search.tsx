@@ -75,7 +75,7 @@ export function GlobalSearch() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-9 w-9 items-center justify-center gap-2 rounded-full border border-border bg-card text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-10 sm:w-[min(100%,28rem)] sm:justify-start sm:px-4"
+        className="flex h-9 w-9 items-center justify-center gap-2 rounded-full text-sm sm:border sm:border-border sm:bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-10 sm:w-[min(100%,28rem)] sm:justify-start sm:px-4"
         aria-label="全局搜索"
       >
         <Search className="size-4" />

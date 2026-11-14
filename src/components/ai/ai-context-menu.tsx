@@ -3,7 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Copy, ExternalLink, Eye, Languages, Link2, ListChecks, Sparkles } from "@/components/icons";
+import { CircleCheckIcon, Copy, ExternalLink, Eye, Languages, Link2, ListChecks, Sparkles } from "@/components/icons";
+import { ActionSheet } from "@/components/crm/swipe-row";
 import { imageFromElement, videoAttachment, type AiAttachment } from "./ai-media";
 import { cn } from "@/lib/utils";
 
@@ -12,9 +13,14 @@ import { cn } from "@/lib/utils";
  * 把右键点到的那一块（一行客户、一封邮件、一条消息、一张卡片、一张图）连同所在页面交给 AI，
  * 对话框打开、输入框就绪，说一句想做什么就行；也可以直接「总结」「翻译」。
  * 输入框里、标了 data-no-ai 的区域、按住 Shift 右键时，仍然是浏览器自己的菜单。
+ *
+ * 手机上没有右键：长按任何一块（一行、一张卡片）就是右键，从底部弹出同样几项。
+ * 自己处理长按的地方（WhatsApp 消息、会话）标 data-long-press，这里就不管。
  */
 
 export const AI_LOOK_EVENT = "crm:ai-look";
+/** 打开 AI 对话（手机顶栏的 AI 按钮） */
+export const AI_OPEN_EVENT = "crm:ai-open";
 export type PageSnippet = { label: string; text: string; href?: string };
 export type AiLookDetail = { snippet?: PageSnippet; attachments?: AiAttachment[]; message?: string; pending?: Promise<AiAttachment[]> };
 
@@ -127,7 +133,12 @@ export function aiPrompts(t: AiTarget) {
   };
 }
 
-type Target = AiTarget & { x: number; y: number };
+type Target = AiTarget & { x: number; y: number; touch?: boolean; selectable?: Element | null };
+
+/** 列表行长按出 AI 菜单，菜单里的「多选」通过这个事件交回给那一行 */
+export const SELECT_EVENT = "crm:select";
+
+const SKIP = "input,textarea,select,button,[role=button],[contenteditable=''],[contenteditable=true],[data-no-ai],[data-ai-menu],[data-long-press]";
 
 function flash(el: Element) {
   el.classList.remove("ac-ai-look");
@@ -142,7 +153,56 @@ export function AiContextMenu() {
   const [pos, setPos] = useState({ left: 0, top: 0 });
 
   useEffect(() => {
+    // ── 触屏长按 ──
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let start = { x: 0, y: 0 };
+    let lastTouch = 0;
+    const cancel = () => clearTimeout(timer);
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      lastTouch = Date.now();
+      cancel();
+      const target = e.target instanceof Element ? e.target : null;
+      if (!target?.closest("[data-page-root]") || target.closest(SKIP)) return;
+      start = { x: e.clientX, y: e.clientY };
+      timer = setTimeout(() => {
+        window.getSelection()?.removeAllRanges();
+        navigator.vibrate?.(8);
+        const a = target.closest("a[href]") as HTMLAnchorElement | null;
+        setT({ ...aiTargetOf(target), selection: "", link: a?.href ?? null, x: start.x, y: start.y, touch: true, selectable: target.closest("[data-selectable]") });
+        // 松手时的那次点击不要再打开链接：按多久都拦，松手后 400ms 内还没来就撤掉
+        const block = (ev: Event) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          off();
+        };
+        const off = () => {
+          document.removeEventListener("click", block, { capture: true });
+          document.removeEventListener("pointerup", later, { capture: true });
+          document.removeEventListener("pointercancel", later, { capture: true });
+        };
+        const later = () => setTimeout(off, 400);
+        document.addEventListener("click", block, { capture: true });
+        document.addEventListener("pointerup", later, { capture: true });
+        document.addEventListener("pointercancel", later, { capture: true });
+      }, 480);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch" && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) cancel();
+    };
+    document.addEventListener("pointerdown", onDown, { passive: true });
+    document.addEventListener("pointermove", onMove, { passive: true });
+    document.addEventListener("pointerup", cancel, { passive: true });
+    document.addEventListener("pointercancel", cancel, { passive: true });
+    document.addEventListener("scroll", cancel, { passive: true, capture: true });
+
     const onMenu = (e: MouseEvent) => {
+      // 触屏长按由上面处理（安卓长按还会发一次 contextmenu）
+      if (Date.now() - lastTouch < 1500) {
+        if (e.target instanceof Element && e.target.closest("[data-page-root]") && !e.target.closest("input,textarea,[contenteditable=true]"))
+          e.preventDefault();
+        return;
+      }
       if (e.shiftKey || e.defaultPrevented) return;
       const target = e.target instanceof Element ? e.target : null;
       if (!target) return;
@@ -163,12 +223,20 @@ export function AiContextMenu() {
       });
     };
     document.addEventListener("contextmenu", onMenu);
-    return () => document.removeEventListener("contextmenu", onMenu);
+    return () => {
+      cancel();
+      document.removeEventListener("contextmenu", onMenu);
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", cancel);
+      document.removeEventListener("pointercancel", cancel);
+      document.removeEventListener("scroll", cancel, { capture: true });
+    };
   }, []);
 
   // 贴着鼠标打开，放不下就往左 / 往上翻
   useLayoutEffect(() => {
-    if (!t || !menu.current) return;
+    if (!t || t.touch || !menu.current) return;
     const r = menu.current.getBoundingClientRect();
     const left = t.x + r.width + 8 > window.innerWidth ? Math.max(8, t.x - r.width) : t.x;
     const top = t.y + r.height + 8 > window.innerHeight ? Math.max(8, t.y - r.height) : t.y;
@@ -177,7 +245,7 @@ export function AiContextMenu() {
   }, [t]);
 
   useEffect(() => {
-    if (!t) return;
+    if (!t || t.touch) return;
     const close = () => setT(null);
     const onDown = (e: PointerEvent) => {
       if (!menu.current?.contains(e.target as Node)) close();
@@ -221,6 +289,35 @@ export function AiContextMenu() {
     setT(null);
     void navigator.clipboard.writeText(s).then(() => toast.success(done));
   };
+
+  if (t.touch) {
+    const text = textOf(t.block);
+    return (
+      <ActionSheet
+        open
+        onOpenChange={(v) => !v && setT(null)}
+        title={labelOf(t.block)}
+        items={[
+          { label: `给 AI 看看${media ? media : ""}`, icon: Eye, onSelect: () => look() },
+          { label: p.summary.label, icon: Sparkles, onSelect: () => look(p.summary.message) },
+          { label: p.translate?.label ?? "", icon: Languages, hidden: !p.translate, onSelect: () => look(p.translate?.message) },
+          { label: p.todo.label, icon: ListChecks, onSelect: () => look(p.todo.message) },
+          "sep",
+          { label: "复制文字", icon: Copy, hidden: !text, onSelect: () => copy(text, "已复制") },
+          { label: "复制链接", icon: Link2, hidden: !t.link, onSelect: () => copy(t.link!, "链接已复制") },
+          {
+            label: "多选",
+            icon: CircleCheckIcon,
+            hidden: !t.selectable,
+            onSelect: () => {
+              t.selectable?.dispatchEvent(new Event(SELECT_EVENT));
+              setT(null);
+            },
+          },
+        ]}
+      />
+    );
+  }
 
   const item = "flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none hover:bg-muted focus-visible:bg-muted";
 
