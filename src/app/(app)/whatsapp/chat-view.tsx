@@ -95,13 +95,46 @@ export type Msg = {
   quoted: Quoted;
 };
 
-/** 定时刷新服务端数据（同步中、等新消息） */
-export function LiveRefresh({ ms }: { ms: number }) {
+/**
+ * 等新消息：每隔 ms 问一次服务器「有没有变化」（只回一个很短的版本号），变了才整页刷新。
+ * 页面在后台时不问，切回来马上问一次。
+ */
+function useLiveRefresh(ms: number, chat?: string) {
   const router = useRouter();
   useEffect(() => {
-    const t = setInterval(() => router.refresh(), ms);
-    return () => clearInterval(t);
-  }, [router, ms]);
+    const url = `/api/whatsapp/stamp${chat ? `?chat=${encodeURIComponent(chat)}` : ""}`;
+    let last: string | null = null;
+    let busy = false;
+    const check = async () => {
+      if (busy || document.hidden) return;
+      busy = true;
+      try {
+        const r = await fetch(url, { cache: "no-store" });
+        if (r.ok) {
+          const { s } = (await r.json()) as { s: string };
+          if (last !== null && s !== last) router.refresh();
+          last = s;
+        }
+      } catch {
+        // 网络抖一下，下一轮再问
+      } finally {
+        busy = false;
+      }
+    };
+    void check();
+    const t = setInterval(check, ms);
+    const onVisible = () => void check();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [router, ms, chat]);
+}
+
+/** 会话列表页（没打开会话时）：同步中、等新消息 */
+export function LiveRefresh({ ms }: { ms: number }) {
+  useLiveRefresh(ms);
   return null;
 }
 
@@ -223,14 +256,11 @@ export function ChatView({
     return () => clearTimeout(t);
   }, [messages, trOn, canAi, chat.id, router]);
 
-  // 打开会话时清未读；每 4 秒拉一次新消息
+  // 打开会话时清未读；每 4 秒问一次有没有新消息
   useEffect(() => {
     if (chat.unread) void markChatReadAction(chat.id);
   }, [chat.id, chat.unread]);
-  useEffect(() => {
-    const t = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(t);
-  }, [router]);
+  useLiveRefresh(4000, chat.id);
 
   // 打开时滚到底；之后只有本来就在底部、或是自己刚发的，才跟着滚（翻历史时不被打断）
   useLayoutEffect(() => {

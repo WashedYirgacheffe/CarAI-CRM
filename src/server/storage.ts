@@ -2,6 +2,7 @@ import "server-only";
 import { createHmac } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -104,15 +105,19 @@ export async function getObject(key: string): Promise<Buffer> {
   return readFile(localPath(key));
 }
 
+const DAY = 86_400;
+/** 文件存进去就不再改（文件名随机、按消息 id、头像带版本号），浏览器可以一直用缓存 */
+const IMMUTABLE = "private, max-age=31536000, immutable";
+
 /**
- * 有时效的 OSS 下载链接。过期时间取整到整点（有效 1～2 小时），
- * 同一小时内链接不变，浏览器能直接用缓存。
+ * 有时效的 OSS 下载链接。过期时间取到后天 UTC 零点（有效 1～2 天），同一天内链接不变；
+ * 并让 OSS 回 Cache-Control，浏览器第二次打开直接用缓存，不再连 OSS。
  */
-function signedUrl(key: string, opts: { contentType?: string; filename?: string; download?: boolean }) {
+function signedUrl(key: string, opts: { filename?: string; download?: boolean }) {
   const o = OSS!;
   const k = fullKey(key);
-  const expires = Math.ceil((Date.now() / 1000 + 3600) / 3600) * 3600;
-  const sub: [string, string][] = [];
+  const expires = (Math.floor(Date.now() / 1000 / DAY) + 2) * DAY;
+  const sub: [string, string][] = [["response-cache-control", IMMUTABLE]];
   if (opts.filename || opts.download) {
     const name = opts.filename || path.basename(key);
     sub.push(["response-content-disposition", `${opts.download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(name)}`]);
@@ -122,32 +127,60 @@ function signedUrl(key: string, opts: { contentType?: string; filename?: string;
   const resource = `/${o.bucket}/${k}${sub.length ? `?${sub.map(([a, b]) => `${a}=${b}`).join("&")}` : ""}`;
   const q = new URLSearchParams({ OSSAccessKeyId: o.id, Expires: String(expires), Signature: sign(`GET\n\n\n${expires}\n${resource}`) });
   for (const [a, b] of sub) q.set(a, b);
-  return `https://${o.bucket}.${o.publicEndpoint}/${encodeKey(k)}?${q}`;
+  return { url: `https://${o.bucket}.${o.publicEndpoint}/${encodeKey(k)}?${q}`, expires };
+}
+
+/** 服务器从 OSS 读出文件流（同地域走内网） */
+function openOss(key: string): Promise<IncomingMessage> {
+  const opts = ossRequest("GET", key);
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(opts, (res) => {
+      if ((res.statusCode ?? 500) < 300) return resolve(res);
+      res.resume();
+      reject(Object.assign(new Error(`OSS GET ${res.statusCode}`), { status: res.statusCode }));
+    });
+    req.on("error", reject);
+    req.setTimeout(60_000, () => req.destroy(new Error("OSS 请求超时")));
+    req.end();
+  });
 }
 
 /**
  * 把文件返回给浏览器（调用方已做完权限校验）：
- * OSS 模式 302 到签名链接（视频可直接拖动播放）；本地模式直接读盘返回。
+ * - 图片：服务器直接转发。浏览器不用再跳一次、再和 OSS 建一条连接（网络差时每条新连接要几秒）
+ * - 视频、语音、附件：302 到签名链接（视频可直接拖动播放，大文件不占服务器带宽）
+ * - 本地模式：直接读盘返回
+ * `cache` 默认长期缓存；内容可能变、地址又不带版本号的（如没带 v 的头像）传短一些的。
  */
-export async function serveObject(key: string, opts: { contentType: string; filename?: string; download?: boolean }) {
+export async function serveObject(key: string, opts: { contentType: string; filename?: string; download?: boolean; cache?: string }) {
   checkKey(key);
+  const cache = opts.cache ?? IMMUTABLE;
+  const disposition =
+    opts.filename || opts.download
+      ? `${opts.download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(opts.filename || path.basename(key))}`
+      : null;
+  const headers: Record<string, string> = { "Content-Type": opts.contentType, "Cache-Control": cache, "X-Content-Type-Options": "nosniff" };
+  if (disposition) headers["Content-Disposition"] = disposition;
+
   if (OSS) {
-    return new Response(null, {
-      status: 302,
-      headers: { Location: signedUrl(key, opts), "Cache-Control": "private, max-age=1800" },
-    });
+    if (opts.contentType.startsWith("image/") && !opts.download) {
+      const res = await openOss(key).catch((e: { status?: number }) => {
+        if (e.status === 404) return null;
+        throw e;
+      });
+      if (!res) return new Response("Not found", { status: 404 });
+      if (res.headers["content-length"]) headers["Content-Length"] = res.headers["content-length"];
+      if (res.headers["content-type"]?.startsWith("image/")) headers["Content-Type"] = res.headers["content-type"];
+      return new Response(Readable.toWeb(res) as ReadableStream, { headers });
+    }
+    const { url, expires } = signedUrl(key, opts);
+    // 跳转本身也缓存到签名过期前一小时，同一个文件第二次打开不用再问服务器
+    const maxAge = opts.cache ? 0 : Math.max(0, expires - Math.floor(Date.now() / 1000) - 3600);
+    return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": maxAge ? `private, max-age=${maxAge}` : "private, no-cache" } });
   }
   const p = localPath(key);
   const info = await stat(p).catch(() => null);
   if (!info?.isFile()) return new Response("Not found", { status: 404 });
-  const headers: Record<string, string> = {
-    "Content-Type": opts.contentType,
-    "Content-Length": String(info.size),
-    "Cache-Control": "private, max-age=31536000, immutable",
-    "X-Content-Type-Options": "nosniff",
-  };
-  if (opts.filename || opts.download) {
-    headers["Content-Disposition"] = `${opts.download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(opts.filename || path.basename(key))}`;
-  }
+  headers["Content-Length"] = String(info.size);
   return new Response(Readable.toWeb(createReadStream(p)) as ReadableStream, { headers });
 }
