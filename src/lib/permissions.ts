@@ -83,6 +83,14 @@ export const PERMISSION_GROUPS = [
     items: [{ key: "whatsapp.use", label: "使用 WhatsApp" }],
   },
   {
+    key: "matrix",
+    label: "社媒矩阵",
+    items: [
+      { key: "matrix.use", label: "使用分配给自己的社媒账号" },
+      { key: "matrix.manage", label: "管理代理 IP 和全部社媒账号" },
+    ],
+  },
+  {
     key: "ai",
     label: "AI 助手",
     items: [{ key: "ai.use", label: "使用 AI（写信、翻译、摘要、跟进建议）" }],
@@ -170,6 +178,7 @@ export const SYSTEM_ROLES: {
       "product.view",
       "mail.use",
       "whatsapp.use",
+      "matrix.use",
       "ai.use",
     ],
   },
