@@ -38,6 +38,8 @@ model Tenant {
   docQuotationTerms    String?
   /// 报价单默认有效期（天）
   quotationValidDays   Int      @default(30)
+  /// 社媒跟踪：客户星级达到几星才自动跟踪它的社媒更新（0 = 不跟踪）
+  socialWatchStar      Int      @default(3)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -76,6 +78,9 @@ model Tenant {
   aiMemories        AiMemory[]
   aiResearches      AiResearch[]
   shareVisits       ShareVisit[]
+  customerSocials   CustomerSocial[]
+  socialPosts       SocialPost[]
+  bioPages          BioPage[]
 }
 
 enum UserStatus {
@@ -125,6 +130,7 @@ model User {
   workspaces         Workspace[]
   aiThreads          AiThread[]
   aiMemories         AiMemory[]
+  bioPage            BioPage?
 
   @@index([tenantId])
 }
@@ -157,6 +163,7 @@ model Department {
   parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
   children Department[] @relation("DepartmentTree")
   users    User[]
+  bioPages BioPage[]
 
   @@index([tenantId])
 }
@@ -284,6 +291,8 @@ model Customer {
   aiMemories    AiMemory[]
   aiResearches  AiResearch[]
   shareVisits   ShareVisit[]
+  socials       CustomerSocial[]
+  socialPosts   SocialPost[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -1344,4 +1353,96 @@ model AiResearch {
 
   @@index([tenantId, customerId, createdAt])
   @@index([tenantId, createdAt])
+}
+
+/// 客户的社媒账号：客户详情页显示成图标，点了直接打开；星级达到 Tenant.socialWatchStar 的客户由 worker 定时检查更新
+model CustomerSocial {
+  id          String    @id @default(cuid())
+  tenantId    String
+  customerId  String
+  /// linkedin / facebook / instagram / youtube / tiktok / x / pinterest / vk / other，见 src/lib/social.ts
+  platform    String
+  url         String
+  /// 账号名（@xxx、公司页名）
+  handle      String?
+  /// manual 手填 / research 穿透挖到
+  source      String    @default("manual")
+  /// 关掉后不跟踪（星级够也不查）
+  watch       Boolean   @default(true)
+  /// 公开订阅源（YouTube 频道、博客 RSS），找到了就按条目跟踪
+  feedUrl     String?
+  /// 主页内容摘要（没有订阅源时比对主页的标题 / 简介有没有变化）
+  fingerprint String?
+  checkedAt   DateTime?
+  /// 最近一次发现更新
+  changedAt   DateTime?
+  /// 上次检查失败的原因（多数是要登录才能看）
+  lastError   String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  posts    SocialPost[]
+
+  @@unique([tenantId, customerId, url])
+  @@index([tenantId, checkedAt])
+}
+
+/// 跟踪到的社媒更新（新视频 / 新文章 / 主页资料变了）
+model SocialPost {
+  id          String    @id @default(cuid())
+  tenantId    String
+  socialId    String
+  customerId  String
+  /// 订阅源条目 id；主页变化是 page:<摘要>
+  externalId  String
+  /// post 新内容 / profile 主页资料变化
+  kind        String    @default("post")
+  title       String
+  url         String?
+  summary     String?
+  image       String?
+  publishedAt DateTime
+  /// 有人在「社媒动态」里点过已读
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  social   CustomerSocial @relation(fields: [socialId], references: [id], onDelete: Cascade)
+  customer Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([socialId, externalId])
+  @@index([tenantId, publishedAt])
+  @@index([tenantId, customerId, publishedAt])
+}
+
+/// 对外分享的聚合主页（Link-in-Bio）：每个销售一个（userId），分公司 / 部门一个（departmentId）
+model BioPage {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String?  @unique
+  departmentId String?
+  /// 公开地址 /b/<slug>，全站唯一
+  slug         String   @unique
+  title        String
+  bio          String?
+  avatar       String?
+  /// 配色：sky / ink / sand / leaf
+  theme        String   @default("sky")
+  /// [{id, kind:"link"|"qr", platform, label, url, image?}]，按顺序显示
+  links        Json     @default("[]")
+  published    Boolean  @default(true)
+  views        Int      @default(0)
+  /// 各链接点击数 {linkId: n}
+  clicks       Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }

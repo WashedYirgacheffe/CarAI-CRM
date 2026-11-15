@@ -26,6 +26,9 @@ import {
   researchProgressAction,
   startCustomerResearchAction,
 } from "@/app/(app)/customers/research-actions";
+import { addResearchSocialsAction } from "@/app/(app)/customers/social-actions";
+import { SocialIcon } from "@/components/crm/social-icon";
+import { detectPlatform, handleOf, normalizeSocialUrl, platformInfo } from "@/lib/social";
 import { Panel } from "./detail-ui";
 
 export type ResearchView = {
@@ -55,11 +58,14 @@ export function CustomerResearch({
   latest,
   canEdit,
   current,
+  socialUrls = [],
 }: {
   customerId: string;
   latest: ResearchView | null;
   canEdit: boolean;
   current: Current;
+  /** 客户已经存了的社媒链接（挖到的账号据此显示「已添加」） */
+  socialUrls?: string[];
 }) {
   const router = useRouter();
   const [starting, start] = useTransition();
@@ -111,7 +117,7 @@ export function CustomerResearch({
       {running ? (
         <Progress steps={live.steps} />
       ) : report ? (
-        <Report id={latest!.id} report={report} date={latest!.date} stale={latest!.stale} canEdit={canEdit} current={current} />
+        <Report id={latest!.id} report={report} date={latest!.date} stale={latest!.stale} canEdit={canEdit} current={current} socialUrls={socialUrls} />
       ) : (
         <div className="py-2">
           <p className="text-[13px] text-pretty text-muted-foreground">
@@ -178,6 +184,7 @@ function Report({
   stale,
   canEdit,
   current,
+  socialUrls,
 }: {
   id: string;
   report: ResearchReport;
@@ -185,6 +192,7 @@ function Report({
   stale: boolean;
   canEdit: boolean;
   current: Current;
+  socialUrls: string[];
 }) {
   const [open, setOpen] = useState(false);
   const j = report.judgment;
@@ -224,6 +232,8 @@ function Report({
           {j.next && <Row label="下一步">{j.next}</Row>}
         </dl>
       )}
+
+      <Socials id={id} report={report} canEdit={canEdit} saved={socialUrls} />
 
       {report.signals.length > 0 && (
         <ul className="space-y-1.5">
@@ -451,6 +461,68 @@ function Trade({ stats }: { stats: TradeStat[] }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** 穿透挖到的社媒账号：一键加到客户，加了之后客户档案里显示图标，重点客户自动跟踪更新 */
+function Socials({ id, report, canEdit, saved }: { id: string; report: ResearchReport; canEdit: boolean; saved: string[] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  // 旧报告没有这一项：从「社交主页」那条事实里拆出来
+  const list =
+    report.socials ??
+    (report.facts.find((f) => f.label === "社交主页")?.value.split(/\s+/).filter(Boolean) ?? []).map((url) => ({
+      platform: detectPlatform(url),
+      url,
+      handle: handleOf(url),
+      source: report.website ?? "",
+    }));
+  if (!list.length) return null;
+  const have = new Set(saved.map((u) => normalizeSocialUrl(u)));
+  const left = list.filter((s) => !have.has(normalizeSocialUrl(s.url)));
+  const add = async (key: string, url?: string) => {
+    setBusy(key);
+    await runAction(addResearchSocialsAction(id, url));
+    setBusy(null);
+  };
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h3 className="text-[12px] font-medium text-muted-foreground">社媒账号 · {list.length}</h3>
+        {canEdit && report.socials && left.length > 1 && (
+          <Button size="xs" variant="ghost" className="h-6 text-primary" disabled={!!busy} onClick={() => add("all")}>
+            {busy === "all" ? <Loader2 /> : null}全部加到客户
+          </Button>
+        )}
+      </div>
+      <ul className="space-y-1">
+        {list.map((s) => {
+          const added = have.has(normalizeSocialUrl(s.url));
+          return (
+            <li key={s.url} className="flex items-center gap-2">
+              <SocialIcon platform={s.platform} className="size-6 rounded-md" />
+              <a href={s.url} target="_blank" rel="noopener noreferrer nofollow" className="min-w-0 flex-1 truncate hover:text-primary hover:underline">
+                {s.handle ?? s.url.replace(/^https?:\/\/(www\.)?/, "")}
+                <span className="ml-1.5 text-[11px] text-muted-foreground">{platformInfo(s.platform).label}</span>
+              </a>
+              {s.source && (
+                <span className="hidden shrink-0 text-[11px] sm:inline">
+                  <Source source={s.source} />
+                </span>
+              )}
+              {canEdit &&
+                report.socials &&
+                (added ? (
+                  <span className="shrink-0 text-[12px] text-muted-foreground">已添加</span>
+                ) : (
+                  <Button size="xs" variant="outline" className="h-6 shrink-0" disabled={!!busy} onClick={() => add(s.url, s.url)}>
+                    {busy === s.url ? <Loader2 /> : null}加到客户
+                  </Button>
+                ))}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
