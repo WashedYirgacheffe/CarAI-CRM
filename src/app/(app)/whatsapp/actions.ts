@@ -608,7 +608,8 @@ export async function translateWaAction(chatId: string, ids: string[]): Promise<
   const chat = await ownChat(user, chatId);
   if (!chat) return denied("会话不存在");
   const msgs = await prisma.waMessage.findMany({
-    where: { id: { in: ids.slice(0, TR_BATCH) }, chatId: chat.id, fromMe: false, translation: null },
+    // 以前每条只送前 1200 字，长消息的译文带着「已截断」：这些也重译
+    where: { id: { in: ids.slice(0, TR_BATCH) }, chatId: chat.id, fromMe: false, OR: [{ translation: null }, { translation: { contains: "已截断" } }] },
     select: { id: true, body: true },
   });
   const text = (b: string) => b.replace(/^\[(图片|视频|语音|表情|文件)\]\s*/, "").trim();
@@ -622,17 +623,19 @@ export async function translateWaAction(chatId: string, ids: string[]): Promise<
       messages: [
         {
           role: "user",
-          content: `把下面 ${foreign.length} 条消息逐条译成简体中文，产品型号、数字、单位、人名保持原样。输出 {"t": ["译文1", "译文2", ...]}，数量和顺序必须与原文一致。
+          content: `把下面 ${foreign.length} 条消息逐条译成简体中文，产品型号、数字、单位、人名保持原样。每条完整译出，不要省略，保留原文的分段和换行（JSON 里用 \\n）。输出 {"t": ["译文1", "译文2", ...]}，数量和顺序必须与原文一致。
 
-${foreign.map((m, i) => `${i + 1}. ${clip(text(m.body), 1200).replace(/\n/g, " ")}`).join("\n")}`,
+原文（JSON 数组）：
+${JSON.stringify(foreign.map((m) => clip(text(m.body), 6000)))}`,
         },
       ],
-      maxTokens: 3000,
-      timeoutMs: 45_000,
+      // 中文译文大约每 1.5 个外文字符 1 个 token，长消息给足
+      maxTokens: Math.min(16_000, 800 + Math.ceil(foreign.reduce((n, m) => n + text(m.body).length, 0) / 1.5)),
+      timeoutMs: 90_000,
     });
     const out = Array.isArray(r.t) ? r.t : [];
     await prisma.$transaction(
-      foreign.map((m, i) => prisma.waMessage.update({ where: { id: m.id }, data: { translation: String(out[i] ?? "").slice(0, 4000) || "" } })),
+      foreign.map((m, i) => prisma.waMessage.update({ where: { id: m.id }, data: { translation: String(out[i] ?? "").slice(0, 12_000) || "" } })),
     );
     return { ok: true, count: foreign.length };
   } catch (e) {
