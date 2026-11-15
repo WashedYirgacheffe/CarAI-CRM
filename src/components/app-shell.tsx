@@ -151,19 +151,21 @@ export function AppShell({
         </header>
 
         <div data-shell-row className="flex">
-          <nav
-            aria-label="模块"
+          {/* 外框不滚动：底部的天色总贴在屏幕底，里面的图标列表自己滚 */}
+          <div
             className={cn(
-              "sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 flex-col items-stretch gap-1 overflow-x-hidden overflow-y-auto bg-sidebar px-2 py-3 md:flex",
+              "sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[76px] shrink-0 overflow-hidden bg-sidebar md:block",
               // 有二级菜单时和菜单连成一块，大圆角放到菜单右上角
               !menu && "rounded-tr-3xl",
             )}
           >
             <RailHorizon level={0.45} />
-            {modules.map((m) => (
-              <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
-            ))}
-          </nav>
+            <nav aria-label="模块" className="relative flex h-full flex-col items-stretch gap-1 overflow-x-hidden overflow-y-auto px-2 py-3">
+              {modules.map((m) => (
+                <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
+              ))}
+            </nav>
+          </div>
 
           {menu && (
             <aside
@@ -173,6 +175,7 @@ export function AppShell({
                 collapsed ? "w-6" : "w-44",
               )}
             >
+              {!collapsed && <RailHorizon level={0.6} />}
               {collapsed ? (
                 <button
                   type="button"
@@ -184,7 +187,6 @@ export function AppShell({
                 </button>
               ) : (
                 <div className="relative flex h-full flex-col overflow-y-auto px-3 py-4">
-                  <RailHorizon level={0.6} />
                   <div className="relative mb-3 flex items-center justify-between pl-2">
                     <span className="font-brand text-lg font-medium tracking-[-0.01em]">{active.module.title}</span>
                     <button
