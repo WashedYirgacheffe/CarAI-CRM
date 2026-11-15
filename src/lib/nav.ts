@@ -64,7 +64,7 @@ export const NAV: NavModule[] = [
           { title: "社媒动态", href: "/social", permission: "customer.view" },
           { title: "跟踪名单", href: "/social/accounts", permission: "customer.view" },
           { title: "我的主页", href: "/social/bio" },
-          { title: "社媒矩阵", href: "/social/matrix", phase: "规划中" },
+          { title: "社媒矩阵", href: "/social/matrix" },
         ],
       },
     ],

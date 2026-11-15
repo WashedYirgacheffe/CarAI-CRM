@@ -5,7 +5,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // /api/t：邮件打开像素、链接跳转、退订（收件人没有登录）
 // /s：发给客户的报价单、表单、图片链接（带签名）
 // /b：销售 / 分公司对外的聚合主页（Link-in-Bio）
-const PUBLIC_PATHS = ["/login", "/register", "/api/t", "/s", "/b"];
+// /api/matrix/runner：社媒矩阵运行器（用企业令牌鉴权，不走登录 Cookie）
+const PUBLIC_PATHS = ["/login", "/register", "/api/t", "/s", "/b", "/api/matrix/runner"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

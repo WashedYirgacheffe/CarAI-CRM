@@ -12,36 +12,38 @@ datasource db {
 
 /// 企业（租户）。注册时创建，一个企业对应一个主账号。
 model Tenant {
-  id                   String   @id @default(cuid())
-  name                 String
-  defaultCurrency      String   @default("USD")
-  timezone             String   @default("Asia/Shanghai")
+  id                    String   @id @default(cuid())
+  name                  String
+  defaultCurrency       String   @default("USD")
+  timezone              String   @default("Asia/Shanghai")
   /// 公海规则：负责人超过 N 天未跟进，客户自动回到公海（0 = 不自动回收）
-  poolRecycleDays      Int      @default(30)
+  poolRecycleDays       Int      @default(30)
   /// 每人每天最多从公海领取的客户数（0 = 不限）
-  poolDailyClaimLimit  Int      @default(20)
+  poolDailyClaimLimit   Int      @default(20)
   /// 每人最多持有的私海客户数（0 = 不限）
-  privateCustomerLimit Int      @default(0)
+  privateCustomerLimit  Int      @default(0)
   /// 公海回收依据：contact = 最近联系（收发邮件、WhatsApp、跟进都算）；follow = 最近跟进（销售手写的跟进）
-  poolBasis            String   @default("contact")
+  poolBasis             String   @default("contact")
   /// 进公海前 N 天给负责人建提醒任务（0 = 不提醒）
-  poolWarnDays         Int      @default(7)
+  poolWarnDays          Int      @default(7)
   // ── 单据抬头（报价单 / PI 上显示，英文） ──
-  docCompanyName       String?
-  docAddress           String?
-  docPhone             String?
-  docEmail             String?
-  docWebsite           String?
+  docCompanyName        String?
+  docAddress            String?
+  docPhone              String?
+  docEmail              String?
+  docWebsite            String?
   /// 收款银行信息，原样打印在 PI 上
-  docBankInfo          String?
+  docBankInfo           String?
   /// 报价单默认条款
-  docQuotationTerms    String?
+  docQuotationTerms     String?
   /// 报价单默认有效期（天）
-  quotationValidDays   Int      @default(30)
+  quotationValidDays    Int      @default(30)
   /// 社媒跟踪：客户星级达到几星才自动跟踪它的社媒更新（0 = 不跟踪）
-  socialWatchStar      Int      @default(3)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  socialWatchStar       Int      @default(3)
+  /// 社媒矩阵运行器令牌（sha256，明文只在生成时显示一次）
+  matrixRunnerTokenHash String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   users             User[]
   departments       Department[]
@@ -81,6 +83,10 @@ model Tenant {
   customerSocials   CustomerSocial[]
   socialPosts       SocialPost[]
   bioPages          BioPage[]
+  matrixProxies     MatrixProxy[]
+  matrixAccounts    MatrixAccount[]
+  matrixJobs        MatrixJob[]
+  matrixEvents      MatrixEvent[]
 }
 
 enum UserStatus {
@@ -117,20 +123,21 @@ model User {
   role       Role        @relation(fields: [roleId], references: [id], onDelete: Restrict)
   sessions   Session[]
 
-  ownedCustomers     Customer[]    @relation("CustomerOwner")
-  prevCustomers      Customer[]    @relation("CustomerPrevOwner")
-  ownedLeads         Lead[]        @relation("LeadOwner")
-  ownedOpportunities Opportunity[] @relation("OpportunityOwner")
+  ownedCustomers     Customer[]      @relation("CustomerOwner")
+  prevCustomers      Customer[]      @relation("CustomerPrevOwner")
+  ownedLeads         Lead[]          @relation("LeadOwner")
+  ownedOpportunities Opportunity[]   @relation("OpportunityOwner")
   activities         Activity[]
-  tasks              Task[]        @relation("TaskOwner")
-  ownedQuotations    Quotation[]   @relation("QuotationOwner")
-  ownedOrders        Order[]       @relation("OrderOwner")
+  tasks              Task[]          @relation("TaskOwner")
+  ownedQuotations    Quotation[]     @relation("QuotationOwner")
+  ownedOrders        Order[]         @relation("OrderOwner")
   mailAccounts       MailAccount[]
   waAccounts         WaAccount[]
   workspaces         Workspace[]
   aiThreads          AiThread[]
   aiMemories         AiMemory[]
   bioPage            BioPage?
+  matrixAccounts     MatrixAccount[] @relation("MatrixAccountOwner")
 
   @@index([tenantId])
 }
@@ -274,11 +281,11 @@ model Customer {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  owner         User?           @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  prevOwner     User?           @relation("CustomerPrevOwner", fields: [prevOwnerId], references: [id], onDelete: SetNull)
-  status        CustomerStatus? @relation(fields: [statusId], references: [id], onDelete: SetNull)
-  group         CustomerGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner         User?            @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  prevOwner     User?            @relation("CustomerPrevOwner", fields: [prevOwnerId], references: [id], onDelete: SetNull)
+  status        CustomerStatus?  @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  group         CustomerGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
   contacts      Contact[]
   opportunities Opportunity[]
   activities    Activity[]
@@ -1445,4 +1452,131 @@ model BioPage {
   department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+}
+
+// ── 社媒矩阵：代理 IP、托管账号、环境运行器任务、审计（docs/social-matrix-plan.md） ──
+
+/// 代理 IP（手填）；保存后检测出口 IP / 国家 / 时区
+model MatrixProxy {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  /// http / https / socks5
+  protocol    String    @default("http")
+  host        String
+  port        Int
+  username    String?
+  /// 加密保存（src/server/crypto.ts）
+  passwordEnc String?
+  note        String?
+  exitIp      String?
+  country     String?
+  countryCode String?
+  city        String?
+  timezone    String?
+  isp         String?
+  /// 机房 IP（容易被平台识别）
+  hosting     Boolean?
+  latencyMs   Int?
+  checkedAt   DateTime?
+  lastError   String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  accounts MatrixAccount[]
+
+  @@index([tenantId])
+}
+
+/// 托管的社媒账号：一个账号 = 一个固定指纹 + 一个代理 + 一个独立浏览器数据目录
+model MatrixAccount {
+  id          String    @id @default(cuid())
+  tenantId    String
+  /// linkedin / facebook / instagram / tiktok / youtube
+  platform    String
+  name        String
+  /// 登录用的邮箱 / 手机号（可不填）
+  login       String?
+  passwordEnc String?
+  ownerId     String?
+  proxyId     String?
+  /// 指纹声称的系统：windows / macos
+  os          String    @default("windows")
+  /// 第一次启动时生成，之后每次都用这一份（不要改）
+  fingerprint Json?
+  /// new 未登录 / pending 等待登录 / active 已登录 / expired 登录失效 / restricted 受限
+  status      String    @default("new")
+  statusNote  String?
+  loggedInAt  DateTime?
+  checkedAt   DateTime?
+  note        String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner  User?         @relation("MatrixAccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  proxy  MatrixProxy?  @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+  jobs   MatrixJob[]
+  events MatrixEvent[]
+
+  @@index([tenantId, platform])
+}
+
+/// 环境运行器的任务队列
+model MatrixJob {
+  id          String    @id @default(cuid())
+  tenantId    String
+  accountId   String
+  /// login 登录 / open 打开环境 / check 检查登录状态（之后：inbox / reply / publish）
+  kind        String
+  payload     Json?
+  /// queued / running / waiting（等人登录）/ done / failed / canceled
+  status      String    @default("queued")
+  result      Json?
+  error       String?
+  /// 哪台运行器在跑
+  runner      String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([tenantId, accountId, createdAt])
+}
+
+/// 审计：谁对哪个账号做了什么
+model MatrixEvent {
+  id        String   @id @default(cuid())
+  tenantId  String
+  accountId String
+  userId    String?
+  action    String
+  detail    String?
+  runner    String?
+  createdAt DateTime @default(now())
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, accountId, createdAt])
+}
+
+/// 环境运行器心跳（tenantId 为空 = 服务所有企业的服务器运行器）
+model MatrixRunner {
+  id         String   @id
+  tenantId   String?
+  host       String
+  version    String?
+  /// 正在跑的任务数
+  busy       Int      @default(0)
+  lastSeenAt DateTime @default(now())
+
+  @@index([tenantId, lastSeenAt])
 }
