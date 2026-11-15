@@ -1,3 +1,5 @@
+import type { ResearchSocial } from "@/lib/social";
+
 /*
  * AI 穿透报告的结构（服务端生成、客户页展示共用）。
  * 每一条都带来源：网址、internal（我们自己的往来）、rdap（域名注册）、dns、gleif（全球法人识别码库）、comtrade（联合国贸易统计）。
@@ -46,6 +48,8 @@ export type ResearchReport = {
   applied: string[];
   /** 这次用到的全部来源网址 */
   sources: { url: string; title: string }[];
+  /** 挖到的社媒主页（旧报告没有这一项） */
+  socials?: ResearchSocial[];
 };
 
 export type ResearchStep = { key: string; label: string; state: "wait" | "run" | "done" | "skip" | "fail"; note?: string };
@@ -54,6 +58,7 @@ export const RESEARCH_STEPS: { key: string; label: string }[] = [
   { key: "identify", label: "确认是哪家公司" },
   { key: "site", label: "读官网" },
   { key: "search", label: "联网搜索" },
+  { key: "socials", label: "挖社媒账号" },
   { key: "registry", label: "查域名和注册信息" },
   { key: "trade", label: "查进口统计" },
   { key: "analyze", label: "整理和判断" },

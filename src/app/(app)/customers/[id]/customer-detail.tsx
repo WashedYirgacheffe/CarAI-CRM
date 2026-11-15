@@ -176,6 +176,7 @@ export function CustomerDetail({
   insights,
   memories,
   research,
+  socials,
 }: {
   tz: string;
   /** 往来概况（服务端渲染的图表块） */
@@ -183,6 +184,8 @@ export function CustomerDetail({
   /** AI 记得的这个客户的事 */
   memories?: React.ReactNode;
   research?: React.ReactNode;
+  /** 社媒图标一排（点了打开主页） */
+  socials?: React.ReactNode;
   access: CustomerAccess;
   perms: Perms;
   members: { id: string; name: string }[];
@@ -295,9 +298,15 @@ export function CustomerDetail({
       </div>
 
       {/* 手机 / 平板单栏时用 order 重新排：档案 → AI → 联系人 → 商机/日程 → 写跟进 → 页签 → 资料 */}
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 md:gap-4 xl:grid-cols-[23.5rem_minmax(0,1fr)]">
+      {/* xl：两栏，穿透放在右栏最上面；2xl：三栏，穿透单独占右侧一栏 */}
+      <div
+        className={cn(
+          "grid grid-cols-[minmax(0,1fr)] items-start gap-3 md:gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]",
+          research && "2xl:grid-cols-[22rem_minmax(0,1fr)_26rem]",
+        )}
+      >
         {/* 左栏：客户档案 + AI + 联系人 + 资料 */}
-        <div className="min-w-0 max-xl:contents xl:space-y-4">
+        <div className={cn("min-w-0 max-xl:contents xl:space-y-4", research && "xl:row-span-2 2xl:row-span-1")}>
           <section className="surface relative overflow-hidden max-xl:order-1">
             <CardSky />
             <div className="relative space-y-4 p-4 md:p-5">
@@ -347,6 +356,8 @@ export function CustomerDetail({
                 </MetaLine>
               </ul>
 
+              {socials}
+
               {c.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {c.tags.map((t) => (
@@ -389,8 +400,6 @@ export function CustomerDetail({
             <ContactsCard customerId={c.id} contacts={contacts} canEdit={canEdit} mailEnabled={comms.mailEnabled} waEnabled={comms.waEnabled} />
           </div>
 
-          {research && <div className="max-xl:order-6">{research}</div>}
-
           {memories && <div className="max-xl:order-6">{memories}</div>}
 
           <Panel title="客户资料" bodyClassName="space-y-5" className="max-xl:order-7">
@@ -426,8 +435,8 @@ export function CustomerDetail({
           </Panel>
         </div>
 
-        {/* 右栏：进行中的商机 / 计划日程 + 写跟进 + 页签 */}
-        <div className="min-w-0 max-xl:contents xl:space-y-4">
+        {/* 中栏：进行中的商机 / 计划日程 + 写跟进 + 页签 */}
+        <div className={cn("min-w-0 max-xl:contents xl:col-start-2 xl:space-y-4", research && "xl:row-start-2 2xl:row-start-1")}>
           <div className="space-y-3 max-xl:order-4">
             {perms.viewOpportunity && (
               <CollapseBar
@@ -585,6 +594,13 @@ export function CustomerDetail({
             </Tabs>
           </section>
         </div>
+
+        {/* 右栏：AI 穿透（客户公司、关键人、社媒账号、进口数据），作为详情页的重点 */}
+        {research && (
+          <div className="min-w-0 max-xl:order-3 xl:col-start-2 xl:row-start-1 2xl:sticky 2xl:top-4 2xl:col-start-3 2xl:max-h-[calc(100dvh-2rem)] 2xl:overflow-y-auto 2xl:rounded-[inherit]">
+            {research}
+          </div>
+        )}
       </div>
 
       {/* 手机端底部操作栏（在底部导航上方） */}

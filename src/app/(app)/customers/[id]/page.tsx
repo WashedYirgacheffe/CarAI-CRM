@@ -11,8 +11,9 @@ import { CustomerDetail } from "./customer-detail";
 import { CustomerInsights } from "./customer-insights";
 import { CustomerMemories, type CustomerMemory } from "./customer-memories";
 import { CustomerResearch, type ResearchView } from "./customer-research";
+import { CustomerSocials } from "./customer-socials";
 import { RESEARCH_STALE_DAYS, type ResearchReport, type ResearchStep } from "@/lib/ai-research";
-import { formatDate } from "@/lib/crm";
+import { formatDate, formatDateTime } from "@/lib/crm";
 
 export async function generateMetadata({ params }: PageProps<"/customers/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -80,6 +81,12 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
       })
     : null;
   const research = canAi ? await db.aiResearch.findFirst({ where: { customerId: id }, orderBy: { createdAt: "desc" } }) : null;
+  const [socials, socialPosts, tenant] = await Promise.all([
+    db.customerSocial.findMany({ where: { customerId: id }, orderBy: { createdAt: "asc" } }),
+    db.socialPost.findMany({ where: { customerId: id }, orderBy: { publishedAt: "desc" }, take: 10, include: { social: { select: { platform: true } } } }),
+    db.tenant.findFirst({ where: { id: user.tenantId }, select: { socialWatchStar: true } }),
+  ]);
+  const watchStar = tenant?.socialWatchStar ?? 3;
   const [mailAccounts, mails, waChats, insights] = await Promise.all([
     db.mailAccount.findMany({ where: { userId: user.id, status: { not: "PAUSED" } }, select: { id: true } }),
     db.mailMessage.findMany({
@@ -128,10 +135,37 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
           />
         )
       }
+      socials={
+        <CustomerSocials
+          customerId={id}
+          canEdit={access.edit}
+          watchStar={watchStar}
+          watching={watchStar > 0 && customer.star >= watchStar}
+          items={socials.map((x) => ({
+            id: x.id,
+            platform: x.platform,
+            url: x.url,
+            handle: x.handle,
+            source: x.source,
+            watch: x.watch,
+            checkedAt: x.checkedAt ? formatDateTime(x.checkedAt, user.timezone) : null,
+            lastError: x.lastError,
+          }))}
+          posts={socialPosts.map((p) => ({
+            id: p.id,
+            platform: p.social.platform,
+            title: p.title,
+            url: p.url,
+            date: formatDate(p.publishedAt, user.timezone),
+            unread: !p.readAt,
+          }))}
+        />
+      }
       research={
         canAi && (
           <CustomerResearch
             customerId={id}
+            socialUrls={socials.map((x) => x.url)}
             canEdit={access.edit}
             latest={researchView(research, user.timezone)}
             current={{

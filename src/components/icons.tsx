@@ -193,6 +193,7 @@ export {
   PackagePlus,
   PinOff,
   Printer,
+  QrCode,
   ReceiptText,
   ReplyAll,
   Share2,

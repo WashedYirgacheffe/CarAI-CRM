@@ -1,4 +1,4 @@
-// 后台 worker：邮件定时同步 + 新邮件 AI 分析 + WhatsApp 会话 + 公海回收 + AI 记忆整理。
+// 后台 worker：邮件定时同步 + 新邮件 AI 分析 + WhatsApp 会话 + 公海回收 + AI 记忆整理 + 重点客户社媒跟踪。
 // 本地：pnpm worker；Docker：worker 服务（见 docker-compose.yml）
 import "dotenv/config";
 import { prisma } from "@/server/db";
@@ -8,6 +8,7 @@ import { recyclePool } from "@/server/pool";
 import { runSequences } from "@/server/sequences";
 import { embedPending, expireStaleMemories, suggestTeamPromotions } from "@/server/ai-memory-core";
 import { scanCustomerMemories } from "@/server/ai-extract";
+import { runSocialWatch } from "@/server/social";
 import { reconcileWhatsapp, refreshWaAvatars, shutdownWhatsapp } from "@/server/whatsapp/runtime.mjs";
 
 const MAIL_EVERY = Number(process.env.MAIL_SYNC_MINUTES || 3) * 60_000;
@@ -118,6 +119,7 @@ const timers = [
   every(60_000, "sequences", () => runSequences(log)),
   every(6 * 60 * 60_000, "memory", expireMemories),
   every(10 * 60_000, "memory-learn", learnMemories),
+  every(10 * 60_000, "social", () => runSocialWatch(log)),
 ];
 
 async function stop() {

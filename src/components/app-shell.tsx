@@ -24,6 +24,7 @@ import {
   Package,
   Send,
   Settings,
+  Share2,
   type LucideIcon,
 } from "@/components/icons";
 import { Brand, BrandMark } from "@/components/brand";
@@ -62,6 +63,7 @@ const ICONS: Record<string, LucideIcon> = {
   Package,
   Send,
   Settings,
+  Share2,
 };
 
 type Badges = Partial<Record<BadgeKey, number>> & { due?: DueReminder[] };

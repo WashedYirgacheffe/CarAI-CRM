@@ -4,6 +4,8 @@ import { prisma, tenantDb } from "@/server/db";
 import { aiConfigured, aiJson, clip } from "@/server/ai";
 import { rememberOutside } from "@/server/ai-memory-core";
 import { fetchHtml, htmlToText, pageLinks, webSearch, type WebResult } from "@/server/web";
+import { pickSocials } from "@/server/social";
+import { detectPlatform, type ResearchSocial } from "@/lib/social";
 import { countryName, extractDomain, formatDate } from "@/lib/crm";
 import {
   RESEARCH_STEPS,
@@ -109,6 +111,9 @@ type Run = {
   facts: ResearchFact[];
   emails: Set<string>;
   trade: TradeStat[];
+  /** 社媒主页候选：官网上链出去的 + 搜索结果里的 */
+  socialLinks: { url: string; source: string; site: boolean; title?: string }[];
+  socials: ResearchSocial[];
 };
 
 async function step(run: Run, key: string, state: ResearchStep["state"], note?: string) {
@@ -137,6 +142,8 @@ export async function runResearch(id: string) {
     facts: [],
     emails: new Set(),
     trade: [],
+    socialLinks: [],
+    socials: [],
   };
   let current = "identify";
   try {
@@ -153,6 +160,11 @@ export async function runResearch(id: string) {
     await step(run, "search", "run");
     await searchWeb(run);
     await step(run, "search", run.results.length ? "done" : "fail", `${run.results.length} 条结果`);
+
+    current = "socials";
+    await step(run, "socials", "run");
+    await findSocials(run);
+    await step(run, "socials", run.socials.length ? "done" : "skip", run.socials.length ? `${run.socials.length} 个账号` : "没找到");
 
     current = "registry";
     await step(run, "registry", "run");
@@ -312,7 +324,9 @@ async function readSite(run: Run): Promise<string | null> {
   const links = pageLinks(home.html, home.url);
   addPage(run, home.url, home.html);
 
-  // 社交主页直接记下来
+  // 社交主页：全部当候选，挖社媒那一步再挑
+  for (const l of links)
+    if (!["website", "other", "whatsapp"].includes(detectPlatform(l.url))) run.socialLinks.push({ url: l.url, source: home.url, site: true, title: l.text });
   const socials = links
     .map((l) => l.url)
     .filter((u) => /linkedin\.com\/company\/|facebook\.com\/(?!sharer)|instagram\.com\/|youtube\.com\/(c\/|@|channel)/i.test(u))
@@ -370,6 +384,26 @@ async function searchWeb(run: Run) {
     }
   }
   run.results = run.results.slice(0, 24);
+}
+
+// 3.5 社媒账号：官网链出去的优先，再从搜索结果里找，最后专门搜一次
+async function findSocials(run: Run) {
+  const fromSearch = () =>
+    run.results
+      .filter((r) => !["website", "other"].includes(detectPlatform(r.url)))
+      .map((r) => ({ url: r.url, source: r.url, site: false, title: r.title }));
+  let picked = pickSocials([...run.socialLinks, ...fromSearch()], nameOf(run));
+  if (picked.length < 3) {
+    await sleep(1500);
+    try {
+      const extra = await webSearch(`"${nameOf(run)}" linkedin OR facebook OR instagram OR youtube OR tiktok`, { lang: "en" });
+      for (const r of extra) if (!run.results.some((x) => x.url === r.url)) run.results.push(r);
+      picked = pickSocials([...run.socialLinks, ...fromSearch()], nameOf(run));
+    } catch (e) {
+      console.error("[ai-research] social search", e instanceof Error ? e.message : e);
+    }
+  }
+  run.socials = picked;
 }
 
 // 4. 域名注册时间、邮箱服务器、GLEIF 法人库
@@ -590,6 +624,7 @@ async function analyze(run: Run, internal: string): Promise<ResearchReport & { m
     run.results.length && `【搜索结果】\n${run.results.map((r) => `[${r.url}] ${r.title} — ${r.snippet}`).join("\n")}`,
     run.registry.length && `【注册信息】（域名信息 source 写 rdap）\n${run.registry.join("\n")}`,
     tradeText && `【进口统计】（source 写 comtrade，单位美元）\n${tradeText}`,
+    run.socials.length && `【社媒主页】${run.socials.map((x) => x.url).join("、")}`,
     run.emails.size && `【官网上出现的公司邮箱】${[...run.emails].slice(0, 12).join("、")}`,
   ]
     .filter(Boolean)
@@ -701,6 +736,7 @@ async function analyze(run: Run, internal: string): Promise<ResearchReport & { m
     suggestions,
     applied: [],
     sources,
+    socials: run.socials,
     summary: clip(String(raw.summary ?? ""), 400),
     memories: Array.isArray(raw.memories) ? raw.memories.slice(0, 3) : [],
   };

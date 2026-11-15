@@ -13,6 +13,7 @@ export const MODULE_COLORS: Record<string, AgentPresetColor> = {
   marketing: "rose",
   leads: "amber",
   customers: "sky",
+  social: "violet",
   opportunities: "violet",
   trade: "teal",
   reports: "indigo",

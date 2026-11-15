@@ -52,6 +52,23 @@ export const NAV: NavModule[] = [
       },
     ],
   },
+  {
+    key: "social",
+    title: "社媒",
+    href: "/social",
+    icon: "Share2",
+    permission: "customer.view",
+    menu: [
+      {
+        items: [
+          { title: "社媒动态", href: "/social", permission: "customer.view" },
+          { title: "跟踪名单", href: "/social/accounts", permission: "customer.view" },
+          { title: "我的主页", href: "/social/bio" },
+          { title: "社媒矩阵", href: "/social/matrix", phase: "规划中" },
+        ],
+      },
+    ],
+  },
   { key: "opportunities", title: "商机", href: "/opportunities", icon: "KanbanSquare", permission: "opportunity.view" },
   {
     key: "trade",
