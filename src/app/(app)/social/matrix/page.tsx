@@ -6,6 +6,7 @@ import { SocialIcon } from "@/components/crm/social-icon";
 import { Globe, Share2 } from "@/components/icons";
 import { can, requireUser } from "@/server/auth";
 import { onlineRunners } from "@/server/matrix";
+import { cloudConfigured } from "@/server/matrix-cloud";
 import { prisma, tenantDb } from "@/server/db";
 import { appUrl } from "@/server/share";
 import { formatDateTime } from "@/lib/crm";
@@ -56,6 +57,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
     onlineRunners(user.tenantId),
     manage ? prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { matrixRunnerTokenHash: true } }) : null,
   ]);
+  const cloud = cloudConfigured();
   const active = accounts.some((a) => a.jobs[0] && ["queued", "running", "waiting"].includes(a.jobs[0].status));
   const proxyOptions = proxies.map((p) => ({
     id: p.id,
@@ -90,7 +92,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
             </TabLink>
           )}
         </nav>
-        <RunnerBadge runners={runners.map((r) => ({ host: r.host, busy: r.busy, shared: !r.tenantId }))} />
+        <RunnerBadge cloud={cloud} runners={runners.map((r) => ({ host: r.host, busy: r.busy, shared: !r.tenantId }))} />
         {manage && <RunnerSetupButton crmUrl={crmUrl} hasToken={!!tenant?.matrixRunnerTokenHash} />}
       </div>
 
@@ -112,6 +114,8 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
               const st = ACCOUNT_STATUS[a.status] ?? ACCOUNT_STATUS.new;
               const job = a.jobs[0];
               const jobActive = job && ["queued", "running", "waiting"].includes(job.status);
+              const onCloud = !!job?.runner?.startsWith("cloud-");
+              const liveJob = jobActive && job.kind !== "check" && (onCloud || (job.status === "queued" && cloud)) ? job.id : null;
               return (
                 <li key={a.id} className="grid items-center gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] md:px-5">
                   <div className="flex min-w-0 items-center gap-3">
@@ -150,7 +154,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                         title={job.error ?? undefined}
                       >
                         {JOB_KIND[job.kind] ?? job.kind} · {JOB_STATUS[job.status] ?? job.status}
-                        {job.status === "waiting" && "：去运行器电脑上的窗口里扫码或输入密码"}
+                        {job.status === "waiting" && (onCloud ? "：点「画面」扫码或输入密码" : "：去运行器电脑上的窗口里扫码或输入密码")}
                         {job.status === "failed" && job.error && `：${job.error}`}
                         {!jobActive && job.finishedAt && ` · ${formatDateTime(job.finishedAt, tz)}`}
                       </p>
@@ -171,6 +175,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                       status: a.status,
                     }}
                     activeJobId={jobActive ? job.id : null}
+                    liveJobId={liveJob}
                     manage={manage}
                     proxies={proxyOptions}
                     members={members}
@@ -232,7 +237,13 @@ function TabLink({ href, on, children }: { href: string; on: boolean; children: 
   );
 }
 
-function RunnerBadge({ runners }: { runners: { host: string; busy: number; shared: boolean }[] }) {
+function RunnerBadge({ runners, cloud }: { runners: { host: string; busy: number; shared: boolean }[]; cloud: boolean }) {
+  if (!runners.length && cloud)
+    return (
+      <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground" title="点「登录」或「打开环境」时自动启动，空闲 5 分钟自动关闭">
+        <span className="size-1.5 rounded-full bg-sky-500" /> 云端浏览器（按需启动）
+      </span>
+    );
   if (!runners.length)
     return (
       <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground" title="在要跑浏览器的电脑上执行：pnpm matrix-runner">

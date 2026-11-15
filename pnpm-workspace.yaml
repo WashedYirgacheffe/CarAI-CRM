@@ -6,5 +6,6 @@ ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
 overrides:
-  # fetch-socks 默认会装 undici 8（要 Node 22.19+），统一用 7，本地 Node 20 也能跑
-  undici: ^7.30.2
+  # fetch-socks 默认会装 undici 8（要 Node 22.19+），给它换成 7，本地 Node 20 也能跑。
+  # @vercel/sandbox 必须用 undici 8，只在服务器上（Node 22）按需加载
+  fetch-socks>undici: ^7.30.2
