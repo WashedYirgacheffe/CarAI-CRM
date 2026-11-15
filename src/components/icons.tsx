@@ -187,6 +187,7 @@ export {
   MailOpen,
   MailWarning,
   Merge,
+  MonitorPlay,
   MoreVertical,
   OctagonXIcon,
   Package,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, ExternalLink, Loader2, Lock, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
+import { Copy, ExternalLink, Loader2, Lock, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +22,7 @@ import {
   saveAccountAction,
   saveProxyAction,
 } from "./actions";
+import { LiveDialog } from "./live-dialog";
 
 type Option = { id: string; label: string };
 type Member = { id: string; name: string };
@@ -368,26 +369,38 @@ function AccountDialog({
 export function AccountRowActions({
   account,
   activeJobId,
+  liveJobId,
   manage,
   proxies,
   members,
 }: {
   account: AccountData;
   activeJobId: string | null;
+  /** 云端运行器在跑的登录 / 打开环境任务，可以看画面 */
+  liveJobId: string | null;
   manage: boolean;
   proxies: Option[];
   members: Member[];
 }) {
   const [edit, setEdit] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const run = async (key: string, p: Promise<{ ok?: boolean; message?: string }>) => {
+  const [liveOpen, setLiveOpen] = useState<string | null>(null);
+  const run = async (key: string, p: Promise<{ ok?: boolean; message?: string; jobId?: string; cloud?: boolean }>) => {
     setBusy(key);
-    await runAction(p as never);
+    const r = await runAction(p as never);
     setBusy(null);
+    // 云端浏览器：直接打开实时画面
+    const res = r as { jobId?: string; cloud?: boolean };
+    if (res.cloud && res.jobId && key !== "check") setLiveOpen(res.jobId);
   };
   const loggedIn = account.status === "active";
   return (
     <div className="flex items-center gap-1 md:justify-end">
+      {liveJobId && (
+        <Button size="sm" onClick={() => setLiveOpen(liveJobId)}>
+          <MonitorPlay /> 画面
+        </Button>
+      )}
       {activeJobId ? (
         <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run("cancel", cancelJobAction(activeJobId))}>
           {busy === "cancel" ? <Loader2 /> : <X />} 取消
@@ -432,6 +445,7 @@ export function AccountRowActions({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {liveOpen && <LiveDialog key={liveOpen} jobId={liveOpen} title={account.name} open onOpenChange={(v) => v || setLiveOpen(null)} />}
       {manage && <AccountDialog open={edit} onOpenChange={setEdit} account={account} proxies={proxies} members={members} />}
     </div>
   );

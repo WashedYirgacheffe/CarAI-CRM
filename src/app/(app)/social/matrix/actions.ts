@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser } from "@/server/auth";
 import { encryptSecret } from "@/server/crypto";
-import { checkProxy, enqueueMatrixJob, logMatrixEvent, rotateRunnerToken } from "@/server/matrix";
+import { checkProxy, enqueueMatrixJob, logMatrixEvent, onlineRunners, rotateRunnerToken } from "@/server/matrix";
+import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 import { isMatrixPlatform, JOB_KIND, PROXY_PROTOCOLS } from "@/lib/matrix";
 
@@ -203,7 +205,10 @@ export async function deleteAccountAction(id: string): Promise<ActionState> {
 }
 
 /** 登录 / 打开环境 / 检查登录：管理员，或者账号负责人（有「使用」权限） */
-export async function runAccountAction(id: string, kind: "login" | "open" | "check"): Promise<ActionState> {
+export async function runAccountAction(
+  id: string,
+  kind: "login" | "open" | "check",
+): Promise<ActionState & { jobId?: string; cloud?: boolean }> {
   const user = await requireUser();
   const acc = await tenantDb(user.tenantId).matrixAccount.findFirst({ where: { id } });
   if (!acc) return { ok: false, message: "账号不存在" };
@@ -211,11 +216,20 @@ export async function runAccountAction(id: string, kind: "login" | "open" | "che
   if (!allowed) return { ok: false, message: "这个账号没有分配给你" };
   if (!acc.proxyId) return { ok: false, message: "先给账号绑一个代理 IP" };
 
-  await enqueueMatrixJob({ tenantId: user.tenantId, accountId: id, kind, userId: user.id });
+  const job = await enqueueMatrixJob({ tenantId: user.tenantId, accountId: id, kind, userId: user.id });
   await logMatrixEvent({ tenantId: user.tenantId, accountId: id, userId: user.id, action: `request:${kind}` });
   if (kind === "login") await prisma.matrixAccount.update({ where: { id }, data: { status: "pending", statusNote: null } });
   revalidatePath(PATH);
-  return { ok: true, message: `已交给运行器：${JOB_KIND[kind]}` };
+
+  // 没有自己电脑上的运行器在线，就用云端运行器（画面在网页里看、在网页里操作）
+  const local = (await onlineRunners(user.tenantId)).some((r) => !r.id.startsWith("cloud-"));
+  const cloud = !local && cloudConfigured();
+  if (cloud) {
+    const tenantId = user.tenantId;
+    after(() => ensureCloudRunner(tenantId));
+    return { ok: true, jobId: job.id, cloud, message: `云端浏览器启动中：${JOB_KIND[kind]}` };
+  }
+  return { ok: true, jobId: job.id, cloud, message: `已交给运行器：${JOB_KIND[kind]}` };
 }
 
 export async function cancelJobAction(id: string): Promise<ActionState> {

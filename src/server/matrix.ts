@@ -6,6 +6,7 @@ import { prisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { decryptSecret } from "@/server/crypto";
 import { RUNNER_STALE_MS } from "@/lib/matrix";
+import { verifyCloudToken } from "@/server/matrix-cloud";
 
 type ProxyRow = {
   id: string;
@@ -170,7 +171,15 @@ export async function rotateRunnerToken(tenantId: string) {
 /** 从请求头 Authorization: Bearer <令牌> 认出是哪个企业的运行器 */
 export async function runnerTenant(req: Request): Promise<string | null> {
   const m = /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "");
-  if (!m || !m[1].startsWith("mr_")) return null;
+  if (!m) return null;
+  // 云端运行器：签名令牌，不入库
+  if (m[1].startsWith("mrc_")) {
+    const tenantId = verifyCloudToken(m[1]);
+    if (!tenantId) return null;
+    const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    return t?.id ?? null;
+  }
+  if (!m[1].startsWith("mr_")) return null;
   const t = await prisma.tenant.findFirst({ where: { matrixRunnerTokenHash: hashToken(m[1]) }, select: { id: true } });
   return t?.id ?? null;
 }

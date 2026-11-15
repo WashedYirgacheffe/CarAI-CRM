@@ -4,8 +4,11 @@
 //   CRM_URL=https://crm.caraicrm.com MATRIX_RUNNER_TOKEN=mr_xxx pnpm matrix-runner
 //
 // 也可以把这两个变量写进项目根目录的 .env.runner。需要 Node 22.15+。
+//
+// 云端（Vercel Sandbox）由 CRM 按需启动，带 MATRIX_HEADLESS=1：不弹窗口，
+// 把画面实时推给 CRM，人在 CRM 网页里点击、输入、扫码；空闲 MATRIX_IDLE_EXIT_MIN 分钟后自己退出、CRM 停掉 Sandbox。
 import { config as loadEnv } from "dotenv";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,6 +26,10 @@ const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-
 const MAX_JOBS = Math.max(1, Number(process.env.MATRIX_MAX_JOBS || 3));
 const POLL_MS = 3000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
+/** 无界面：画面推给 CRM（云端运行器） */
+const HEADLESS = process.env.MATRIX_HEADLESS === "1";
+/** 空闲多久自己退出（0 = 不退出） */
+const IDLE_EXIT_MS = Number(process.env.MATRIX_IDLE_EXIT_MIN || 0) * 60_000;
 
 const log = (...a: unknown[]) => console.log(new Date().toLocaleTimeString(), ...a);
 
@@ -31,16 +38,16 @@ if (major < 22 || (major === 22 && minor < 15)) {
   console.error(`Camoufox 需要 Node 22.15 以上，当前是 ${process.version}。可以用：PATH=/opt/homebrew/bin:$PATH pnpm matrix-runner`);
   process.exit(1);
 }
-if (!TOKEN.startsWith("mr_")) {
+if (!/^mrc?_/.test(TOKEN)) {
   console.error("缺少运行器令牌：到 CRM「社媒矩阵 → 运行器」生成，设成环境变量 MATRIX_RUNNER_TOKEN（或写进 .env.runner）");
   process.exit(1);
 }
 
 fs.mkdirSync(ROOT, { recursive: true });
 const idFile = path.join(ROOT, "runner-id");
-const RUNNER_ID = fs.existsSync(idFile) ? fs.readFileSync(idFile, "utf8").trim() : randomUUID();
+const RUNNER_ID = process.env.MATRIX_RUNNER_ID || (fs.existsSync(idFile) ? fs.readFileSync(idFile, "utf8").trim() : randomUUID());
 fs.writeFileSync(idFile, RUNNER_ID);
-const HOST = os.hostname().replace(/\.local$/, "");
+const HOST = process.env.MATRIX_RUNNER_HOST || os.hostname().replace(/\.local$/, "");
 
 // ── 和 CRM 通信 ──
 
@@ -179,22 +186,103 @@ function notify(title: string, text: string) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// ── 实时画面（无界面模式）：截图推给 CRM，顺便取回人在网页上的点击、按键 ──
+
+type JobState = { canceled: boolean; idle?: boolean };
+type Input =
+  | { t: "click" | "dblclick"; x: number; y: number }
+  | { t: "wheel"; dy: number }
+  | { t: "type"; text: string }
+  | { t: "key"; key: string }
+  | { t: "back" };
+type Page = import("playwright-core").Page;
+
+async function liveLoop(job: Job, ctx: Ctx, state: JobState, finished: () => boolean) {
+  let page: Page = ctx.pages().at(-1) ?? (await ctx.newPage());
+  // 弹出的新窗口（例如「用 Google 登录」）直接切过去
+  ctx.on("page", (p) => {
+    page = p;
+    p.on("close", () => {
+      if (page === p) page = ctx.pages().at(-1) ?? page;
+    });
+  });
+  let lastHash = "";
+  let lastSent = 0;
+  let size = { w: 1280, h: 800, at: 0 };
+  while (!finished() && !state.canceled) {
+    let frame: Buffer | null = null;
+    try {
+      if (Date.now() - size.at > 2000) {
+        const [w, h] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
+        size = { w, h, at: Date.now() };
+      }
+      const buf = await page.screenshot({ type: "jpeg", quality: 55, timeout: 5000 });
+      const hash = createHash("md5").update(buf).digest("hex");
+      // 画面没变就不重复传，最多 5 秒补一帧
+      if (hash !== lastHash || Date.now() - lastSent > 5000) {
+        frame = buf;
+        lastHash = hash;
+        lastSent = Date.now();
+      }
+    } catch {
+      // 页面正在跳转，下一轮再截
+    }
+    let inputs: Input[] = [];
+    try {
+      const res = await fetch(`${CRM_URL}/api/matrix/runner/jobs/${job.id}/frame`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          "x-runner-id": RUNNER_ID,
+          "x-page-url": encodeURIComponent(page.url()),
+          "x-page-size": `${size.w}x${size.h}`,
+          "content-type": "image/jpeg",
+        },
+        body: frame ? new Uint8Array(frame) : new Uint8Array(),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const d = (await res.json().catch(() => ({}))) as { inputs?: Input[]; canceled?: boolean; idle?: boolean };
+      if (d.canceled) state.canceled = true;
+      if (d.idle) state.idle = true;
+      inputs = d.inputs ?? [];
+    } catch {
+      // CRM 暂时连不上，继续
+    }
+    for (const ev of inputs) {
+      try {
+        if (ev.t === "click") await page.mouse.click(ev.x * size.w, ev.y * size.h);
+        else if (ev.t === "dblclick") await page.mouse.dblclick(ev.x * size.w, ev.y * size.h);
+        else if (ev.t === "wheel") await page.mouse.wheel(0, ev.dy);
+        else if (ev.t === "type") await page.keyboard.type(ev.text, { delay: 35 });
+        else if (ev.t === "key") await page.keyboard.press(ev.key);
+        else if (ev.t === "back") await page.goBack({ timeout: 15_000 }).catch(() => {});
+      } catch (e) {
+        log("  操作失败", ev.t, (e as Error).message.split("\n")[0]);
+      }
+    }
+    await sleep(inputs.length ? 80 : 300);
+  }
+}
+
 // ── 任务 ──
 
-const running = new Map<string, { canceled: boolean }>();
+const running = new Map<string, JobState>();
 
-async function runJob(job: Job, state: { canceled: boolean }) {
+async function runJob(job: Job, state: JobState) {
   const platform = matrixPlatform(job.account.platform);
   if (!platform) return report(job.id, { status: "failed", error: `不支持的平台 ${job.account.platform}` });
   log(`▶ ${job.kind} · ${platform.label} · ${job.account.name}`);
   let ctx: Ctx | null = null;
+  let finished = false;
+  let live: Promise<void> | null = null;
   try {
-    const launched = await launch(job, job.kind === "check");
+    const launched = await launch(job, job.kind === "check" || HEADLESS);
     ctx = launched.ctx;
     const fp = launched.fingerprint ? { fingerprint: launched.fingerprint } : {};
     let closed = false;
     ctx.on("close", () => (closed = true));
     const page = ctx.pages()[0] ?? (await ctx.newPage());
+    if (HEADLESS && job.kind !== "check") live = liveLoop(job, ctx, state, () => finished);
 
     if (job.kind === "check") {
       await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
@@ -217,8 +305,8 @@ async function runJob(job: Job, state: { canceled: boolean }) {
       if (!(await loggedIn(ctx, platform))) {
         await report(job.id, { account: { status: "expired", statusNote: "打开时发现没登录" } });
       }
-      // 窗口开着就一直算运行中，人关掉窗口或在 CRM 点取消才结束
-      while (!closed && !state.canceled) await sleep(1000);
+      // 窗口开着就一直算运行中，人关掉窗口或在 CRM 点取消才结束；云端没人看画面也结束
+      while (!closed && !state.canceled && !state.idle) await sleep(1000);
       await report(job.id, { status: "done", event: "close" });
       log(`  环境已关闭：${job.account.name}`);
       return;
@@ -228,8 +316,8 @@ async function runJob(job: Job, state: { canceled: boolean }) {
     await page.goto(platform.loginUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
     if (!(await loggedIn(ctx, platform))) {
       await report(job.id, { status: "waiting", account: fp, event: "login:waiting" });
-      notify("社媒矩阵：需要你登录", `${platform.label} · ${job.account.name}，请在弹出的浏览器窗口里扫码或输入账号密码`);
-      log(`  ⏳ 等你登录：${platform.label} · ${job.account.name}（窗口已弹出，10 分钟内有效）`);
+      if (!HEADLESS) notify("社媒矩阵：需要你登录", `${platform.label} · ${job.account.name}，请在弹出的浏览器窗口里扫码或输入账号密码`);
+      log(`  ⏳ 等你登录：${platform.label} · ${job.account.name}（${HEADLESS ? "在 CRM 里点「画面」操作" : "窗口已弹出"}，10 分钟内有效）`);
     }
     const deadline = Date.now() + LOGIN_TIMEOUT_MS;
     while (true) {
@@ -240,6 +328,10 @@ async function runJob(job: Job, state: { canceled: boolean }) {
       }
       if (closed) {
         await report(job.id, { status: "failed", error: "登录窗口被关掉了", account: { status: "new" }, event: "login:closed" });
+        return;
+      }
+      if (state.idle) {
+        await report(job.id, { status: "failed", error: "登录画面没人看，已结束", account: { status: "new" }, event: "login:idle" });
         return;
       }
       if (await loggedIn(ctx, platform).catch(() => false)) break;
@@ -269,6 +361,8 @@ async function runJob(job: Job, state: { canceled: boolean }) {
       event: `${job.kind}:error`,
     });
   } finally {
+    finished = true;
+    await live?.catch(() => {});
     await ctx?.close().catch(() => {});
   }
 }
@@ -301,7 +395,17 @@ async function main() {
   log(`社媒矩阵运行器 ${VERSION} · ${HOST} · ${CRM_URL}`);
   log(`浏览器环境目录：${ROOT}`);
   let lastErr = "";
+  let busyAt = Date.now();
   while (!stopping) {
+    if (running.size) busyAt = Date.now();
+    if (IDLE_EXIT_MS && !running.size && Date.now() - busyAt > IDLE_EXIT_MS) {
+      const r = await api<{ stay?: boolean }>("/api/matrix/runner/idle", { runnerId: RUNNER_ID }).catch(() => ({ stay: false }));
+      if (r.stay) busyAt = Date.now();
+      else {
+        log("空闲太久，退出");
+        process.exit(0);
+      }
+    }
     try {
       const got = await poll();
       if (lastErr) log("已重新连上 CRM");
