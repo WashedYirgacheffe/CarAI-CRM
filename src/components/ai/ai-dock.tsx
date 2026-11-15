@@ -20,6 +20,7 @@ import { AgentProfile, DEFAULT_PREFS, Feedback, SIZES, ThreadList, WorkLine, Wor
 import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { RichText, VisualView } from "./ai-visual";
 import { isStageTabs, setStageMode, setStagePane, useStage, withStageTransition } from "./ai-stage";
+import { publishAiLook } from "./ai-look";
 import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
@@ -191,6 +192,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   // 划词唤起的「润色 / 仿写 / 裂变」：先问想要什么效果
   const [compose, setCompose] = useState<{ text: string; kind: ComposeKind } | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  useEffect(() => publishAiLook(prefs), [prefs]);
   const [editing, setEditing] = useState(false);
   // 多段对话：当前这段 + 之前的（最新在前）
   const [threadId, setThreadId] = useState(newId);
@@ -1136,7 +1138,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         ) : (
           log
         )}
-        <div className="px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="kb-flush px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {form(
             "flex items-end gap-2 rounded-[14px] border border-[var(--line-strong)] bg-background py-1 pr-1.5 pl-3.5 transition-[border-color] focus-within:border-ring",
           )}
@@ -1251,57 +1253,110 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   );
 }
 
-/** 手机上的 AI 面板：从底部升起，下拉顶部或点空白处收起；高度跟着键盘走 */
+/**
+ * 手机上的 AI 面板：整屏，从底部升起；高度跟着键盘走。
+ * 在顶部任意位置、或对话已经滚到最上面时往下拖，就跟着手指下滑，拖过一段松手收起。
+ * 用原生 touchmove（非 passive）接管，浏览器不会把这一下当成滚动页面。
+ */
 function MobileSheet({ onClose, label, children }: { onClose: () => void; label: string; children: React.ReactNode }) {
   const vv = useVisualViewport();
   const [dy, setDy] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const drag = useRef<{ y: number; id: number } | null>(null);
+  const sec = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const el = sec.current;
+    if (!el) return;
+    let s: { x: number; y: number; t: number; on: boolean; d: number } | null = null;
+    // 手指下面有还没滚到顶的滚动区：交给它滚，不拖面板
+    const scrolled = (from: Element | null) => {
+      for (let n = from; n && n !== el; n = n.parentElement) {
+        if (n.scrollTop > 0 && /auto|scroll/.test(getComputedStyle(n).overflowY)) return true;
+      }
+      return false;
+    };
+    const start = (e: TouchEvent) => {
+      const t = e.target instanceof Element ? e.target : null;
+      if (e.touches.length !== 1 || !t || t.closest("textarea, input, [contenteditable=true]") || scrolled(t)) {
+        s = null;
+        return;
+      }
+      s = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), on: false, d: 0 };
+    };
+    const move = (e: TouchEvent) => {
+      if (!s) return;
+      const dx = e.touches[0].clientX - s.x;
+      const d = e.touches[0].clientY - s.y;
+      if (!s.on) {
+        if (d > 8 && d > Math.abs(dx) * 1.2) {
+          s.on = true;
+          setDragging(true);
+          (document.activeElement as HTMLElement | null)?.blur?.();
+        } else if (d < -4 || Math.abs(dx) > 10) {
+          s = null;
+          return;
+        } else return;
+      }
+      e.preventDefault();
+      s.d = Math.max(0, d - 8);
+      setDy(s.d);
+    };
+    const end = () => {
+      if (!s?.on) {
+        s = null;
+        return;
+      }
+      // 拖得够远，或者快速往下一甩
+      const far = s.d > 120 || (s.d > 40 && s.d / Math.max(1, Date.now() - s.t) > 0.6);
+      s = null;
+      setDragging(false);
+      if (far) {
+        setDy(window.innerHeight);
+        setTimeout(() => closeRef.current(), 200);
+      } else setDy(0);
+    };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+    };
+  }, []);
+
   return createPortal(
     <div
-      className="fixed inset-x-0 top-0 z-[60] flex h-dvh flex-col justify-end"
+      data-ai-sheet
+      className="fixed inset-x-0 top-0 z-[60] flex h-dvh flex-col overscroll-none"
       style={vv ? { top: vv.top, height: vv.height } : undefined}
       onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
-      <button
-        type="button"
-        aria-label="收起"
-        tabIndex={-1}
-        onClick={onClose}
-        className="absolute inset-0 animate-in bg-black/35 duration-200 fade-in-0"
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-black/35"
+        style={{ opacity: dy ? Math.max(0, 1 - dy / 400) : 0, transition: dragging ? "none" : "opacity 200ms" }}
       />
       <section
+        ref={sec}
         role="dialog"
         aria-modal
         aria-label={label}
-        style={{ transform: dy ? `translateY(${dy}px)` : undefined, transition: dragging ? "none" : "transform 240ms cubic-bezier(0.22,1,0.36,1)" }}
-        className="relative flex h-[calc(100%-max(2.75rem,env(safe-area-inset-top)+0.75rem))] animate-in flex-col overflow-hidden rounded-t-[20px] bg-popover shadow-e3 duration-300 slide-in-from-bottom"
+        style={{ transform: dy ? `translateY(${dy}px)` : undefined, transition: dragging ? "none" : "transform 220ms cubic-bezier(0.22,1,0.36,1)" }}
+        className={cn(
+          "relative flex h-full animate-in flex-col overflow-hidden bg-popover pt-[env(safe-area-inset-top)] duration-300 slide-in-from-bottom [&_[aria-live]]:overscroll-contain",
+          dy > 0 && "rounded-t-[20px] shadow-e3",
+        )}
       >
-        {/* 拖这条把手往下拉，收起面板 */}
-        <div
-          className="flex h-5 shrink-0 touch-none items-center justify-center"
-          onPointerDown={(e) => {
-            drag.current = { y: e.clientY, id: e.pointerId };
-            setDragging(true);
-            e.currentTarget.setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={(e) => {
-            if (drag.current?.id === e.pointerId) setDy(Math.max(0, e.clientY - drag.current.y));
-          }}
-          onPointerUp={() => {
-            const far = dy > 110;
-            drag.current = null;
-            setDragging(false);
-            setDy(0);
-            if (far) onClose();
-          }}
-          onPointerCancel={() => {
-            drag.current = null;
-            setDragging(false);
-            setDy(0);
-          }}
-        >
-          <span className="h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+        {/* 下拉提示：整个顶部都能拖 */}
+        <div className="flex h-3 shrink-0 items-center justify-center" aria-hidden>
+          <span className="h-1 w-9 rounded-full bg-muted-foreground/25" />
         </div>
         {children}
       </section>

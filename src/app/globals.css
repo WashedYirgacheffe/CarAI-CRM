@@ -391,9 +391,55 @@ html {
   [data-shell]:has([data-immersive]) [data-shell-tabs] {
     display: none;
   }
-  body:has([data-immersive]) {
+  body:has([data-immersive]),
+  body:has([data-ai-sheet]) {
     overflow: hidden;
     overscroll-behavior: none;
+  }
+
+  /*
+   * 软键盘弹起（html[data-kb]，见 useKeyboard）：
+   * - 底部标签栏让位，输入框底下不再留安全区（.kb-flush）
+   * - 对话类页面（[data-kb-pin]，工作台的 AI 对话）整个外壳钉在可视区里：顶栏不被顶走、输入框贴着键盘
+   * - 其他页面顶栏跟着可视区往下挪，保持看得见
+   */
+  html[data-kb] [data-shell-tabs] {
+    display: none;
+  }
+  html[data-kb] .kb-flush {
+    padding-bottom: 0.375rem !important;
+  }
+  html[data-kb] [data-shell]:has([data-kb-pin]) {
+    position: fixed;
+    inset-inline: 0;
+    top: var(--vv-top, 0px);
+    height: var(--vv-h, 100dvh);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  html[data-kb] [data-shell]:has([data-kb-pin]) [data-shell-top] {
+    position: relative;
+    flex-shrink: 0;
+  }
+  html[data-kb] [data-shell]:has([data-kb-pin]) [data-shell-row] {
+    flex: 1;
+    min-height: 0;
+  }
+  html[data-kb] [data-shell]:has([data-kb-pin]) [data-page-root] {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-bottom: 0;
+  }
+  html[data-kb] [data-kb-pin] {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+  html[data-kb] [data-shell]:not(:has([data-kb-pin])) [data-shell-top] {
+    transform: translateY(var(--vv-top, 0px));
   }
 }
 

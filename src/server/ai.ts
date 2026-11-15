@@ -305,7 +305,8 @@ export function writePrompt(input: WriteInput): AiOptions {
   return {
     system: `你是资深外贸业务员的写作助手${who ? `，我是 ${who}` : ""}。行文专业、礼貌、简洁，不夸大，不编造价格、交期等具体数字。`,
     messages: [{ role: "user", content: task }],
-    maxTokens: 3000,
+    // 长文翻译、润色要给足，免得译到一半被截掉
+    maxTokens: Math.min(12_000, Math.max(3000, Math.ceil(task.length / 1.2))),
   };
 }
 

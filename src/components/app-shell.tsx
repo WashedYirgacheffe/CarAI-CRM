@@ -24,7 +24,6 @@ import {
   Package,
   Send,
   Settings,
-  Sparkles,
   type LucideIcon,
 } from "@/components/icons";
 import { Brand, BrandMark } from "@/components/brand";
@@ -32,6 +31,8 @@ import { GlobalSearch } from "@/components/global-search";
 import { NavProgress, usePendingPath } from "@/components/nav-progress";
 import { UserMenu } from "@/components/user-menu";
 import { AiDock } from "@/components/ai/ai-dock";
+import { AiMascot } from "@/components/ai/ai-look";
+import { useKeyboard } from "@/hooks/use-keyboard";
 import { SelectionToolbar } from "@/components/ai/selection-toolbar";
 import { AI_OPEN_EVENT, AiContextMenu } from "@/components/ai/ai-context-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -99,6 +100,7 @@ export function AppShell({
   const pendingPath = usePendingPath();
   const active = activeNav(modules, pendingPath ?? pathname);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  useKeyboard();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const toggleMenu = () => {
@@ -138,7 +140,7 @@ export function AppShell({
                 aria-label="AI 助手"
                 className="flex size-9 items-center justify-center rounded-full text-brand-ink transition-colors active:bg-brand-soft md:hidden"
               >
-                <Sparkles className="size-[19px]" />
+                <AiMascot size="sm" />
               </button>
             )}
             <Reminders modules={modules} badges={badges} reload={reloadBadges} />
@@ -146,7 +148,7 @@ export function AppShell({
           </div>
         </header>
 
-        <div className="flex">
+        <div data-shell-row className="flex">
           <nav
             aria-label="模块"
             className={cn(

@@ -80,6 +80,8 @@ export function AiStage({ greeting, sub, children }: { greeting: string; sub: st
   return (
     <div
       data-stage={slot ? mode : "off"}
+      // 手机上对话页：键盘弹起时整页钉在可视区里（见 globals.css 的 data-kb-pin）
+      data-kb-pin={tabs && pane === "chat" ? "" : undefined}
       className={cn(
         side && "grid h-[calc(100svh-3.5rem-3rem)] grid-cols-[minmax(22rem,5fr)_minmax(0,7fr)] gap-5 xl:grid-cols-[minmax(24rem,1fr)_minmax(0,1fr)]",
         tabs && "flex h-[calc(100svh-8.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-2.5 md:h-[calc(100svh-3.5rem-3rem)]",

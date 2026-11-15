@@ -57,6 +57,7 @@ import { aiTargetOf, sendToAi } from "@/components/ai/ai-context-menu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLongPress } from "@/hooks/use-long-press";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
+import { AiMascot } from "@/components/ai/ai-look";
 import { WaMedia, waCaption, type WaMediaInfo } from "@/components/crm/wa-media";
 import { WaLightbox, type LightboxImage } from "@/components/crm/wa-lightbox";
 import { ContextActions, DropdownActions, type MenuEntry } from "@/components/crm/action-menu";
@@ -248,7 +249,7 @@ export function ChatView({
   useEffect(() => {
     if (!canAi || !trOn) return;
     const ids = messages
-      .filter((m) => !m.fromMe && m.translation == null && !trAsked.current.has(m.id) && looksForeign(waCaption(m.body, m.media), 2))
+      .filter((m) => !m.fromMe && (m.translation == null || m.translation.includes("已截断")) && !trAsked.current.has(m.id) && looksForeign(waCaption(m.body, m.media), 2))
       .slice(-20)
       .map((m) => m.id);
     if (!ids.length) return;
@@ -327,7 +328,7 @@ export function ChatView({
   /** 长按「翻译」：打开自动翻译，并马上翻这一条 */
   function translateOne(m: Msg) {
     if (!trOn) toggleTrOn();
-    if (m.translation || trPending.has(m.id)) return;
+    if ((m.translation && !m.translation.includes("已截断")) || trPending.has(m.id)) return;
     trAsked.current.add(m.id);
     setTrPending((x) => new Set(x).add(m.id));
     void translateWaAction(chat.id, [m.id]).then((r) => {
@@ -773,9 +774,7 @@ export function ChatView({
         )}
 
         <footer
-          className="space-y-2 border-t border-border/70 bg-[#f7f8fa] px-3 py-3 max-md:space-y-1.5 max-md:px-2 max-md:pt-1.5 max-md:pb-[max(0.375rem,env(safe-area-inset-bottom))] sm:px-4"
-          // 键盘弹起时底部没有横条，不用再留安全区
-          style={isMobile && vv && window.innerHeight - vv.height > 150 ? { paddingBottom: 6 } : undefined}
+          className="kb-flush space-y-2 border-t border-border/70 bg-[#f7f8fa] px-3 py-3 max-md:space-y-1.5 max-md:px-2 max-md:pt-1.5 max-md:pb-[max(0.375rem,env(safe-area-inset-bottom))] sm:px-4"
         >
           {!connected && (
             <p className="flex items-center gap-1.5 text-xs text-amber-700">
@@ -900,7 +899,7 @@ export function ChatView({
                     aiOpen ? "bg-brand-soft text-brand-ink" : "text-brand-ink/80 active:bg-brand-soft",
                   )}
                 >
-                  <Sparkles className="size-[19px]" />
+                  <AiMascot size="sm" />
                   {outTr && !aiOpen && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-brand" aria-label="中→外已开" />}
                 </button>
               )}
@@ -992,7 +991,7 @@ export function ChatView({
           items={pressed.items}
           onClose={() => setPressed(null)}
           preview={
-            <div className={cn(bubbleClass(pressed.m, true), "pointer-events-none max-h-[40svh] max-w-full overflow-hidden")} style={{ width: pressed.rect.width }}>
+            <div className={cn(bubbleClass(pressed.m, true), "min-h-0 max-w-full shrink overflow-y-auto overscroll-contain")} style={{ width: pressed.rect.width }}>
               {bubbleBody(pressed.m, waCaption(pressed.m.body, pressed.m.media))}
             </div>
           }
@@ -1054,6 +1053,7 @@ function PressMenu({
     onClose();
     fn();
   };
+  const maxH = (window.visualViewport?.height ?? window.innerHeight) - 24;
   const side = fromMe ? { right: Math.max(8, window.innerWidth - rect.right), left: 8 } : { left: Math.max(8, rect.left), right: 8 };
 
   return createPortal(
@@ -1066,11 +1066,15 @@ function PressMenu({
       />
       <div
         ref={col}
-        className={cn("wa-lift absolute flex flex-col gap-2", fromMe ? "items-end" : "items-start")}
-        style={{ top: top ?? rect.top, ...side, visibility: top === null ? "hidden" : undefined }}
+        className={cn(
+          "wa-lift pointer-events-none absolute flex flex-col gap-2 [&>*]:pointer-events-auto",
+          fromMe ? "items-end" : "items-start",
+        )}
+        // 太长的消息在中间滚动，上面的 AI 和下面的菜单始终露出来
+        style={{ top: top ?? rect.top, ...side, maxHeight: maxH, visibility: top === null ? "hidden" : undefined }}
       >
         {aiShown.length > 0 && (
-          <div className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-popover p-1 shadow-e3 [scrollbar-width:none]">
+          <div className="flex max-w-full shrink-0 gap-0.5 overflow-x-auto rounded-full bg-popover p-1 shadow-e3 [scrollbar-width:none]">
             {aiShown.map((a) => (
               <button
                 key={a.label}
@@ -1085,7 +1089,7 @@ function PressMenu({
           </div>
         )}
         {preview}
-        <ul className="w-60 overflow-hidden rounded-2xl bg-popover shadow-e3">
+        <ul className="w-60 shrink-0 overflow-hidden rounded-2xl bg-popover shadow-e3">
           {shown.map((x, i) =>
             x === "sep" ? (
               <li key={`s${i}`} className="h-1.5 bg-muted" aria-hidden />
