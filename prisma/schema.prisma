@@ -42,6 +42,8 @@ model Tenant {
   socialWatchStar       Int      @default(3)
   /// 社媒矩阵运行器令牌（sha256，明文只在生成时显示一次）
   matrixRunnerTokenHash String?
+  /// 云端运行器（Vercel Sandbox）：默认关，账号都在负责人的桌面软件里跑；打开后没有归属设备的账号交给云端
+  matrixCloudEnabled    Boolean  @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -85,6 +87,7 @@ model Tenant {
   bioPages          BioPage[]
   matrixProxies     MatrixProxy[]
   matrixAccounts    MatrixAccount[]
+  matrixDevices     MatrixDevice[]
   matrixJobs        MatrixJob[]
   matrixUsage       MatrixUsage[]
   matrixEvents      MatrixEvent[]
@@ -142,6 +145,7 @@ model User {
   aiMemories         AiMemory[]
   bioPage            BioPage?
   matrixAccounts     MatrixAccount[] @relation("MatrixAccountOwner")
+  matrixDevices      MatrixDevice[]
   socialThreads      SocialThread[]  @relation("SocialThreadAssignee")
 
   @@index([tenantId])
@@ -1526,12 +1530,15 @@ model MatrixAccount {
   inboxSync   Boolean   @default(false)
   /// 上次同步私信完成的时间（为空 = 还没同步过，第一次同步的消息不算未读）
   inboxAt     DateTime?
+  /// 浏览器环境放在哪台桌面软件上；为空 = 没有归属（企业开了云端就交给云端运行器）
+  deviceId    String?
   createdById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   owner   User?          @relation("MatrixAccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  device  MatrixDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   proxy   MatrixProxy?   @relation(fields: [proxyId], references: [id], onDelete: SetNull)
   jobs    MatrixJob[]
   events  MatrixEvent[]
@@ -1597,6 +1604,29 @@ model MatrixUsage {
 }
 
 /// 环境运行器心跳（tenantId 为空 = 服务所有企业的服务器运行器）
+/// 装了桌面软件的电脑。登录 CRM 后自动配对，拿设备令牌领归属自己的账号的任务
+model MatrixDevice {
+  id         String    @id @default(cuid())
+  tenantId   String
+  userId     String
+  /// 「Louis 的 MacBook Pro」
+  name       String
+  os         String?
+  appVersion String?
+  /// 设备令牌 md_… 的 sha256，明文只在配对时返回一次
+  tokenHash  String    @unique
+  lastSeenAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts MatrixAccount[]
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
 model MatrixRunner {
   id         String   @id
   tenantId   String?

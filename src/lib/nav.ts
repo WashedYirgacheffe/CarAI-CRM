@@ -111,6 +111,7 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
       { title: "客户分类", href: "/settings/fields", permission: "settings.business" },
       { title: "商机阶段", href: "/settings/stages", permission: "settings.business" },
       { title: "单据设置", href: "/settings/documents", permission: "settings.business" },
+      { title: "社媒运行", href: "/settings/matrix", permission: "matrix.manage" },
     ],
   },
   {

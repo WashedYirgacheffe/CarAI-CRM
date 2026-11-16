@@ -184,6 +184,7 @@ export {
   FileOutput,
   FileSpreadsheet,
   FolderTree,
+  Laptop,
   Link2Off,
   MailCheck,
   MailOpen,

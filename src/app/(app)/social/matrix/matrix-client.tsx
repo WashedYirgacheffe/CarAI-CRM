@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Cookie, Copy, ExternalLink, Loader2, Lock, MessagesSquare, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
+import { Cookie, Copy, ExternalLink, Laptop, Link2Off, Loader2, Lock, MessagesSquare, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
 import { isInboxPlatform } from "@/lib/inbox";
 import { setInboxSyncAction } from "@/app/(app)/inbox/actions";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   runAccountAction,
   saveAccountAction,
   saveProxyAction,
+  setAccountDeviceAction,
 } from "./actions";
 import { LiveDialog } from "./live-dialog";
 import { CookieDialog } from "./matrix-import";
@@ -64,7 +65,8 @@ export function RunnerSetupButton({ crmUrl, hasToken, usage }: { crmUrl: string;
           <DialogHeader>
             <DialogTitle>环境运行器</DialogTitle>
             <DialogDescription>
-              运行器装在要弹浏览器窗口的电脑上（试点用你的 Mac），它拿着企业令牌来 CRM 领任务。需要 Node 22 以上，在项目目录里执行下面的命令。
+              推荐直接安装车车 CRM 桌面版（Mac）：登录后自动连接，在桌面版里登录的账号就跑在那台电脑上，不需要令牌。云端运行器在「设置 → 社媒运行」里打开。
+              下面的命令行运行器给开发和服务器用：拿企业令牌领没有归属电脑的账号的任务，需要 Node 22 以上，在项目目录里执行。
             </DialogDescription>
           </DialogHeader>
           {token ? (
@@ -427,8 +429,11 @@ export function AccountRowActions({
   proxies,
   members,
   groups,
+  place,
 }: {
   account: AccountData;
+  /** 运行位置：当前是不是在桌面版里、账号是不是已经归属这台电脑、有没有归属电脑 */
+  place: { inDesktop: boolean; onThisDevice: boolean; hasDevice: boolean };
   activeJobId: string | null;
   /** 云端运行器在跑的登录 / 打开环境任务，可以看画面 */
   liveJobId: string | null;
@@ -488,6 +493,28 @@ export function AccountRowActions({
           <DropdownMenuItem disabled={!!activeJobId} onSelect={() => setCookieOpen(true)}>
             <Cookie /> 导入 Cookie
           </DropdownMenuItem>
+          {place.inDesktop && !place.onThisDevice && (
+            <DropdownMenuItem
+              disabled={!!activeJobId}
+              onSelect={() =>
+                confirm(`把「${account.name}」移到这台电脑运行？\n登录状态留在原来的地方，移过来后要重新登录一次。`) &&
+                run("move", setAccountDeviceAction(account.id, true))
+              }
+            >
+              <Laptop /> 移到这台电脑
+            </DropdownMenuItem>
+          )}
+          {place.hasDevice && (
+            <DropdownMenuItem
+              disabled={!!activeJobId}
+              onSelect={() =>
+                confirm(`取消「${account.name}」归属的电脑？\n之后由云端运行器执行（需要在设置里打开），并且要重新登录。`) &&
+                run("unbind", setAccountDeviceAction(account.id, false))
+              }
+            >
+              <Link2Off /> 取消归属电脑
+            </DropdownMenuItem>
+          )}
           {isInboxPlatform(account.platform) && (
             <DropdownMenuItem onSelect={() => run("inbox", setInboxSyncAction(account.id, !account.inboxSync))}>
               <MessagesSquare /> {account.inboxSync ? "关闭收私信" : "开启收私信"}

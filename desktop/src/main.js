@@ -1,0 +1,246 @@
+// 车车 CRM 桌面版主进程：主窗口加载 CRM；登录后用当前会话配对本机、拿设备令牌；
+// 在子进程里跑环境运行器，归属这台电脑的社媒账号都在这里执行。关窗口只隐藏，留在菜单栏继续挂着。
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, session, shell, Tray } from "electron";
+import path from "node:path";
+import { clearToken, loadDevice, saveDevice } from "./store.js";
+import { ensureBrowser, killHelpers, Runner, runnerLogPath } from "./runner.js";
+
+const CRM_URL = (process.env.CRM_URL || "https://crm.caraicrm.com").replace(/\/+$/, "");
+const ORIGIN = new URL(CRM_URL).origin;
+const VERSION = app.getVersion();
+
+if (!app.requestSingleInstanceLock()) app.quit();
+
+let win = null;
+let tray = null;
+let quitting = false;
+/** 这次启动里有没有用当前登录会话配对过（退出登录后重置） */
+let pairedThisSession = false;
+let pairing = null;
+let browserReady = null;
+const status = { state: "stopped", detail: "", device: "" };
+
+function deviceName() {
+  try {
+    const n = execFileSync("scutil", ["--get", "ComputerName"], { encoding: "utf8" }).trim();
+    if (n) return n;
+  } catch {
+    /* 不是 Mac 或取不到 */
+  }
+  return os.hostname().replace(/\.local$/, "");
+}
+
+function osLabel() {
+  const v = process.getSystemVersion?.() || os.release();
+  return process.platform === "darwin" ? `macOS ${v} · ${process.arch}` : `${process.platform} ${v}`;
+}
+
+const STATE_TEXT = {
+  stopped: "未连接（请在主窗口登录）",
+  running: "在线，社媒账号在这台电脑上运行",
+  restarting: "运行器重启中…",
+  crashed: "运行器异常退出",
+  unauthorized: "这台电脑已被移除，请重新登录",
+  preparing: "准备中…",
+};
+
+const runner = new Runner({
+  crmUrl: CRM_URL,
+  onState: (state, detail) => {
+    status.state = state;
+    status.detail = detail || "";
+    if (state === "unauthorized") {
+      clearToken();
+      pairedThisSession = false;
+      void pair();
+    }
+    refreshTray();
+  },
+});
+
+function refreshTray() {
+  if (!tray) return;
+  const line = status.detail || STATE_TEXT[status.state] || status.state;
+  tray.setToolTip(`车车 CRM · ${line}`);
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: status.device ? `${status.device} · ${line}` : line, enabled: false },
+      { type: "separator" },
+      { label: "打开车车 CRM", click: showWindow },
+      { label: "查看运行器日志", click: () => shell.openPath(runnerLogPath()) },
+      { label: "重新连接", click: () => ((pairedThisSession = false), void pair()) },
+      { type: "separator" },
+      {
+        label: "开机自动启动",
+        type: "checkbox",
+        checked: app.getLoginItemSettings().openAtLogin,
+        click: (i) => app.setLoginItemSettings({ openAtLogin: i.checked, openAsHidden: true }),
+      },
+      { label: "退出车车 CRM", accelerator: "Command+Q", click: () => ((quitting = true), app.quit()) },
+    ]),
+  );
+}
+
+/** 第一次用的时候下载浏览器内核；之后每次启动只检查一下 */
+function prepareBrowser() {
+  browserReady ??= ensureBrowser((msg) => {
+    status.detail = msg;
+    refreshTray();
+  }).then((ok) => {
+    status.detail = ok ? "" : "浏览器内核下载失败，点「重新连接」重试";
+    if (!ok) browserReady = null;
+    refreshTray();
+    return ok;
+  });
+  return browserReady;
+}
+
+async function startRunner(token) {
+  if (!(await prepareBrowser())) return;
+  runner.start(token, status.device);
+}
+
+/** 用主窗口的登录会话换设备令牌（服务器同时给这个会话写上 cc_device Cookie） */
+function pair() {
+  pairing ??= (async () => {
+    const saved = loadDevice();
+    const ses = session.defaultSession;
+    try {
+      const res = await ses.fetch(`${CRM_URL}/api/desktop/pair`, {
+        method: "POST",
+        credentials: "include",
+        redirect: "manual",
+        headers: { "content-type": "application/json", "x-cheche-desktop": "1" },
+        body: JSON.stringify({ deviceId: saved.deviceId, name: status.device, os: osLabel(), appVersion: VERSION }),
+      });
+      // 还没登录（老版本服务器会跳登录页），登录后再配
+      if (res.status === 401 || (res.status >= 300 && res.status < 400) || res.type === "opaqueredirect") return false;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      const firstTime = saved.deviceId !== d.deviceId;
+      saveDevice({ deviceId: d.deviceId, token: d.token, userId: d.user?.id ?? null });
+      // fetch 的 Set-Cookie 不一定落进会话，自己再写一遍
+      await ses.cookies.set({
+        url: CRM_URL,
+        name: "cc_device",
+        value: d.deviceId,
+        httpOnly: true,
+        secure: CRM_URL.startsWith("https:"),
+        sameSite: "lax",
+        expirationDate: Math.floor(Date.now() / 1000) + 400 * 86400,
+      });
+      pairedThisSession = true;
+      // 当前页面是配对前渲染的，刷新一下才会显示「这台电脑」相关的操作
+      if (firstTime && win && !win.isDestroyed()) win.webContents.reload();
+      await startRunner(d.token);
+      return true;
+    } catch (e) {
+      status.detail = `连不上 CRM：${e instanceof Error ? e.message : e}`;
+      refreshTray();
+      return false;
+    } finally {
+      pairing = null;
+    }
+  })();
+  return pairing;
+}
+
+function onNavigate(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return;
+  }
+  if (u.origin !== ORIGIN) return;
+  if (u.pathname.startsWith("/login") || u.pathname.startsWith("/register")) {
+    // 退出登录了：换个人登录时要重新配对。运行器先停，免得用上一个人的身份继续跑
+    if (pairedThisSession) {
+      pairedThisSession = false;
+      runner.stop();
+      clearToken();
+    }
+    return;
+  }
+  if (!pairedThisSession) void pair();
+}
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1360,
+    height: 860,
+    minWidth: 960,
+    minHeight: 600,
+    title: "车车 CRM",
+    show: false,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, "preload.cjs"),
+      contextIsolation: true,
+      sandbox: true,
+      additionalArguments: [`--cheche-version=${VERSION}`],
+    },
+  });
+  win.webContents.setUserAgent(`${win.webContents.getUserAgent()} CheCheCRMDesktop/${VERSION}`);
+  win.once("ready-to-show", () => win.show());
+  win.on("close", (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    win.hide();
+  });
+  win.webContents.on("did-navigate", (_e, url) => onNavigate(url));
+  win.webContents.on("did-navigate-in-page", (_e, url, isMain) => isMain && onNavigate(url));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(ORIGIN)) return { action: "allow" };
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (e, url) => {
+    if (!url.startsWith(ORIGIN)) {
+      e.preventDefault();
+      void shell.openExternal(url);
+    }
+  });
+  void win.loadURL(CRM_URL);
+}
+
+function showWindow() {
+  if (!win || win.isDestroyed()) createWindow();
+  else {
+    win.show();
+    win.focus();
+  }
+}
+
+function createTray() {
+  // 先用文字占位，图标随 M3 安装包一起做
+  tray = new Tray(nativeImage.createEmpty());
+  tray.setTitle("车车");
+  refreshTray();
+}
+
+app.on("second-instance", showWindow);
+app.on("activate", showWindow);
+app.on("before-quit", () => {
+  quitting = true;
+  runner.stop();
+  killHelpers();
+});
+// 窗口都关了也不退出：留在菜单栏
+app.on("window-all-closed", () => {});
+
+ipcMain.handle("desktop:status", () => ({ paired: !!loadDevice().token, state: status.state, detail: status.detail, device: status.device }));
+
+app.whenReady().then(() => {
+  status.device = deviceName();
+  createTray();
+  createWindow();
+  // 之前配对过就直接开跑，不用等主窗口登录
+  const saved = loadDevice();
+  if (saved.token) {
+    // 已经配对过：会话里的 cc_device Cookie 还在，不重新配对（换令牌会重启运行器、打断刚领到的任务）
+    pairedThisSession = true;
+    void startRunner(saved.token);
+  } else void prepareBrowser();
+});

@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/server/db";
 import { appUrl } from "@/server/share";
+import { RUNNER_STALE_MS } from "@/lib/matrix";
 
 /*
  * 云端运行器：每个企业一台 Vercel Sandbox（名字 crm-matrix-<企业ID>，持久化文件系统，
@@ -19,6 +20,41 @@ const DIR = `${HOME}/runner`;
 export function cloudConfigured() {
   const e = process.env;
   return Boolean(e.VERCEL_TOKEN && e.VERCEL_TEAM_ID && e.VERCEL_PROJECT_ID && e.MATRIX_SANDBOX_SNAPSHOT);
+}
+
+/** 服务器配好了 Vercel，并且企业在「设置 → 社媒运行」里打开了云端 */
+export async function cloudEnabledFor(tenantId: string) {
+  if (!cloudConfigured()) return false;
+  const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { matrixCloudEnabled: true } });
+  return !!t?.matrixCloudEnabled;
+}
+
+/** 旧式的命令行运行器（企业令牌 mr_，不是桌面软件也不是云端）在线：没有归属设备的账号由它跑 */
+export async function legacyRunnerOnline(tenantId: string) {
+  const r = await prisma.matrixRunner.findFirst({
+    where: {
+      tenantId,
+      lastSeenAt: { gte: new Date(Date.now() - RUNNER_STALE_MS) },
+      NOT: [{ id: { startsWith: "cloud-" } }, { id: { startsWith: "dev-" } }],
+    },
+    select: { id: true },
+  });
+  return !!r;
+}
+
+/**
+ * 有没有归属设备的账号在排队，并且该交给云端 → 拉起云端运行器（在 after() 里跑，不挡请求）。
+ * 传 accountId 时只看这个账号。返回 true = 这个任务会在云端执行（界面据此显示实时画面）。
+ */
+export async function kickCloud(tenantId: string, accountId?: string, schedule: (fn: () => Promise<void>) => void = (fn) => void fn()) {
+  if (!(await cloudEnabledFor(tenantId))) return false;
+  if (await legacyRunnerOnline(tenantId)) return false;
+  const pending = await prisma.matrixJob.count({
+    where: { tenantId, status: "queued", ...(accountId ? { accountId } : {}), account: { deviceId: null } },
+  });
+  if (!pending) return false;
+  schedule(() => ensureCloudRunner(tenantId));
+  return true;
 }
 
 export const cloudRunnerId = (tenantId: string) => `cloud-${tenantId}`;
@@ -71,6 +107,7 @@ export function ensureCloudRunner(tenantId: string): Promise<void> {
 }
 
 async function start(tenantId: string) {
+  if (!(await cloudEnabledFor(tenantId))) return;
   // 10 秒内报过心跳的就不用管
   const seen = await prisma.matrixRunner.findUnique({ where: { id: cloudRunnerId(tenantId) }, select: { lastSeenAt: true } });
   if (seen && Date.now() - seen.lastSeenAt.getTime() < 10_000) return;

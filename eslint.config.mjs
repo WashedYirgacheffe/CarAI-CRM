@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 桌面版是独立的 Electron 工程
+    "desktop/**",
   ]),
 ]);
 

@@ -1,6 +1,6 @@
 import { prisma } from "@/server/db";
-import { enqueueMatrixJob, logMatrixEvent, onlineRunners } from "@/server/matrix";
-import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
+import { enqueueMatrixJob, logMatrixEvent, runnableAccounts } from "@/server/matrix";
+import { kickCloud } from "@/server/matrix-cloud";
 import { scheduleInboxSync, settleReplies } from "@/server/inbox";
 import { AUTO_CHECK_EVERY_MS, JOB_TIMEOUT_MS, RUNNER_STALE_MS } from "@/lib/matrix";
 
@@ -74,11 +74,11 @@ export async function scheduleMatrixChecks() {
       jobs: { none: { OR: [{ kind: "check", createdAt: { gte: cutoff } }, { status: { in: ["queued", "running", "waiting"] } }] } },
     },
     orderBy: { checkedAt: { sort: "asc", nulls: "first" } },
-    select: { id: true, tenantId: true },
+    select: { id: true, tenantId: true, deviceId: true },
     take: 500,
   });
   const byTenant = new Map<string, string[]>();
-  for (const a of due) {
+  for (const a of await runnableAccounts(due)) {
     const list = byTenant.get(a.tenantId) ?? [];
     if (list.length < CHECKS_PER_TENANT) list.push(a.id);
     byTenant.set(a.tenantId, list);
@@ -89,8 +89,7 @@ export async function scheduleMatrixChecks() {
       await enqueueMatrixJob({ tenantId, accountId, kind: "check", userId: null, payload: { auto: true } });
       n++;
     }
-    const local = (await onlineRunners(tenantId)).some((r) => !r.id.startsWith("cloud-"));
-    if (!local && cloudConfigured()) await ensureCloudRunner(tenantId);
+    await kickCloud(tenantId);
   }
   return n;
 }
