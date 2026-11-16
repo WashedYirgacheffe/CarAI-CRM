@@ -54,7 +54,9 @@ function creds() {
 // @vercel/sandbox 要 Node 22.19+，只在用到时才加载
 const sdk = () => import("@vercel/sandbox");
 
-const locks = new Map<string, Promise<void>>();
+// 放 globalThis：Server Action 和 Route Handler 是不同的打包产物，模块级变量各有一份
+const g = globalThis as unknown as { __matrixCloudLocks?: Map<string, Promise<void>> };
+const locks = (g.__matrixCloudLocks ??= new Map());
 
 /** 有任务时调用：云端运行器没在跑就拉起来（同一企业同时只拉一次） */
 export function ensureCloudRunner(tenantId: string): Promise<void> {
@@ -106,7 +108,8 @@ async function start(tenantId: string) {
 
   await sbx.runCommand({
     cmd: "bash",
-    args: ["-lc", `cd ${DIR} && exec node runner.mjs >> ${DIR}/runner.log 2>&1`],
+    // flock：两次启动请求撞在一起时，第二个运行器直接退出（同一 ID 两个运行器会互相把对方的任务判成中断）
+    args: ["-lc", `cd ${DIR} && exec flock -n ${DIR}/runner.lock node runner.mjs >> ${DIR}/runner.log 2>&1`],
     env: {
       CRM_URL: appUrl(),
       MATRIX_RUNNER_TOKEN: cloudRunnerToken(tenantId),
