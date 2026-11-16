@@ -350,10 +350,14 @@ async function tiktokLeaveRequests(page: Page) {
 async function tiktokOpen(page: Page, key: string) {
   await tiktokHome(page);
   const sel = `${TT.item}[data-conv-id="${key.replace(/"/g, '\\"')}"]`;
-  let item = page.locator(sel).first();
-  if (!(await item.isVisible().catch(() => false))) {
-    if (!(await tiktokEnterRequests(page))) throw new Error("找不到这个会话");
-    item = page.locator(sel).first();
+  const item = page.locator(sel).first();
+  const shows = (ms: number) => item.waitFor({ state: "visible", timeout: ms }).then(() => true, () => false);
+  if (!(await shows(3000))) {
+    // 可能停在「消息请求」里（上一个会话是请求），先回主列表找；还没有再进请求里找
+    await tiktokLeaveRequests(page);
+    if (!(await shows(5000))) {
+      if (!(await tiktokEnterRequests(page)) || !(await shows(5000))) throw new Error("找不到这个会话");
+    }
   }
   await item.click({ timeout: 15_000 });
   await page.waitForSelector(TT.chatItem, { timeout: 15_000 }).catch(() => {});
