@@ -88,6 +88,7 @@ export const PERMISSION_GROUPS = [
     items: [
       { key: "matrix.use", label: "使用分配给自己的社媒账号" },
       { key: "matrix.manage", label: "管理代理 IP 和全部社媒账号" },
+      { key: "matrix.reveal", label: "查看社媒私信里客户的主页链接、电话和邮箱（不勾选时脱敏显示）" },
     ],
   },
   {

@@ -9,7 +9,7 @@ export type NavLeaf = {
 };
 
 /** 图标栏数字提醒（/api/badges 返回） */
-export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "tasks";
+export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "inbox" | "tasks";
 
 export type NavGroup = { group?: string; items: NavLeaf[] };
 
@@ -22,6 +22,8 @@ export type NavModule = {
   /** lucide 图标名，在 app-shell.tsx 里映射 */
   icon: string;
   permission?: Permission;
+  /** 有其中任一权限就显示 */
+  anyPermission?: Permission[];
   badge?: BadgeKey;
   menu?: NavGroup[];
 };
@@ -31,6 +33,7 @@ export const NAV: NavModule[] = [
   { key: "dashboard", title: "工作台", href: "/dashboard", icon: "LayoutDashboard" },
   { key: "todo", title: "待办", href: "/todo", icon: "ListTodo", badge: "todo" },
   { key: "mail", title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
+  { key: "inbox", title: "收件箱", href: "/inbox", icon: "MessagesSquare", anyPermission: ["matrix.use", "matrix.manage"], badge: "inbox" },
   { key: "whatsapp", title: "沟通", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
   { key: "marketing", title: "营销", href: "/marketing", icon: "Send", permission: "mail.use" },
   { key: "leads", title: "线索", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
@@ -130,6 +133,7 @@ export function filterModules(permissions: Permission[]): NavModule[] {
   const out: NavModule[] = [];
   for (const m of NAV) {
     if (m.permission && !permissions.includes(m.permission)) continue;
+    if (m.anyPermission && !m.anyPermission.some((p) => permissions.includes(p))) continue;
     if (!m.menu) {
       out.push(m);
       continue;

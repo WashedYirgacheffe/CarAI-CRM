@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Cookie, Copy, ExternalLink, Loader2, Lock, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
+import { Cookie, Copy, ExternalLink, Loader2, Lock, MessagesSquare, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
+import { isInboxPlatform } from "@/lib/inbox";
+import { setInboxSyncAction } from "@/app/(app)/inbox/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -254,6 +256,7 @@ type AccountData = {
   /** 已经生成过指纹，系统类型不能再改 */
   locked: boolean;
   status: string;
+  inboxSync: boolean;
 };
 
 export function AccountButton({ proxies, members, groups, defaultOwnerId }: { proxies: Option[]; members: Member[]; groups: string[]; defaultOwnerId: string }) {
@@ -485,6 +488,11 @@ export function AccountRowActions({
           <DropdownMenuItem disabled={!!activeJobId} onSelect={() => setCookieOpen(true)}>
             <Cookie /> 导入 Cookie
           </DropdownMenuItem>
+          {isInboxPlatform(account.platform) && (
+            <DropdownMenuItem onSelect={() => run("inbox", setInboxSyncAction(account.id, !account.inboxSync))}>
+              <MessagesSquare /> {account.inboxSync ? "关闭收私信" : "开启收私信"}
+            </DropdownMenuItem>
+          )}
           {manage && (
             <>
               <DropdownMenuSeparator />

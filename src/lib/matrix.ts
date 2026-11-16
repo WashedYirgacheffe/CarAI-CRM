@@ -143,6 +143,8 @@ export const JOB_KIND: Record<string, string> = {
   login: "登录",
   open: "打开环境",
   check: "检查登录",
+  inbox: "收私信",
+  reply: "发私信",
 };
 
 /** 任务最长能跑多久，超时由 CRM 标成失败（运行器自己也会掐） */
@@ -150,6 +152,8 @@ export const JOB_TIMEOUT_MS: Record<string, number> = {
   login: 15 * 60_000,
   check: 5 * 60_000,
   open: 4 * 60 * 60_000,
+  inbox: 12 * 60_000,
+  reply: 6 * 60_000,
 };
 
 /** 自动检查登录：每个已登录账号隔多久检查一次 */

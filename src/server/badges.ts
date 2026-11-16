@@ -4,18 +4,20 @@ import { can, type CurrentUser } from "@/server/auth";
 import { LEAD_OPEN_STATUSES } from "@/lib/crm";
 import type { BadgeKey } from "@/lib/nav";
 import { countTodo } from "@/server/todo";
+import { canUseInbox, threadScope } from "@/server/inbox";
 
 /**
  * 图标栏 / 顶栏提醒 / 工作台的提醒数：
  * - 线索：分配给我、还没处理的新线索；有分配权限的再加上待分配的
  * - 邮件：我绑定的邮箱里收件箱未读
  * - WhatsApp：我的账号下未读消息数
+ * - 收件箱：分给我的社媒私信未读数（管理者看全部）
  * - 日程：我已到点还没完成的提醒
  * - 待办：今天及以前的提醒 + 待回邮件 + 待回 WhatsApp（见 server/todo.ts）
  */
 export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, number>> {
   const t = user.tenantId;
-  const [myLeads, poolLeads, mail, wa, tasks, todo] = await Promise.all([
+  const [myLeads, poolLeads, mail, wa, tasks, todo, inbox] = await Promise.all([
     can(user, "lead.view") ? prisma.lead.count({ where: { tenantId: t, ownerId: user.id, status: "NEW" } }) : 0,
     can(user, "lead.view") && can(user, "lead.assign")
       ? prisma.lead.count({ where: { tenantId: t, ownerId: null, status: { in: [...LEAD_OPEN_STATUSES] } } })
@@ -26,8 +28,11 @@ export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, num
       : 0,
     prisma.task.count({ where: { tenantId: t, ownerId: user.id, done: false, dueAt: { lte: new Date() } } }),
     countTodo(user),
+    canUseInbox(user)
+      ? prisma.socialThread.aggregate({ where: { ...threadScope(user), archived: false }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
+      : 0,
   ]);
-  return { leads: myLeads + poolLeads, mail, whatsapp: wa, tasks, todo };
+  return { leads: myLeads + poolLeads, mail, whatsapp: wa, inbox, tasks, todo };
 }
 
 export type DueReminder = {

@@ -18,10 +18,11 @@ import path from "node:path";
 import { ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
 import { socksDispatcher } from "fetch-socks";
 import { JOB_TIMEOUT_MS, matrixPlatform, type MatrixPlatformInfo } from "@/lib/matrix";
+import { sendReplies, syncInbox, type InboxThread, type Reply } from "./matrix-inbox.mjs";
 
 loadEnv({ path: ".env.runner", quiet: true });
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const CRM_URL = (process.env.CRM_URL || "http://localhost:3000").replace(/\/+$/, "");
 const TOKEN = process.env.MATRIX_RUNNER_TOKEN || "";
 const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-crm", "matrix");
@@ -69,11 +70,13 @@ type Proxy = { server: string; username?: string; password?: string };
 type Cookie = Parameters<Ctx["addCookies"]>[0][number];
 type Job = {
   id: string;
-  kind: "login" | "open" | "check";
+  kind: "login" | "open" | "check" | "inbox" | "reply";
   account: { id: string; platform: string; name: string; os: string; fingerprint: Record<string, unknown> | null; status: string };
   proxy: Proxy;
   /** 导入 Cookie 建号：启动后先写进浏览器 */
   cookies?: Cookie[];
+  /** 回复任务：要发的消息 */
+  replies?: Reply[];
 };
 type Report = {
   status?: "running" | "waiting" | "done" | "failed";
@@ -94,6 +97,20 @@ const report = (jobId: string, r: Report) =>
     log("回报失败", jobId, (e as Error).message);
     return { ok: false, canceled: false };
   });
+
+/** 把读到的私信报给 CRM */
+async function reportInbox(jobId: string, threads: InboxThread[]) {
+  if (!threads.length) return 0;
+  const res = await fetch(`${CRM_URL}/api/matrix/runner/jobs/${jobId}/inbox`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}`, "x-runner-id": RUNNER_ID },
+    body: JSON.stringify({ threads: threads.slice(0, 100).map((t) => ({ ...t, messages: t.messages.slice(-300) })) }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as { received?: number; error?: string };
+  if (!res.ok) throw new Error(`上报私信失败：${data.error ?? res.status}`);
+  return data.received ?? 0;
+}
 
 // ── 代理出口：启动前先查一遍，查不到就不开（不让真实 IP 漏出去） ──
 
@@ -532,14 +549,53 @@ async function runJob(job: Job, state: JobState) {
     void ctx?.close().catch(() => {});
   }, limit);
   try {
-    const launched = await launch(job, job.kind === "check" || HEADLESS);
+    const background = job.kind === "check" || job.kind === "inbox" || job.kind === "reply";
+    const launched = await launch(job, background || HEADLESS);
     ctx = launched.ctx;
     if (job.cookies?.length) await addCookies(ctx, job.cookies);
     const fp = launched.fingerprint ? { fingerprint: launched.fingerprint } : {};
     let closed = false;
     ctx.on("close", () => (closed = true));
     const page = ctx.pages()[0] ?? (await ctx.newPage());
-    if (HEADLESS && job.kind !== "check") live = liveLoop(job, ctx, state, () => finished);
+    if (HEADLESS && !background) live = liveLoop(job, ctx, state, () => finished);
+
+    // 同步私信 / 发私信：先看还在不在登录
+    if (job.kind === "inbox" || job.kind === "reply") {
+      await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+      await sleep(3000);
+      if (!(await loggedIn(ctx, platform))) {
+        await report(job.id, {
+          status: "failed",
+          error: "账号登录已失效",
+          account: { ...fp, status: "expired", statusNote: "同步私信时发现登录已失效，需要重新登录", checked: true },
+          event: `${job.kind}:expired`,
+        });
+        log("  登录失效");
+        return;
+      }
+      const dir = path.join(ROOT, job.account.id);
+      if (job.kind === "inbox") {
+        const threads = await syncInbox(ctx, page, job.account.platform, dir, log);
+        if (!threads) {
+          await report(job.id, { status: "failed", error: `${platform.label} 还不支持收私信`, account: fp });
+          return;
+        }
+        const received = await reportInbox(job.id, threads);
+        await report(job.id, { status: "done", result: { threads: threads.length, received }, account: { ...fp, checked: true }, event: "inbox:ok" });
+        log(`  同步了 ${threads.length} 个会话，新消息 ${received} 条`);
+        return;
+      }
+      const { results, threads } = await sendReplies(page, job.account.platform, job.replies ?? [], log);
+      await reportInbox(job.id, threads).catch((e) => log("  ", (e as Error).message));
+      const failed = results.filter((r) => !r.ok).length;
+      await report(job.id, {
+        status: "done",
+        result: { replies: results },
+        account: { ...fp, checked: true },
+        event: failed ? `reply:failed ${failed}/${results.length}` : "reply:ok",
+      });
+      return;
+    }
 
     if (job.kind === "check") {
       await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});

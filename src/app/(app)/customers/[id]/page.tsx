@@ -7,6 +7,7 @@ import { getCustomerForUser } from "@/server/customers";
 import { scopeMembers } from "@/server/scope";
 import { customerOptions } from "@/server/customer-list";
 import { asAddresses, asAttachments } from "@/server/mail/store";
+import { revealer } from "@/server/inbox";
 import { CustomerDetail } from "./customer-detail";
 import { CustomerInsights } from "./customer-insights";
 import { CustomerMemories, type CustomerMemory } from "./customer-memories";
@@ -118,6 +119,14 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         include: { account: { select: { userId: true } } },
       })
     : [];
+  // 社媒私信（已关联到这个客户的会话）
+  const reveal = revealer(user);
+  const socialMsgs = await db.socialMessage.findMany({
+    where: { thread: { customerId: id } },
+    orderBy: { timestamp: "desc" },
+    take: 200,
+    include: { thread: { select: { id: true, platform: true, peerName: true, assigneeId: true } } },
+  });
   const insight = (kind: string) => {
     const row = insights.find((x) => x.kind === kind);
     return row ? { content: row.content, createdAt: row.createdAt.toISOString() } : null;
@@ -241,6 +250,18 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
             mine: m.account.userId === user.id,
           };
         }),
+        social: socialMsgs.reverse().map((m) => ({
+          id: m.id,
+          threadId: m.thread.id,
+          platform: m.thread.platform,
+          peer: m.thread.peerName,
+          fromMe: m.fromMe,
+          body: reveal.text(m.body),
+          translation: m.translation ? reveal.text(m.translation) : null,
+          status: m.status,
+          timestamp: m.timestamp.toISOString(),
+          mine: m.thread.assigneeId === user.id || can(user, "matrix.manage"),
+        })),
         wa: waMsgs.reverse().map((m) => ({
           id: m.id,
           fromMe: m.fromMe,

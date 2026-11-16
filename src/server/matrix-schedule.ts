@@ -1,12 +1,14 @@
 import { prisma } from "@/server/db";
 import { enqueueMatrixJob, logMatrixEvent, onlineRunners } from "@/server/matrix";
 import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
+import { scheduleInboxSync, settleReplies } from "@/server/inbox";
 import { AUTO_CHECK_EVERY_MS, JOB_TIMEOUT_MS, RUNNER_STALE_MS } from "@/lib/matrix";
 
 /*
  * 社媒矩阵的定时活（在 web 进程里跑，见 src/instrumentation.ts）：
  * 1. 任务超时：排队太久没人领、运行太久、运行器掉线的任务标成失败
  * 2. 定时检查登录：已登录的账号每 12 小时无界面检查一次，掉线了提醒负责人（提醒在运行器回报时建）
+ * 3. 收私信：开了「收私信」的账号每 10 分钟同步一次
  */
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "[matrix]", ...a);
@@ -23,6 +25,7 @@ async function fail(jobs: { id: string; tenantId: string; accountId: string; kin
     });
     if (!r.count) continue;
     if (j.kind === "login") await prisma.matrixAccount.updateMany({ where: { id: j.accountId, status: "pending" }, data: { status: "new" } });
+    if (j.kind === "reply") await settleReplies(j.accountId, [], error);
     await logMatrixEvent({ tenantId: j.tenantId, accountId: j.accountId, action: `${j.kind}:timeout`, detail: error });
   }
   return jobs.length;
@@ -97,11 +100,13 @@ export async function runMatrixMaintenance() {
   if (expired) log(`${expired} 个任务超时 / 运行器掉线，已标成失败`);
   const checks = await scheduleMatrixChecks();
   if (checks) log(`排了 ${checks} 个定时检查登录任务`);
+  const inbox = await scheduleInboxSync();
+  if (inbox) log(`排了 ${inbox} 个同步私信任务`);
 }
 
 const g = globalThis as unknown as { __matrixScheduler?: ReturnType<typeof setInterval> };
 
-/** web 进程启动时调用一次：每 5 分钟跑一轮 */
+/** web 进程启动时调用一次：每 2 分钟跑一轮（私信 10 分钟内要进来） */
 export function startMatrixScheduler() {
   if (g.__matrixScheduler) return;
   let running = false;
@@ -116,6 +121,6 @@ export function startMatrixScheduler() {
       running = false;
     }
   };
-  g.__matrixScheduler = setInterval(tick, 5 * 60_000);
+  g.__matrixScheduler = setInterval(tick, 2 * 60_000);
   setTimeout(tick, 60_000);
 }

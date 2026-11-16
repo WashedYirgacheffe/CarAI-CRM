@@ -212,6 +212,11 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                       {st.label}
                     </span>
                     {a.checkedAt && <span className="ml-1.5 text-muted-foreground">{formatDateTime(a.checkedAt, tz)} 检查</span>}
+                    {a.inboxSync && (
+                      <Link href={`/inbox?acc=${a.id}`} className="ml-1.5 inline-block rounded bg-sky-50 px-1.5 py-px text-sky-700 hover:underline dark:bg-sky-950 dark:text-sky-300">
+                        收私信
+                      </Link>
+                    )}
                     {job && (
                       <p
                         className={cn(
@@ -242,6 +247,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                       hasPassword: !!a.passwordEnc,
                       locked: !!a.fingerprint,
                       status: a.status,
+                      inboxSync: a.inboxSync,
                     }}
                     activeJobId={jobActive ? job.id : null}
                     liveJobId={liveJob}
