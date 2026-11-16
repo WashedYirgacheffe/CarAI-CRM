@@ -25,6 +25,7 @@ export default async function MatrixSettingsPage() {
         os: true,
         appVersion: true,
         lastSeenAt: true,
+        statusNote: true,
         user: { select: { name: true } },
         _count: { select: { accounts: true } },
       },
@@ -54,6 +55,7 @@ export default async function MatrixSettingsPage() {
             accounts: d._count.accounts,
             lastSeenAt: beat?.toISOString() ?? null,
             online: fresh(beat),
+            note: d.statusNote,
           };
         })}
       />

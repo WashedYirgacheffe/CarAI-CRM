@@ -19,6 +19,16 @@ function logFile() {
 }
 export const runnerLogPath = logFile;
 
+/** 浏览器内核状态：运行器读它决定能不能领任务，并把说明（下载进度）报给 CRM */
+const browserStateFile = () => path.join(app.getPath("userData"), "browser-state.json");
+export function setBrowserState(ready, note = "") {
+  try {
+    fs.writeFileSync(browserStateFile(), JSON.stringify({ ready, note }));
+  } catch {
+    /* 写不了就算了，运行器会当成还没准备好 */
+  }
+}
+
 function nodeEnv(extra = {}) {
   return { ...process.env, ELECTRON_RUN_AS_NODE: "1", ...extra };
 }
@@ -103,6 +113,7 @@ export class Runner {
         MATRIX_RUNNER_TOKEN: this.token,
         MATRIX_RUNNER_HOST: this.host,
         MATRIX_PROFILE_DIR: path.join(app.getPath("userData"), "matrix"),
+        MATRIX_BROWSER_STATE: browserStateFile(),
       }),
       stdio: ["ignore", "pipe", "pipe"],
     });

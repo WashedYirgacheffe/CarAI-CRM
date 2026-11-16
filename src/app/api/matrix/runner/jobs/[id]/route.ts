@@ -10,6 +10,8 @@ const Body = z.object({
   status: z.enum(["running", "waiting", "done", "failed"]).optional(),
   error: z.string().max(500).optional(),
   result: z.record(z.string(), z.unknown()).optional(),
+  /** 运行中的进度说明（迁移环境：打包、上传第几块…） */
+  progress: z.string().max(120).optional(),
   account: z
     .object({
       status: z.enum(["new", "pending", "active", "expired", "restricted"]).optional(),
@@ -39,6 +41,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
   if (!job) return Response.json({ error: "任务不存在" }, { status: 404 });
   const canceled = job.status === "canceled";
 
+  if (b.progress && !b.status && !canceled && ["running", "waiting"].includes(job.status)) {
+    await prisma.matrixJob.update({ where: { id }, data: { progress: b.progress } });
+  }
+
   if (b.status && !canceled && !["done", "failed"].includes(job.status)) {
     const finished = b.status === "done" || b.status === "failed";
     await prisma.matrixJob.update({
@@ -46,6 +52,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
       data: {
         status: b.status,
         error: b.error ?? null,
+        progress: finished ? null : (b.progress ?? job.progress),
         ...(b.result ? { result: b.result as Prisma.InputJsonValue } : {}),
         ...(finished ? { finishedAt: new Date() } : {}),
         // 用过的 Cookie 不留在库里

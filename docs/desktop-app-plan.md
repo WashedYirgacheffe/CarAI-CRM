@@ -150,6 +150,10 @@ M1 完成后，你就能在自己的 Mac 上装起来，用本机代替云端跑
     - electron-updater 走 `https://crm.caraicrm.com/api/desktop/update`（OSS `desktop/` 目录，yml 直接返回，安装包 302 到签名链接）。
     - 用 `pnpm desktop:publish` 发布；设置页有下载链接 `/api/desktop/download?arch=arm64|x64`。
   - 迁入结束后会尝试删除密文，但现在的 OSS AccessKey 没有 DeleteObject 权限（403）。建议在 OSS 上给 `matrix-env/` 前缀配「1 天后删除」的生命周期规则。密钥用完就删了，留下的密文也解不开。
+- **0.2.3 / 运行器 0.5.0**：
+  - 内核下载期间运行器先上线，带说明（`MatrixDevice.statusNote`）但不领任务，修复「打开了桌面版，设置里还是离线」。
+  - 任务进度（`MatrixJob.progress`）：迁出、迁入各阶段实时上报；排队任务写明在等电脑上线还是等内核。
+  - 账号封面（`MatrixAccount.snapshotKey/snapshotAt`）：运行器截图上传，列表左侧显示，叠官方平台标志（simple-icons，CC0）。
   - **还差**：Apple 开发者账号（签名、公证；没签名的 Mac 版不能自动更新）；真实账号试跑。
 
 ## 5. 需要你准备或决定的

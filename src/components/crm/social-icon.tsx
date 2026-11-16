@@ -1,8 +1,9 @@
 import { platformInfo } from "@/lib/social";
 import { cn } from "@/lib/utils";
+import { BRAND_PATHS } from "./brand-paths";
 
 /*
- * 社媒平台小图标：平台色圆角方块 + 简化字形（不用各平台的官方标志文件）。
+ * 社媒平台小图标：平台色圆角方块 + 官方标志（白色）。没有官方标志的（邮件、网站等）用简化字形。
  * 服务端、客户端组件都能用。
  */
 function Glyph({ platform }: { platform: string }) {
@@ -88,9 +89,15 @@ export function SocialIcon({ platform, className, title }: { platform: string; c
       style={{ background: bg }}
       title={title ?? p.label}
     >
-      <svg viewBox="0 0 24 24" className="size-[70%]" aria-hidden>
-        <Glyph platform={p.key} />
-      </svg>
+      {BRAND_PATHS[p.key] ? (
+        <svg viewBox="0 0 24 24" className="size-[58%]" fill="currentColor" aria-hidden>
+          <path d={BRAND_PATHS[p.key]} />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" className="size-[70%]" aria-hidden>
+          <Glyph platform={p.key} />
+        </svg>
+      )}
     </span>
   );
 }

@@ -18,6 +18,8 @@ type Device = {
   accounts: number;
   lastSeenAt: string | null;
   online: boolean;
+  /** 桌面版报的状态，如「正在下载浏览器内核 41%」 */
+  note: string | null;
 };
 
 const rtf = new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" });
@@ -79,7 +81,14 @@ export function MatrixRunSettings({ cloudConfigured, cloudEnabled, devices }: { 
                   <TableCell>{d.owner}</TableCell>
                   <TableCell className="tabular-nums">{d.accounts}</TableCell>
                   <TableCell>
-                    {d.online ? <Badge>在线</Badge> : <span className="text-sm text-muted-foreground">离线 · {ago(d.lastSeenAt)}</span>}
+                    {d.online ? (
+                      <div className="space-y-0.5">
+                        <Badge>在线</Badge>
+                        {d.note && <div className="text-xs text-muted-foreground">{d.note}</div>}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">离线 · {ago(d.lastSeenAt)}</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Button

@@ -5,7 +5,7 @@ import os from "node:os";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, session, shell, Tray } from "electron";
 import path from "node:path";
 import { clearToken, loadDevice, saveDevice } from "./store.js";
-import { ensureBrowser, killHelpers, Runner, runnerLogPath } from "./runner.js";
+import { ensureBrowser, killHelpers, Runner, runnerLogPath, setBrowserState } from "./runner.js";
 import { startUpdater } from "./updater.js";
 
 const CRM_URL = (process.env.CRM_URL || "https://crm.caraicrm.com").replace(/\/+$/, "");
@@ -106,13 +106,19 @@ function refreshTray() {
   );
 }
 
-/** 第一次用的时候下载浏览器内核；之后每次启动只检查一下 */
+/**
+ * 第一次用的时候下载浏览器内核；之后每次启动只检查一下。
+ * 进度写进状态文件，运行器照常连 CRM 报在线和进度，内核好了才开始领任务。
+ */
 function prepareBrowser() {
+  if (!browserReady) setBrowserState(false, "正在检查浏览器内核…");
   browserReady ??= ensureBrowser((msg) => {
     status.detail = msg;
+    setBrowserState(false, msg);
     refreshTray();
   }).then((ok) => {
     status.detail = ok ? "" : "浏览器内核下载失败，点「重新连接」重试";
+    setBrowserState(ok, ok ? "" : "浏览器内核下载失败，在菜单栏点「重新连接」重试");
     if (!ok) browserReady = null;
     refreshTray();
     return ok;
@@ -120,8 +126,8 @@ function prepareBrowser() {
   return browserReady;
 }
 
-async function startRunner(token) {
-  if (!(await prepareBrowser())) return;
+function startRunner(token) {
+  void prepareBrowser();
   runner.start(token, status.device);
 }
 

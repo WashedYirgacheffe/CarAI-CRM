@@ -22,7 +22,7 @@ import { sendReplies, syncInbox, watchHome, watchSupported, watchTick, type Inbo
 
 loadEnv({ path: ".env.runner", quiet: true });
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const CRM_URL = (process.env.CRM_URL || "http://localhost:3000").replace(/\/+$/, "");
 const TOKEN = process.env.MATRIX_RUNNER_TOKEN || "";
 const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-crm", "matrix");
@@ -37,6 +37,22 @@ const IDLE_EXIT_MS = Number(process.env.MATRIX_IDLE_EXIT_MIN || 0) * 60_000;
 const DEVICE = TOKEN.startsWith("md_");
 /** 最多同时常驻几个账号（每个是一个无界面浏览器，约 300~500 MB 内存） */
 const MAX_WATCH = Math.max(0, Number(process.env.MATRIX_MAX_WATCH ?? 5));
+/**
+ * 桌面版写的浏览器内核状态文件：{ ready, note }。内核还没下载好时照常报心跳（CRM 显示在线和下载进度），
+ * 但不领任务、不常驻；下载好后自动开始。没有这个变量就当已经准备好。
+ */
+const BROWSER_STATE = process.env.MATRIX_BROWSER_STATE || "";
+function browserState(): { ready: boolean; note: string } {
+  if (!BROWSER_STATE) return { ready: true, note: "" };
+  try {
+    const s = JSON.parse(fs.readFileSync(BROWSER_STATE, "utf8")) as { ready?: boolean; note?: string };
+    return { ready: !!s.ready, note: String(s.note ?? "").slice(0, 200) };
+  } catch {
+    return { ready: false, note: "正在准备浏览器内核…" };
+  }
+}
+/** 账号封面：最多几分钟截一次 */
+const SNAPSHOT_EVERY_MS = 15 * 60_000;
 
 const log = (...a: unknown[]) => console.log(new Date().toLocaleTimeString(), ...a);
 
@@ -91,6 +107,8 @@ type Job = {
 type Report = {
   status?: "running" | "waiting" | "done" | "failed";
   error?: string;
+  /** 运行中的进度说明 */
+  progress?: string;
   result?: Record<string, unknown>;
   account?: {
     status?: "new" | "pending" | "active" | "expired" | "restricted";
@@ -107,6 +125,31 @@ const report = (jobId: string, r: Report) =>
     log("回报失败", jobId, (e as Error).message);
     return { ok: false, canceled: false };
   });
+
+/** 进度说明（迁移环境时显示在 CRM 账号列表里） */
+const progress = (jobId: string, text: string) => {
+  log(`  ${text}`);
+  return report(jobId, { progress: text });
+};
+
+/** 截一张账号页面当封面（失败不影响任务；force 时不管间隔） */
+const snapshotAt = new Map<string, number>();
+async function snapshot(accountId: string, page: Page, force = false) {
+  if (!force && Date.now() - (snapshotAt.get(accountId) ?? 0) < SNAPSHOT_EVERY_MS) return;
+  snapshotAt.set(accountId, Date.now());
+  try {
+    const buf = await page.screenshot({ type: "jpeg", quality: 50, timeout: 10_000 });
+    const res = await fetch(`${CRM_URL}/api/matrix/runner/snapshot/${accountId}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "image/jpeg" },
+      body: new Uint8Array(buf),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) log("  封面上传失败", res.status);
+  } catch (e) {
+    log("  截封面失败", (e as Error).message.split("\n")[0]);
+  }
+}
 
 /** 把读到的私信报给 CRM */
 async function reportInbox(jobId: string, threads: InboxThread[]) {
@@ -623,6 +666,7 @@ async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatfo
           return;
         }
         const received = await reportInbox(job.id, threads);
+        await snapshot(job.account.id, page);
         await report(job.id, { status: "done", result: { threads: threads.length, received }, account: { ...fp, checked: true }, event: "inbox:ok" });
         log(`  同步了 ${threads.length} 个会话，新消息 ${received} 条`);
         return;
@@ -643,7 +687,9 @@ async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatfo
     if (job.kind === "import") {
       await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
       await sleep(4000);
+      await progress(job.id, "迁入：确认登录状态…");
       const ok = await stillLoggedIn(ctx, platform);
+      await snapshot(job.account.id, page, true);
       await report(job.id, {
         status: "done",
         result: { loggedIn: ok, url: page.url() },
@@ -658,6 +704,7 @@ async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatfo
       await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
       await sleep(4000);
       const ok = await loggedIn(ctx, platform);
+      await snapshot(job.account.id, page, true);
       const imported = !!job.cookies?.length;
       await report(job.id, {
         status: "done",
@@ -682,6 +729,7 @@ async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatfo
       if (!(await loggedIn(ctx, platform))) {
         await report(job.id, { account: { status: "expired", statusNote: "打开时发现没登录" } });
       }
+      await snapshot(job.account.id, page, true);
       // 窗口开着就一直算运行中，人关掉窗口或在 CRM 点取消才结束；云端没人看画面也结束
       while (!closed && !state.canceled && !state.idle) await sleep(1000);
       await report(job.id, { status: "done", event: "close" });
@@ -722,6 +770,7 @@ async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatfo
     }
     // 登录后多留几秒，让平台把剩下的 Cookie / 本地存储写完
     await sleep(5000);
+    await snapshot(job.account.id, page, true);
     await report(job.id, {
       status: "done",
       account: { ...fp, status: "active", statusNote: null, loggedIn: true },
@@ -771,6 +820,7 @@ async function exportEnv(job: Job, state: JobState) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cc-env-"));
   try {
     const tgz = path.join(tmp, "env.tgz");
+    await progress(job.id, "迁出：打包浏览器环境…");
     await tar(["-czf", tgz, ...ENV_EXCLUDES.flatMap((e) => ["--exclude", e]), "-C", dir, "."]);
     const plain = fs.readFileSync(tgz);
     const iv = randomBytes(12);
@@ -781,6 +831,7 @@ async function exportEnv(job: Job, state: JobState) {
     log(`  环境打包好了：${Math.round(enc.length / 1048576)} MB，分 ${parts} 块上传`);
     for (let i = 0; i < parts; i++) {
       if (state.canceled) throw new Error("已取消");
+      await progress(job.id, `迁出：上传 ${i + 1}/${parts} 块（共 ${Math.max(1, Math.round(enc.length / 1048576))} MB）`);
       const body = enc.subarray(i * TRANSFER_PART_BYTES, (i + 1) * TRANSFER_PART_BYTES);
       for (let attempt = 1; ; attempt++) {
         const res = await fetch(bundleUrl(job.id, i), {
@@ -807,6 +858,7 @@ async function importEnv(job: Job, state: JobState) {
   const chunks: Buffer[] = [];
   for (let i = 0; i < parts; i++) {
     if (state.canceled) throw new Error("已取消");
+    await progress(job.id, `迁入：下载 ${i + 1}/${parts} 块`);
     for (let attempt = 1; ; attempt++) {
       const res = await fetch(bundleUrl(job.id, i), { headers: runnerHeaders, signal: AbortSignal.timeout(5 * 60_000) }).catch(() => null);
       if (res?.ok) {
@@ -818,6 +870,7 @@ async function importEnv(job: Job, state: JobState) {
     }
   }
   const enc = Buffer.concat(chunks);
+  await progress(job.id, "迁入：校验、解密、解开…");
   if (createHash("sha256").update(enc).digest("hex") !== job.payload.sha256) throw new Error("压缩包校验不通过");
   const d = createDecipheriv("aes-256-gcm", Buffer.from(job.transferKey, "base64"), enc.subarray(0, 12));
   d.setAuthTag(enc.subarray(enc.length - 16));
@@ -914,6 +967,7 @@ async function watchLoop(w: Watcher) {
     await watchHome(page, acc.platform);
     w.ready = true;
     log(`👂 开始实时收私信：${platform.label} · ${acc.name}`);
+    await snapshot(acc.id, page, true);
     let deepAt = Date.now();
     let reloadAt = Date.now() + rand(30, 60) * 60_000;
     while (!w.stop && !stopping) {
@@ -931,6 +985,7 @@ async function watchLoop(w: Watcher) {
           return watchTick(page, acc.platform, dir, log, { deep });
         });
         fails = 0;
+        await w.lock(() => snapshot(acc.id, page));
         // 报一次心跳也让 CRM 知道还在常驻（没新消息时由 refreshWatch 统一报）
         if (threads.length) {
           const r = await watchReport(acc.id, { threads });
@@ -1035,6 +1090,7 @@ function watchStatus() {
 
 /** 每 30 秒：报心跳，取回该常驻的账号，启停监听 */
 async function refreshWatch() {
+  if (!browserState().ready) return;
   const ready = [...watchers.values()].filter((w) => w.ready).map((w) => w.acc.id);
   const { accounts } = await api<{ accounts: WatchAccount[] }>("/api/matrix/runner/watch", { watching: ready });
   const want = new Map(accounts.filter((a) => watchSupported(a.platform)).map((a) => [a.id, a]));
@@ -1067,12 +1123,14 @@ async function watchMain() {
 let stopping = false;
 
 async function poll() {
+  const browser = browserState();
   const { canceled, job } = await api<{ canceled: string[]; job: Job | null }>("/api/matrix/runner/poll", {
     runnerId: RUNNER_ID,
     host: HOST,
     version: VERSION,
     running: [...running.keys()],
-    free: stopping ? 0 : MAX_JOBS - running.size,
+    free: stopping || !browser.ready ? 0 : MAX_JOBS - running.size,
+    ...(browser.note ? { note: browser.note } : {}),
   });
   for (const id of canceled) {
     const s = running.get(id);
