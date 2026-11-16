@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
-import { logMatrixEvent, runnerTenant } from "@/server/matrix";
+import { logMatrixEvent, notifyAccountDropped, runnerTenant } from "@/server/matrix";
 
 const Body = z.object({
   runnerId: z.string().min(4).max(80),
@@ -20,6 +20,8 @@ const Body = z.object({
     .optional(),
   event: z.string().max(200).optional(),
 });
+
+const hasCookies = (p: unknown) => !!p && typeof p === "object" && "cookiesEnc" in p;
 
 /** 运行器回报任务进度 / 结果，顺带更新账号状态 */
 export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/jobs/[id]">) {
@@ -43,12 +45,14 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
         error: b.error ?? null,
         ...(b.result ? { result: b.result as Prisma.InputJsonValue } : {}),
         ...(finished ? { finishedAt: new Date() } : {}),
+        // 用过的 Cookie 不留在库里
+        ...(finished && hasCookies(job.payload) ? { payload: { cookieImport: true } } : {}),
       },
     });
   }
 
   if (b.account) {
-    const acc = await prisma.matrixAccount.findUnique({ where: { id: job.accountId }, select: { fingerprint: true } });
+    const acc = await prisma.matrixAccount.findUnique({ where: { id: job.accountId }, select: { fingerprint: true, status: true } });
     const a = b.account;
     await prisma.matrixAccount.update({
       where: { id: job.accountId },
@@ -60,6 +64,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
         ...(a.checked ? { checkedAt: new Date() } : {}),
       },
     });
+    // 原来是已登录、现在失效了：提醒负责人
+    if (acc?.status === "active" && (a.status === "expired" || a.status === "restricted")) {
+      await notifyAccountDropped(job.accountId, a.statusNote ?? "检查时发现登录已失效");
+    }
   }
 
   if (b.event) {

@@ -108,8 +108,12 @@ async function start(tenantId: string) {
 
   await sbx.runCommand({
     cmd: "bash",
-    // flock：两次启动请求撞在一起时，第二个运行器直接退出（同一 ID 两个运行器会互相把对方的任务判成中断）
-    args: ["-lc", `cd ${DIR} && exec flock -n ${DIR}/runner.lock node runner.mjs >> ${DIR}/runner.log 2>&1`],
+    // flock：两次启动请求撞在一起时，第二个运行器直接退出（同一 ID 两个运行器会互相把对方的任务判成中断）。
+    // 运行器崩溃（退出码不是 0）3 秒后自动重启，连续 5 次就放弃；空闲退出是 0，不重启
+    args: [
+      "-lc",
+      `cd ${DIR} && exec flock -n ${DIR}/runner.lock bash -c 'n=0; until node runner.mjs; do n=$((n+1)); [ $n -ge 5 ] && break; echo "运行器异常退出，3 秒后重启（第 $n 次）"; sleep 3; done' >> ${DIR}/runner.log 2>&1`,
+    ],
     env: {
       CRM_URL: appUrl(),
       MATRIX_RUNNER_TOKEN: cloudRunnerToken(tenantId),

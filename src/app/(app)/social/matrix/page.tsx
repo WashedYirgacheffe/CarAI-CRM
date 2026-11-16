@@ -5,7 +5,8 @@ import { EmptyState } from "@/components/crm/empty-state";
 import { SocialIcon } from "@/components/crm/social-icon";
 import { Globe, Share2 } from "@/components/icons";
 import { can, requireUser } from "@/server/auth";
-import { onlineRunners } from "@/server/matrix";
+import { onlineRunners, usageMonth } from "@/server/matrix";
+import type { Prisma } from "@/generated/prisma/client";
 import { cloudConfigured } from "@/server/matrix-cloud";
 import { prisma, tenantDb } from "@/server/db";
 import { appUrl } from "@/server/share";
@@ -13,6 +14,7 @@ import { formatDateTime } from "@/lib/crm";
 import { ACCOUNT_STATUS, JOB_KIND, JOB_STATUS, matrixPlatform } from "@/lib/matrix";
 import { cn } from "@/lib/utils";
 import { AccountButton, AccountRowActions, AutoRefresh, ProxyButton, ProxyRowActions, RunnerSetupButton } from "./matrix-client";
+import { AccountFilters, ImportAccountsButton, ImportProxiesButton } from "./matrix-import";
 
 export const metadata: Metadata = { title: "社媒矩阵" };
 
@@ -37,14 +39,42 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
       </>
     );
   }
-  const tab = (await searchParams).tab === "proxies" && manage ? "proxies" : "accounts";
+  const sp = await searchParams;
+  const one = (k: string) => {
+    const v = sp[k];
+    return (Array.isArray(v) ? v[0] : v)?.trim() || "";
+  };
+  const tab = one("tab") === "proxies" && manage ? "proxies" : "accounts";
   const db = tenantDb(user.tenantId);
   const tz = user.timezone;
 
+  // 筛选：平台、分组（- = 未分组）、状态、负责人（- = 未分配）、搜索
+  const base: Prisma.MatrixAccountWhereInput = manage ? {} : { ownerId: user.id };
+  const f = { platform: one("platform"), group: one("group"), status: one("status"), owner: one("owner"), q: one("q") };
+  const where: Prisma.MatrixAccountWhereInput = {
+    ...base,
+    ...(f.platform ? { platform: f.platform } : {}),
+    ...(f.group ? { group: f.group === "-" ? null : f.group } : {}),
+    ...(f.status ? { status: f.status } : {}),
+    ...(manage && f.owner ? { ownerId: f.owner === "-" ? null : f.owner } : {}),
+    ...(f.q
+      ? {
+          OR: [
+            { name: { contains: f.q, mode: "insensitive" } },
+            { login: { contains: f.q, mode: "insensitive" } },
+            { note: { contains: f.q, mode: "insensitive" } },
+            { tags: { has: f.q } },
+          ],
+        }
+      : {}),
+  };
+
   const crmUrl = appUrl();
-  const [accounts, proxies, members, runners, tenant] = await Promise.all([
+  const now = new Date();
+  const months = [usageMonth(now), usageMonth(new Date(now.getFullYear(), now.getMonth() - 1, 15))];
+  const [accounts, total, groupRows, proxies, members, runners, tenant, usageRows] = await Promise.all([
     db.matrixAccount.findMany({
-      where: manage ? {} : { ownerId: user.id },
+      where,
       orderBy: [{ platform: "asc" }, { createdAt: "asc" }],
       include: {
         owner: { select: { name: true } },
@@ -52,12 +82,24 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
         jobs: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     }),
+    db.matrixAccount.count({ where: base }),
+    db.matrixAccount.findMany({ where: { ...base, group: { not: null } }, distinct: ["group"], select: { group: true }, orderBy: { group: "asc" } }),
     db.matrixProxy.findMany({ orderBy: { createdAt: "asc" }, include: { _count: { select: { accounts: true } } } }),
     manage ? db.user.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : [],
     onlineRunners(user.tenantId),
     manage ? prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { matrixRunnerTokenHash: true } }) : null,
+    manage ? prisma.matrixUsage.findMany({ where: { tenantId: user.tenantId, month: { in: months } } }) : [],
   ]);
   const cloud = cloudConfigured();
+  const groups = groupRows.map((g) => g.group!).filter(Boolean);
+  const usage =
+    manage && cloud
+      ? {
+          thisMonth: usageRows.find((u) => u.month === months[0])?.cloudSeconds ?? 0,
+          lastMonth: usageRows.find((u) => u.month === months[1])?.cloudSeconds ?? 0,
+          vcpus: Number(process.env.MATRIX_SANDBOX_VCPUS || 2),
+        }
+      : null;
   const active = accounts.some((a) => a.jobs[0] && ["queued", "running", "waiting"].includes(a.jobs[0].status));
   const proxyOptions = proxies.map((p) => ({
     id: p.id,
@@ -72,9 +114,15 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
         actions={
           manage ? (
             tab === "proxies" ? (
-              <ProxyButton />
+              <>
+                <ImportProxiesButton />
+                <ProxyButton />
+              </>
             ) : (
-              <AccountButton proxies={proxyOptions} members={members} defaultOwnerId={user.id} />
+              <>
+                <ImportAccountsButton />
+                <AccountButton proxies={proxyOptions} members={members} groups={groups} defaultOwnerId={user.id} />
+              </>
             )
           ) : null
         }
@@ -84,7 +132,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <nav className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
           <TabLink href="/social/matrix" on={tab === "accounts"}>
-            账号 <span className="tabular-nums text-muted-foreground">{accounts.length}</span>
+            账号 <span className="tabular-nums text-muted-foreground">{total}</span>
           </TabLink>
           {manage && (
             <TabLink href="/social/matrix?tab=proxies" on={tab === "proxies"}>
@@ -93,11 +141,17 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
           )}
         </nav>
         <RunnerBadge cloud={cloud} runners={runners.map((r) => ({ host: r.host, busy: r.busy, shared: !r.tenantId }))} />
-        {manage && <RunnerSetupButton crmUrl={crmUrl} hasToken={!!tenant?.matrixRunnerTokenHash} />}
+        {manage && <RunnerSetupButton crmUrl={crmUrl} hasToken={!!tenant?.matrixRunnerTokenHash} usage={usage} />}
       </div>
 
+      {tab === "accounts" && total > 0 && <AccountFilters groups={groups} members={members} total={total} shown={accounts.length} />}
+
       {tab === "accounts" ? (
-        accounts.length === 0 ? (
+        total > 0 && accounts.length === 0 ? (
+          <section className="surface">
+            <EmptyState icon={Share2}>没有符合筛选条件的账号。</EmptyState>
+          </section>
+        ) : accounts.length === 0 ? (
           <section className="surface">
             <EmptyState icon={Share2}>
               {manage
@@ -127,6 +181,16 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                         {a.login && ` · ${a.login}`}
                         {a.owner && ` · ${a.owner.name}`}
                       </p>
+                      {(a.group || a.tags.length > 0) && (
+                        <p className="mt-0.5 flex flex-wrap gap-1 text-[11px] leading-4">
+                          {a.group && <span className="rounded bg-primary/10 px-1 text-primary">{a.group}</span>}
+                          {a.tags.map((t) => (
+                            <span key={t} className="rounded bg-muted px-1 text-muted-foreground">
+                              {t}
+                            </span>
+                          ))}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="min-w-0 text-xs">
@@ -144,7 +208,10 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                     )}
                   </div>
                   <div className="min-w-0 text-xs">
-                    <span className={cn("inline-block rounded px-1.5 py-px", TONE[st.tone])}>{st.label}</span>
+                    <span className={cn("inline-block rounded px-1.5 py-px", TONE[st.tone])} title={a.statusNote ?? undefined}>
+                      {st.label}
+                    </span>
+                    {a.checkedAt && <span className="ml-1.5 text-muted-foreground">{formatDateTime(a.checkedAt, tz)} 检查</span>}
                     {job && (
                       <p
                         className={cn(
@@ -170,6 +237,8 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                       proxyId: a.proxyId,
                       os: a.os,
                       note: a.note,
+                      group: a.group,
+                      tags: a.tags,
                       hasPassword: !!a.passwordEnc,
                       locked: !!a.fingerprint,
                       status: a.status,
@@ -179,6 +248,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                     manage={manage}
                     proxies={proxyOptions}
                     members={members}
+                    groups={groups}
                   />
                 </li>
               );
