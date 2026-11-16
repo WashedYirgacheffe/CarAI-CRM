@@ -28,16 +28,20 @@ npm start        # 连线上 https://crm.caraicrm.com（或 CRM_URL=... npm star
 ```bash
 cd desktop
 npm run icons    # 改了图标才需要：build/icon-source.svg → icon.icns、菜单栏 trayTemplate*.png
+npm run dmg-bg   # 改了 DMG 说明文字才需要：scripts/make-dmg-bg.mjs → build/background.tiff
 npm run dist     # 出 release/ 下的 DMG + ZIP（arm64、x64）和 latest-mac.yml
 cd .. && pnpm desktop:publish   # 传到 OSS 的 desktop/ 目录（需要服务器同样的 OSS_* 环境变量）
 ```
 
-- **签名和公证**：有证书和 Apple 账号时自动进行，没有就出未签名的包（只能自用，右键「打开」放行）。
+- **签名和公证**：有证书和 Apple 账号时自动进行。没有 `CSC_LINK` 时做 ad-hoc 签名并关掉 hardened runtime：
+  不签名的话 Electron 自带签名被打包改坏，macOS 会直接报「已损坏」且没有放行按钮。ad-hoc 签名后用户在
+  「系统设置 → 隐私与安全性」点「仍要打开」即可；DMG 里的背景图和「打不开请看我.txt」写了操作步骤。
   - `CSC_LINK`（Developer ID Application 证书 .p12 的路径或 base64）、`CSC_KEY_PASSWORD`
   - `APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`（公证）
 - **自动更新**：启动 15 秒后检查一次，之后每 4 小时一次；下载完在菜单栏提示「重启并安装」，退出时也会自动装上。
   更新源 `https://crm.caraicrm.com/api/desktop/update`。Mac 只有签过名的版本能自动更新。
 - **下载地址**：`https://crm.caraicrm.com/api/desktop/download?arch=arm64`（Intel 用 `arch=x64`），设置 →「社媒运行」里有链接。
+- `node_modules` 全部解包到 asar 外（运行器子进程从外面加载 camoufox 及其依赖）；`scripts/ensure-native.mjs` 补齐两个架构的 impit 原生模块。
 - 发新版：先改 `package.json` 的 `version`，再 `dist` + `publish`。运行器代码跟着软件版本走。
 
 ## 常驻监听和迁移

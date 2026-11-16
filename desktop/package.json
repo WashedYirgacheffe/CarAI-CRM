@@ -1,7 +1,7 @@
 {
   "name": "cheche-crm-desktop",
   "productName": "车车 CRM",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "车车 CRM 桌面版：CRM 主窗口 + 内置社媒环境运行器（Camoufox）",
   "type": "module",
@@ -10,8 +10,9 @@
     "build:runner": "node scripts/build-runner.mjs",
     "start": "npm run build:runner && electron .",
     "dev": "npm run build:runner && CRM_URL=http://localhost:3000 electron .",
-    "dist": "npm run build:runner && electron-builder --mac --publish never",
-    "icons": "electron scripts/make-icons.mjs"
+    "dist": "npm run build:runner && node scripts/ensure-native.mjs && electron-builder --mac --publish never $([ -z \"$CSC_LINK\" ] && echo '-c.mac.identity=- -c.mac.hardenedRuntime=false')",
+    "icons": "electron scripts/make-icons.mjs",
+    "dmg-bg": "electron scripts/make-dmg-bg.mjs"
   },
   "dependencies": {
     "camoufox": "0.5.9",
@@ -39,8 +40,7 @@
     ],
     "asarUnpack": [
       "dist/**",
-      "node_modules/camoufox/**",
-      "node_modules/playwright-core/**"
+      "node_modules/**"
     ],
     "mac": {
       "category": "public.app-category.business",
@@ -67,7 +67,32 @@
       ]
     },
     "dmg": {
-      "title": "车车 CRM ${version}"
+      "title": "车车 CRM ${version}",
+      "background": "build/background.tiff",
+      "iconSize": 72,
+      "window": {
+        "width": 600,
+        "height": 460
+      },
+      "contents": [
+        {
+          "x": 170,
+          "y": 128,
+          "type": "file"
+        },
+        {
+          "x": 430,
+          "y": 128,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 300,
+          "y": 392,
+          "type": "file",
+          "path": "build/打不开请看我.txt"
+        }
+      ]
     },
     "publish": [
       {
