@@ -229,6 +229,8 @@ function createWindow() {
 }
 
 function showWindow() {
+  // 从 Finder 双击启动时，macOS 可能先发 activate 再 ready；没准备好就交给 whenReady 去建窗口
+  if (!app.isReady()) return;
   if (!win || win.isDestroyed()) createWindow();
   else {
     win.show();
@@ -264,7 +266,7 @@ app.whenReady().then(() => {
     update = s;
     refreshTray();
   });
-  createWindow();
+  if (!win || win.isDestroyed()) createWindow();
   // 之前配对过就直接开跑，不用等主窗口登录
   const saved = loadDevice();
   if (saved.token) {
