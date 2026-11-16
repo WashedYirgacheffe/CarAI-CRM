@@ -8,5 +8,6 @@ export async function GET(req: Request) {
   const files = [...yml.toString("utf8").matchAll(/url:\s*(\S+\.dmg)/g)].map((m) => m[1]);
   const dmg = files.find((f) => f.includes(`-${arch}-`)) ?? files[0];
   if (!dmg) return new Response("没有找到安装包", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
-  return Response.redirect(new URL(`/api/desktop/update/${encodeURIComponent(dmg)}`, req.url), 302);
+  // 用相对地址：反向代理后面 req.url 的主机是容器内的 0.0.0.0:3000
+  return new Response(null, { status: 302, headers: { location: `/api/desktop/update/${encodeURIComponent(dmg)}` } });
 }
