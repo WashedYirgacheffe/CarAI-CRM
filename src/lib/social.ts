@@ -12,6 +12,9 @@ export type SocialPlatform =
   | "x"
   | "pinterest"
   | "vk"
+  | "reddit"
+  | "threads"
+  | "line"
   | "whatsapp"
   | "wechat"
   | "telegram"
@@ -39,6 +42,9 @@ export const PLATFORMS: PlatformInfo[] = [
   { key: "x", label: "X (Twitter)", color: "#111111", hosts: ["x.com", "twitter.com"], track: "page" },
   { key: "pinterest", label: "Pinterest", color: "#e60023", hosts: ["pinterest.com", "pin.it"], track: "page" },
   { key: "vk", label: "VK", color: "#0077ff", hosts: ["vk.com"], track: "page" },
+  { key: "reddit", label: "Reddit", color: "#ff4500", hosts: ["reddit.com", "redd.it"], track: "page" },
+  { key: "threads", label: "Threads", color: "#111111", hosts: ["threads.com", "threads.net"], track: "page" },
+  { key: "line", label: "LINE", color: "#06c755", hosts: ["line.me", "lin.ee", "line.biz"], track: "none" },
   { key: "whatsapp", label: "WhatsApp", color: "#25d366", hosts: ["wa.me", "whatsapp.com", "api.whatsapp.com"], track: "none" },
   { key: "wechat", label: "微信", color: "#07c160", hosts: ["weixin.qq.com", "u.wechat.com"], track: "none" },
   { key: "telegram", label: "Telegram", color: "#229ed9", hosts: ["t.me", "telegram.me"], track: "none" },
@@ -51,7 +57,7 @@ const BY_KEY = new Map(PLATFORMS.map((p) => [p.key, p]));
 export const platformInfo = (key: string): PlatformInfo => BY_KEY.get(key as SocialPlatform) ?? BY_KEY.get("other")!;
 
 /** 客户社媒能选的平台（聊天工具不算社媒主页） */
-export const CUSTOMER_PLATFORMS = PLATFORMS.filter((p) => !["whatsapp", "wechat", "telegram", "email", "website"].includes(p.key));
+export const CUSTOMER_PLATFORMS = PLATFORMS.filter((p) => !["whatsapp", "wechat", "telegram", "line", "email", "website"].includes(p.key));
 
 /** 补全协议、去掉跟踪参数和结尾斜杠 */
 export function normalizeSocialUrl(raw: string): string | null {

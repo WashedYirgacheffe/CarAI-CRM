@@ -35,7 +35,12 @@ export async function GET(req: Request, ctx: RouteContext<"/api/matrix/jobs/[id]
 
   const seq = Number(new URL(req.url).searchParams.get("seq") || 0);
   const f = await waitFrame(id, seq, job.status === "queued" ? 3000 : 15_000);
-  Object.assign(headers, { "x-seq": String(f.seq), "x-page-url": encodeURIComponent(f.url), "x-page-size": `${f.width}x${f.height}` });
+  Object.assign(headers, {
+    "x-seq": String(f.seq),
+    "x-page-url": encodeURIComponent(f.url),
+    "x-page-size": `${f.width}x${f.height}`,
+    "x-file-chooser": f.chooser ? "1" : "0",
+  });
   if (!f.frame) return new Response(null, { status: 204, headers });
   return new Response(new Uint8Array(f.frame), { headers: { ...headers, "content-type": "image/jpeg" } });
 }

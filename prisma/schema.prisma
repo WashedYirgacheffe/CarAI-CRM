@@ -86,6 +86,7 @@ model Tenant {
   matrixProxies     MatrixProxy[]
   matrixAccounts    MatrixAccount[]
   matrixJobs        MatrixJob[]
+  matrixUsage       MatrixUsage[]
   matrixEvents      MatrixEvent[]
 }
 
@@ -1494,9 +1495,13 @@ model MatrixProxy {
 model MatrixAccount {
   id          String    @id @default(cuid())
   tenantId    String
-  /// linkedin / facebook / instagram / tiktok / youtube
+  /// linkedin / facebook / instagram / tiktok / youtube / x / reddit / pinterest / threads / vk / line
   platform    String
   name        String
+  /// 分组（一个账号一个组）
+  group       String?
+  /// 标签（多个）
+  tags        String[]  @default([])
   /// 登录用的邮箱 / 手机号（可不填）
   login       String?
   passwordEnc String?
@@ -1566,6 +1571,19 @@ model MatrixEvent {
   account MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, accountId, createdAt])
+}
+
+/// 云端运行器用量：按月累计运行时长（运行器心跳之间的间隔相加）
+model MatrixUsage {
+  tenantId     String
+  /// YYYY-MM（香港时间）
+  month        String
+  cloudSeconds Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, month])
 }
 
 /// 环境运行器心跳（tenantId 为空 = 服务所有企业的服务器运行器）

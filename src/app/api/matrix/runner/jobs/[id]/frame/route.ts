@@ -29,6 +29,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
   try {
     url = decodeURIComponent(req.headers.get("x-page-url") ?? "");
   } catch {}
-  const { inputs, idle } = pushFrame(id, body.length ? body : null, { url, width: w || 0, height: h || 0 });
+  const chooser = req.headers.get("x-file-chooser") === "1";
+  const { inputs, idle } = pushFrame(id, body.length ? body : null, { url, width: w || 0, height: h || 0, chooser });
   return Response.json({ inputs, idle, canceled: cached.canceled });
 }

@@ -5,7 +5,7 @@ import { socksDispatcher } from "fetch-socks";
 import { prisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { decryptSecret } from "@/server/crypto";
-import { RUNNER_STALE_MS } from "@/lib/matrix";
+import { matrixPlatform, RUNNER_STALE_MS } from "@/lib/matrix";
 import { verifyCloudToken } from "@/server/matrix-cloud";
 
 type ProxyRow = {
@@ -182,4 +182,39 @@ export async function runnerTenant(req: Request): Promise<string | null> {
   if (!m[1].startsWith("mr_")) return null;
   const t = await prisma.tenant.findFirst({ where: { matrixRunnerTokenHash: hashToken(m[1]) }, select: { id: true } });
   return t?.id ?? null;
+}
+
+// ── 掉线提醒、云端用量 ──
+
+/** 已登录的账号掉线了：给负责人（没有负责人就给建号的人）建一条到点提醒，顶栏铃铛里能看到 */
+export async function notifyAccountDropped(accountId: string, reason: string) {
+  const acc = await prisma.matrixAccount.findUnique({
+    where: { id: accountId },
+    select: { tenantId: true, name: true, platform: true, ownerId: true, createdById: true },
+  });
+  const to = acc?.ownerId ?? acc?.createdById;
+  if (!acc || !to) return;
+  const label = matrixPlatform(acc.platform)?.label ?? acc.platform;
+  const title = `${label} 账号「${acc.name}」登录掉线了，需要重新登录`;
+  const dup = await prisma.task.findFirst({ where: { tenantId: acc.tenantId, ownerId: to, done: false, title }, select: { id: true } });
+  if (dup) return;
+  await prisma.task.create({
+    data: { tenantId: acc.tenantId, ownerId: to, title, note: reason, dueAt: new Date(), link: "/social/matrix?status=expired" },
+  });
+}
+
+/** 用量按香港时间的自然月统计 */
+export const usageMonth = (d = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Hong_Kong", year: "numeric", month: "2-digit" }).format(d).slice(0, 7);
+
+/** 云端运行器两次心跳之间的时间记为运行时长（间隔太长说明中间停过机，不算） */
+export async function addCloudUsage(tenantId: string, seconds: number) {
+  if (seconds <= 0 || seconds > 60) return;
+  const month = usageMonth();
+  const s = Math.round(seconds);
+  await prisma.matrixUsage.upsert({
+    where: { tenantId_month: { tenantId, month } },
+    create: { tenantId, month, cloudSeconds: s },
+    update: { cloudSeconds: { increment: s } },
+  });
 }

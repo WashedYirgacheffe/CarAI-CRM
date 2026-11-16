@@ -17,11 +17,11 @@ import os from "node:os";
 import path from "node:path";
 import { ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
 import { socksDispatcher } from "fetch-socks";
-import { matrixPlatform, type MatrixPlatformInfo } from "@/lib/matrix";
+import { JOB_TIMEOUT_MS, matrixPlatform, type MatrixPlatformInfo } from "@/lib/matrix";
 
 loadEnv({ path: ".env.runner", quiet: true });
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const CRM_URL = (process.env.CRM_URL || "http://localhost:3000").replace(/\/+$/, "");
 const TOKEN = process.env.MATRIX_RUNNER_TOKEN || "";
 const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-crm", "matrix");
@@ -66,11 +66,14 @@ async function api<T>(p: string, body: unknown): Promise<T> {
 }
 
 type Proxy = { server: string; username?: string; password?: string };
+type Cookie = Parameters<Ctx["addCookies"]>[0][number];
 type Job = {
   id: string;
   kind: "login" | "open" | "check";
   account: { id: string; platform: string; name: string; os: string; fingerprint: Record<string, unknown> | null; status: string };
   proxy: Proxy;
+  /** 导入 Cookie 建号：启动后先写进浏览器 */
+  cookies?: Cookie[];
 };
 type Report = {
   status?: "running" | "waiting" | "done" | "failed";
@@ -330,9 +333,35 @@ async function launch(job: Job, headless: boolean): Promise<{ ctx: Ctx; fingerpr
 
 async function loggedIn(ctx: Ctx, platform: MatrixPlatformInfo) {
   const cookies = await ctx.cookies();
-  return platform.authCookies.some((a) =>
-    cookies.some((c) => c.name === a.name && c.value && c.domain.replace(/^\./, "").endsWith(a.domain) && (c.expires === -1 || c.expires * 1000 > Date.now())),
+  const byCookie = platform.authCookies.some((a) =>
+    cookies.some(
+      (c) =>
+        c.name === a.name &&
+        c.value &&
+        (!a.value || c.value === a.value) &&
+        c.domain.replace(/^\./, "").endsWith(a.domain) &&
+        (c.expires === -1 || c.expires * 1000 > Date.now()),
+    ),
   );
+  if (byCookie) return true;
+  // 没有可靠登录 Cookie 的平台：停在后台地址下（没被跳去登录页）就算登录了
+  const prefix = platform.loggedInUrl;
+  return !!prefix && ctx.pages().some((p) => p.url().startsWith(prefix));
+}
+
+/** 导入的 Cookie 一条条写，个别格式不对的跳过 */
+async function addCookies(ctx: Ctx, cookies: Cookie[]) {
+  let ok = 0;
+  for (const c of cookies) {
+    try {
+      await ctx.addCookies([c]);
+      ok++;
+    } catch (e) {
+      log("  Cookie 写入失败", c.name, (e as Error).message.split("\n")[0]);
+    }
+  }
+  log(`  写入 ${ok}/${cookies.length} 条 Cookie`);
+  return ok;
 }
 
 /** 叫人：Mac 右上角弹通知 + 提示音 */
@@ -346,20 +375,59 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── 实时画面（无界面模式）：截图推给 CRM，顺便取回人在网页上的点击、按键 ──
 
-type JobState = { canceled: boolean; idle?: boolean };
+type JobState = { canceled: boolean; idle?: boolean; timedOut?: boolean };
 type Input =
   | { t: "click" | "dblclick"; x: number; y: number }
   | { t: "wheel"; dy: number }
   | { t: "type"; text: string }
   | { t: "key"; key: string }
-  | { t: "back" };
+  | { t: "back" }
+  | { t: "resize"; w: number; h: number }
+  | { t: "upload"; files: { id: string; name: string; type: string; size: number }[] };
 type Page = import("playwright-core").Page;
+type FileChooser = import("playwright-core").FileChooser;
+type FilePayload = { name: string; mimeType: string; buffer: Buffer };
+
+/** 下载网页上传给这个任务的文件 */
+async function downloadFiles(jobId: string, files: { id: string; name: string; type: string }[]): Promise<FilePayload[]> {
+  const out: FilePayload[] = [];
+  for (const f of files) {
+    const res = await fetch(`${CRM_URL}/api/matrix/runner/jobs/${jobId}/files/${f.id}`, {
+      headers: { authorization: `Bearer ${TOKEN}`, "x-runner-id": RUNNER_ID },
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok) throw new Error(`下载文件失败 HTTP ${res.status}`);
+    out.push({ name: f.name, mimeType: f.type, buffer: Buffer.from(await res.arrayBuffer()) });
+  }
+  return out;
+}
 
 async function liveLoop(job: Job, ctx: Ctx, state: JobState, finished: () => boolean) {
   let page: Page = ctx.pages().at(-1) ?? (await ctx.newPage());
+  /** 看画面的人的窗口大小（调过就套到新开的页面上） */
+  let viewport: { width: number; height: number } | null = null;
+  // 网页弹文件选择框：已经有上传好的文件就直接给，没有就记下来，让 CRM 提示人选文件
+  // 在回调里赋值，TS 看不到，显式标注类型免得被收窄成 null
+  let chooser = null as { fc: FileChooser; at: number } | null;
+  let pending = null as FilePayload[] | null;
+  const giveFiles = async (fc: FileChooser, files: FilePayload[]) => {
+    await fc.setFiles(fc.isMultiple() ? files : files.slice(0, 1), { timeout: 30_000 });
+    log(`  已上传 ${files.length} 个文件`);
+  };
+  const watch = (p: Page) =>
+    p.on("filechooser", (fc) => {
+      if (pending) {
+        const files = pending;
+        pending = null;
+        void giveFiles(fc, files).catch((e) => log("  上传失败", (e as Error).message.split("\n")[0]));
+      } else chooser = { fc, at: Date.now() };
+    });
+  ctx.pages().forEach(watch);
   // 弹出的新窗口（例如「用 Google 登录」）直接切过去
   ctx.on("page", (p) => {
     page = p;
+    watch(p);
+    if (viewport) void p.setViewportSize(viewport).catch(() => {});
     p.on("close", () => {
       if (page === p) page = ctx.pages().at(-1) ?? page;
     });
@@ -369,9 +437,12 @@ async function liveLoop(job: Job, ctx: Ctx, state: JobState, finished: () => boo
   let size = { w: 1280, h: 800, at: 0 };
   while (!finished() && !state.canceled) {
     let frame: Buffer | null = null;
+    // 选择框 3 分钟没人管就算了
+    if (chooser && (Date.now() - chooser.at > 180_000 || chooser.fc.page().isClosed())) chooser = null;
     try {
       if (Date.now() - size.at > 2000) {
-        const [w, h] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
+        const vp = page.viewportSize();
+        const [w, h] = vp ? [vp.width, vp.height] : await page.evaluate(() => [window.innerWidth, window.innerHeight]);
         size = { w, h, at: Date.now() };
       }
       const buf = await page.screenshot({ type: "jpeg", quality: 55, timeout: 5000 });
@@ -394,6 +465,7 @@ async function liveLoop(job: Job, ctx: Ctx, state: JobState, finished: () => boo
           "x-runner-id": RUNNER_ID,
           "x-page-url": encodeURIComponent(page.url()),
           "x-page-size": `${size.w}x${size.h}`,
+          "x-file-chooser": chooser ? "1" : "0",
           "content-type": "image/jpeg",
         },
         body: frame ? new Uint8Array(frame) : new Uint8Array(),
@@ -414,6 +486,24 @@ async function liveLoop(job: Job, ctx: Ctx, state: JobState, finished: () => boo
         else if (ev.t === "type") await page.keyboard.type(ev.text, { delay: 35 });
         else if (ev.t === "key") await page.keyboard.press(ev.key);
         else if (ev.t === "back") await page.goBack({ timeout: 15_000 }).catch(() => {});
+        else if (ev.t === "resize") {
+          // 不超过指纹里的屏幕大小
+          const [sw, sh] = await page.evaluate(() => [screen.availWidth || 1920, screen.availHeight || 1080]);
+          viewport = { width: Math.min(ev.w, sw), height: Math.min(ev.h, sh) };
+          await page.setViewportSize(viewport);
+          size = { w: viewport.width, h: viewport.height, at: Date.now() };
+          lastHash = ""; // 马上推一帧新尺寸的
+        } else if (ev.t === "upload") {
+          const files = await downloadFiles(job.id, ev.files);
+          if (chooser) {
+            const fc = chooser.fc;
+            chooser = null;
+            await giveFiles(fc, files);
+          } else {
+            pending = files;
+            log(`  收到 ${files.length} 个文件，等网页弹出选择框`);
+          }
+        }
       } catch (e) {
         log("  操作失败", ev.t, (e as Error).message.split("\n")[0]);
       }
@@ -433,9 +523,18 @@ async function runJob(job: Job, state: JobState) {
   let ctx: Ctx | null = null;
   let finished = false;
   let live: Promise<void> | null = null;
+  // 看门狗：任务超过时限就关掉浏览器（CRM 那边也会把任务标成超时）
+  const limit = (JOB_TIMEOUT_MS[job.kind] ?? JOB_TIMEOUT_MS.login) - 30_000;
+  const watchdog = setTimeout(() => {
+    state.timedOut = true;
+    state.canceled = true;
+    log(`  任务超时（${Math.round(limit / 60_000)} 分钟），关闭环境`);
+    void ctx?.close().catch(() => {});
+  }, limit);
   try {
     const launched = await launch(job, job.kind === "check" || HEADLESS);
     ctx = launched.ctx;
+    if (job.cookies?.length) await addCookies(ctx, job.cookies);
     const fp = launched.fingerprint ? { fingerprint: launched.fingerprint } : {};
     let closed = false;
     ctx.on("close", () => (closed = true));
@@ -446,11 +545,18 @@ async function runJob(job: Job, state: JobState) {
       await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
       await sleep(4000);
       const ok = await loggedIn(ctx, platform);
+      const imported = !!job.cookies?.length;
       await report(job.id, {
         status: "done",
-        result: { loggedIn: ok, url: page.url() },
-        account: { ...fp, status: ok ? "active" : "expired", statusNote: ok ? null : "登录已失效，需要重新登录", checked: true },
-        event: ok ? "check:ok" : "check:expired",
+        result: { loggedIn: ok, url: page.url(), ...(imported ? { cookieImport: true } : {}) },
+        account: {
+          ...fp,
+          status: ok ? "active" : imported && job.account.status !== "active" ? "new" : "expired",
+          statusNote: ok ? null : imported ? "导入的 Cookie 无效或已过期" : "登录已失效，需要重新登录",
+          checked: true,
+          ...(ok && imported ? { loggedIn: true } : {}),
+        },
+        event: ok ? (imported ? "cookie:ok" : "check:ok") : imported ? "cookie:invalid" : "check:expired",
       });
       log(`  ${ok ? "已登录" : "登录失效"}`);
       return;
@@ -480,7 +586,8 @@ async function runJob(job: Job, state: JobState) {
     const deadline = Date.now() + LOGIN_TIMEOUT_MS;
     while (true) {
       if (state.canceled) {
-        if (stopping) await report(job.id, { status: "failed", error: "运行器退出了", account: { status: "new" } });
+        if (state.timedOut) await report(job.id, { status: "failed", error: "任务超时", account: { status: "new" }, event: "login:timeout" });
+        else if (stopping) await report(job.id, { status: "failed", error: "运行器退出了", account: { status: "new" } });
         log("  已取消");
         return;
       }
@@ -510,7 +617,7 @@ async function runJob(job: Job, state: JobState) {
     notify("社媒矩阵：登录成功", `${platform.label} · ${job.account.name}`);
     log(`  ✅ 登录成功：${platform.label} · ${job.account.name}`);
   } catch (e) {
-    const msg = (e as Error).message.split("\n")[0].slice(0, 400);
+    const msg = state.timedOut ? "任务超时" : (e as Error).message.split("\n")[0].slice(0, 400);
     log("  ✖", msg);
     await report(job.id, {
       status: "failed",
@@ -519,6 +626,7 @@ async function runJob(job: Job, state: JobState) {
       event: `${job.kind}:error`,
     });
   } finally {
+    clearTimeout(watchdog);
     finished = true;
     await live?.catch(() => {});
     await ctx?.close().catch(() => {});
@@ -589,5 +697,11 @@ async function shutdown() {
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+// 浏览器关掉时 Playwright 偶尔会有没接住的 Promise，记一笔就行；真正的崩溃退出码 1，云端会自动重启
+process.on("unhandledRejection", (e) => log("未处理的异常", e instanceof Error ? e.message.split("\n")[0] : e));
+process.on("uncaughtException", (e) => {
+  log("运行器崩溃：", e.stack ?? e.message);
+  process.exit(1);
+});
 
 await main();

@@ -2,16 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, ExternalLink, Loader2, Lock, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
+import { Cookie, Copy, ExternalLink, Loader2, Lock, MonitorPlay, Settings2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
-import { MATRIX_PLATFORMS, PROXY_PROTOCOLS } from "@/lib/matrix";
+import { MATRIX_PLATFORMS, matrixPlatform, PROXY_PROTOCOLS } from "@/lib/matrix";
 import {
   cancelJobAction,
   checkProxyAction,
@@ -23,6 +24,7 @@ import {
   saveProxyAction,
 } from "./actions";
 import { LiveDialog } from "./live-dialog";
+import { CookieDialog } from "./matrix-import";
 
 type Option = { id: string; label: string };
 type Member = { id: string; name: string };
@@ -40,7 +42,11 @@ export function AutoRefresh({ active }: { active: boolean }) {
 // ── 运行器 ──
 
 /** 生成运行器令牌，给出在 Mac 上启动运行器的命令 */
-export function RunnerSetupButton({ crmUrl, hasToken }: { crmUrl: string; hasToken: boolean }) {
+export type CloudUsage = { thisMonth: number; lastMonth: number; vcpus: number } | null;
+
+const hours = (sec: number) => (sec / 3600).toFixed(sec < 36_000 ? 1 : 0);
+
+export function RunnerSetupButton({ crmUrl, hasToken, usage }: { crmUrl: string; hasToken: boolean; usage: CloudUsage }) {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -91,6 +97,15 @@ export function RunnerSetupButton({ crmUrl, hasToken }: { crmUrl: string; hasTok
                   {busy && <Loader2 />} {hasToken ? "重新生成令牌" : "生成令牌"}
                 </Button>
               </div>
+            </div>
+          )}
+          {usage && (
+            <div className="rounded-md bg-muted/60 p-3 text-sm">
+              <p className="font-medium">云端浏览器用量</p>
+              <p className="mt-1 text-muted-foreground">
+                本月运行 <span className="font-medium text-foreground tabular-nums">{hours(usage.thisMonth)}</span> 小时（
+                {hours(usage.thisMonth * usage.vcpus)} vCPU·小时），上月 {hours(usage.lastMonth)} 小时。只在登录、打开环境、检查登录时运行，空闲 5 分钟自动关机。
+              </p>
             </div>
           )}
         </DialogContent>
@@ -234,19 +249,21 @@ type AccountData = {
   os: string;
   note: string | null;
   hasPassword: boolean;
+  group: string | null;
+  tags: string[];
   /** 已经生成过指纹，系统类型不能再改 */
   locked: boolean;
   status: string;
 };
 
-export function AccountButton({ proxies, members, defaultOwnerId }: { proxies: Option[]; members: Member[]; defaultOwnerId: string }) {
+export function AccountButton({ proxies, members, groups, defaultOwnerId }: { proxies: Option[]; members: Member[]; groups: string[]; defaultOwnerId: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button size="sm" onClick={() => setOpen(true)}>
         <Plus /> 添加账号
       </Button>
-      <AccountDialog open={open} onOpenChange={setOpen} proxies={proxies} members={members} defaultOwnerId={defaultOwnerId} />
+      <AccountDialog open={open} onOpenChange={setOpen} proxies={proxies} members={members} groups={groups} defaultOwnerId={defaultOwnerId} />
     </>
   );
 }
@@ -257,6 +274,7 @@ function AccountDialog({
   account,
   proxies,
   members,
+  groups,
   defaultOwnerId,
 }: {
   open: boolean;
@@ -264,9 +282,12 @@ function AccountDialog({
   account?: AccountData;
   proxies: Option[];
   members: Member[];
+  groups: string[];
   defaultOwnerId?: string;
 }) {
   const [state, submit, pending] = useActionForm(saveAccountAction, () => onOpenChange(false));
+  const [platform, setPlatform] = useState(account?.platform ?? "linkedin");
+  const hint = matrixPlatform(platform)?.hint;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-md *:min-w-0">
@@ -283,7 +304,7 @@ function AccountDialog({
               <div className="grid grid-cols-2 gap-2">
                 <Field>
                   <FieldLabel>平台</FieldLabel>
-                  <NativeSelect name="platform" defaultValue={account?.platform ?? "linkedin"}>
+                  <NativeSelect name="platform" value={platform} onChange={(e) => setPlatform(e.target.value)}>
                     {MATRIX_PLATFORMS.map((p) => (
                       <option key={p.key} value={p.key}>
                         {p.label}
@@ -297,6 +318,7 @@ function AccountDialog({
                   <FieldErrors state={state} name="name" />
                 </Field>
               </div>
+              {hint && <p className="-mt-1 text-xs text-muted-foreground">{hint}</p>}
               <Field>
                 <FieldLabel>代理 IP</FieldLabel>
                 <NativeSelect name="proxyId" defaultValue={account?.proxyId ?? ""} required>
@@ -348,10 +370,38 @@ function AccountDialog({
                   {account?.locked && <input type="hidden" name="os" value={account.os} />}
                 </Field>
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field>
+                  <FieldLabel htmlFor="ma-group">分组</FieldLabel>
+                  <Input id="ma-group" name="group" defaultValue={account?.group ?? ""} list="ma-groups" placeholder="如：美国、假发" autoComplete="off" />
+                  <datalist id="ma-groups">
+                    {groups.map((g) => (
+                      <option key={g} value={g} />
+                    ))}
+                  </datalist>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="ma-tags">标签</FieldLabel>
+                  <Input id="ma-tags" name="tags" defaultValue={account?.tags.join(", ") ?? ""} placeholder="用逗号分开" autoComplete="off" />
+                </Field>
+              </div>
               <Field>
                 <FieldLabel htmlFor="ma-note">备注</FieldLabel>
                 <Input id="ma-note" name="note" defaultValue={account?.note ?? ""} autoComplete="off" />
               </Field>
+              <details className="group rounded-md border px-3 py-2 text-sm">
+                <summary className="cursor-pointer text-muted-foreground select-none">用 Cookie 登录（可选）</summary>
+                <div className="mt-2 space-y-1.5">
+                  <Textarea
+                    name="cookies"
+                    placeholder="粘贴浏览器插件（如 Cookie-Editor）导出的 JSON，或 cookies.txt、name=value; 格式"
+                    className="max-h-40 min-h-20 font-mono text-xs [field-sizing:fixed]"
+                    spellCheck={false}
+                  />
+                  <FieldErrors state={state} name="cookies" />
+                  <p className="text-xs text-muted-foreground">保存后自动在这个账号的环境里写入 Cookie 并检查登录。</p>
+                </div>
+              </details>
             </FieldGroup>
             <FormMessage state={state} />
             <div className="flex justify-end">
@@ -373,6 +423,7 @@ export function AccountRowActions({
   manage,
   proxies,
   members,
+  groups,
 }: {
   account: AccountData;
   activeJobId: string | null;
@@ -381,8 +432,10 @@ export function AccountRowActions({
   manage: boolean;
   proxies: Option[];
   members: Member[];
+  groups: string[];
 }) {
   const [edit, setEdit] = useState(false);
+  const [cookieOpen, setCookieOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [liveOpen, setLiveOpen] = useState<string | null>(null);
   const run = async (key: string, p: Promise<{ ok?: boolean; message?: string; jobId?: string; cloud?: boolean }>) => {
@@ -429,6 +482,9 @@ export function AccountRowActions({
               <Lock /> 重新登录
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem disabled={!!activeJobId} onSelect={() => setCookieOpen(true)}>
+            <Cookie /> 导入 Cookie
+          </DropdownMenuItem>
           {manage && (
             <>
               <DropdownMenuSeparator />
@@ -446,7 +502,8 @@ export function AccountRowActions({
         </DropdownMenuContent>
       </DropdownMenu>
       {liveOpen && <LiveDialog key={liveOpen} jobId={liveOpen} title={account.name} open onOpenChange={(v) => v || setLiveOpen(null)} />}
-      {manage && <AccountDialog open={edit} onOpenChange={setEdit} account={account} proxies={proxies} members={members} />}
+      {manage && <AccountDialog open={edit} onOpenChange={setEdit} account={account} proxies={proxies} members={members} groups={groups} />}
+      <CookieDialog account={account} open={cookieOpen} onOpenChange={setCookieOpen} />
     </div>
   );
 }

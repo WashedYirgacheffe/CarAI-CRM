@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
-import { logMatrixEvent, playwrightProxy, runnerTenant } from "@/server/matrix";
+import { decryptSecret } from "@/server/crypto";
+import { addCloudUsage, logMatrixEvent, playwrightProxy, runnerTenant } from "@/server/matrix";
 
 const Body = z.object({
   runnerId: z.string().min(4).max(80),
@@ -22,6 +23,12 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "参数不对" }, { status: 400 });
   const { runnerId, host, version, running, free } = parsed.data;
+
+  // 云端运行器按心跳间隔累计运行时长
+  if (runnerId.startsWith("cloud-")) {
+    const prev = await prisma.matrixRunner.findUnique({ where: { id: runnerId }, select: { lastSeenAt: true } });
+    if (prev) await addCloudUsage(tenantId, (Date.now() - prev.lastSeenAt.getTime()) / 1000);
+  }
 
   await prisma.matrixRunner.upsert({
     where: { id: runnerId },
@@ -70,12 +77,24 @@ export async function POST(req: Request) {
   }
   await logMatrixEvent({ tenantId, accountId: account.id, action: `start:${next.kind}`, runner: host });
 
+  // 导入的 Cookie 加密存在任务里，交给运行器时才解开
+  const { cookiesEnc, ...payload } = (next.payload ?? {}) as { cookiesEnc?: string } & Record<string, unknown>;
+  let cookies: unknown[] | undefined;
+  if (cookiesEnc) {
+    try {
+      cookies = JSON.parse(decryptSecret(cookiesEnc)) as unknown[];
+    } catch {
+      cookies = undefined;
+    }
+  }
+
   return Response.json({
     canceled,
     job: {
       id: next.id,
       kind: next.kind,
-      payload: next.payload,
+      payload,
+      ...(cookies ? { cookies } : {}),
       account: {
         id: account.id,
         platform: account.platform,
