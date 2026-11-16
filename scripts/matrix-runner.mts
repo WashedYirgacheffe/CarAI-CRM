@@ -11,6 +11,8 @@ import { config as loadEnv } from "dotenv";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
@@ -128,6 +130,152 @@ async function proxyGeo(p: Proxy): Promise<Geo> {
   }
 }
 
+// ── 带账号密码的 SOCKS5：浏览器（Firefox 内核）不支持，本机起一个 HTTP 代理转过去 ──
+
+/** 经 SOCKS5（用户名密码认证）连到 host:port，返回已握手好的连接 */
+async function socks5Connect(proxy: URL, user: string, pass: string, host: string, port: number): Promise<net.Socket> {
+  const sock = net.connect(Number(proxy.port), proxy.hostname);
+  sock.setNoDelay(true);
+  let buf = Buffer.alloc(0);
+  let failed: Error | null = null;
+  let wake: (() => void) | null = null;
+  const onData = (d: Buffer) => {
+    buf = Buffer.concat([buf, d]);
+    wake?.();
+  };
+  const onFail = (e?: Error) => {
+    failed ??= e ?? new Error("代理断开了连接");
+    wake?.();
+  };
+  const onClose = () => onFail();
+  sock.on("data", onData).on("error", onFail).on("close", onClose);
+  const read = async (n: number) => {
+    while (buf.length < n) {
+      if (failed) throw failed;
+      await new Promise<void>((r) => (wake = r));
+      wake = null;
+    }
+    const out = buf.subarray(0, n);
+    buf = buf.subarray(n);
+    return out;
+  };
+  const timer = setTimeout(() => sock.destroy(new Error("代理握手超时")), 20_000);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      sock.once("connect", resolve);
+      sock.once("error", reject);
+    });
+    sock.write(Buffer.from([5, 1, 2])); // 只用用户名密码认证
+    const [ver, method] = await read(2);
+    if (ver !== 5 || method !== 2) throw new Error("代理不接受用户名密码认证");
+    const u = Buffer.from(user);
+    const pw = Buffer.from(pass);
+    sock.write(Buffer.concat([Buffer.from([1, u.length]), u, Buffer.from([pw.length]), pw]));
+    const [, auth] = await read(2);
+    if (auth !== 0) throw new Error("代理用户名或密码不对");
+    const h = Buffer.from(host);
+    sock.write(Buffer.concat([Buffer.from([5, 1, 0, 3, h.length]), h, Buffer.from([port >> 8, port & 255])]));
+    const head = await read(4);
+    if (head[1] !== 0) throw new Error(`代理拒绝连接（代码 ${head[1]}）`);
+    const alen = head[3] === 1 ? 4 : head[3] === 4 ? 16 : (await read(1))[0];
+    await read(alen + 2);
+  } catch (e) {
+    sock.destroy();
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  sock.off("data", onData).off("error", onFail).off("close", onClose);
+  sock.pause();
+  if (buf.length) sock.unshift(buf);
+  return sock;
+}
+
+/** 本机 127.0.0.1 上的 HTTP 代理（不要密码），流量经 SOCKS5 转出去 */
+async function socksBridge(p: Proxy): Promise<{ server: string; close: () => void }> {
+  const upstream = new URL(p.server);
+  const dial = (host: string, port: number) => socks5Connect(upstream, p.username ?? "", p.password ?? "", host, port);
+  const pipe = (a: net.Socket, b: net.Socket) => {
+    a.on("error", () => b.destroy());
+    b.on("error", () => a.destroy());
+    a.pipe(b);
+    b.pipe(a);
+  };
+
+  const server = http.createServer((req, res) => {
+    let target: URL;
+    try {
+      target = new URL(req.url ?? "");
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
+    const port = Number(target.port || 80);
+    const headers = { ...req.headers };
+    delete headers["proxy-connection"];
+    delete headers["proxy-authorization"];
+    const up = http.request({
+      host: target.hostname,
+      port,
+      method: req.method,
+      path: target.pathname + target.search,
+      headers,
+      createConnection: (_opts, cb) => {
+        dial(target.hostname.replace(/^\[|\]$/g, ""), port).then(
+          (s) => {
+            cb(null, s);
+            s.resume(); // 握手时暂停过，HTTP 客户端不会自己恢复
+          },
+          (e: Error) => cb(e, undefined as unknown as net.Socket),
+        );
+        return undefined;
+      },
+    });
+    up.on("response", (r) => {
+      res.writeHead(r.statusCode ?? 502, r.headers);
+      r.pipe(res);
+    });
+    up.on("error", () => {
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    });
+    req.pipe(up);
+  });
+
+  server.on("connect", (req: http.IncomingMessage, client: net.Socket, head: Buffer) => {
+    let host = "";
+    let port = 443;
+    try {
+      const t = new URL(`http://${req.url}`);
+      host = t.hostname.replace(/^\[|\]$/g, "");
+      port = Number(t.port || 443);
+    } catch {}
+    client.on("error", () => {});
+    if (!host) return void client.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+    dial(host, port).then(
+      (up) => {
+        client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length) up.write(head);
+        pipe(client, up);
+      },
+      () => client.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"),
+    );
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address() as net.AddressInfo;
+  return {
+    server: `http://127.0.0.1:${port}`,
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
+
 // ── 浏览器环境 ──
 
 type Ctx = import("playwright-core").BrowserContext;
@@ -148,12 +296,18 @@ async function launch(job: Job, headless: boolean): Promise<{ ctx: Ctx; fingerpr
   }
   const dir = path.join(ROOT, job.account.id);
   fs.mkdirSync(dir, { recursive: true });
+  let proxy = job.proxy;
+  let bridge: Awaited<ReturnType<typeof socksBridge>> | null = null;
+  if (new URL(proxy.server).protocol.startsWith("socks") && proxy.username) {
+    bridge = await socksBridge(proxy);
+    proxy = { server: bridge.server };
+  }
   const ctx = await Camoufox({
     persistent_context: true,
     user_data_dir: dir,
     headless,
     os: targetOs,
-    proxy: job.proxy,
+    proxy,
     ...(preset ? { fingerprint_preset: preset } : {}),
     locale: geo.countryCode,
     config: {
@@ -165,7 +319,11 @@ async function launch(job: Job, headless: boolean): Promise<{ ctx: Ctx; fingerpr
     },
     humanize: true,
     i_know_what_im_doing: true,
+  }).catch((e) => {
+    bridge?.close();
+    throw e;
   });
+  if (bridge) ctx.on("close", bridge.close);
   log(`  环境已启动：${job.account.name}（出口 ${geo.ip} · ${geo.timezone}）`);
   return { ctx, fingerprint };
 }
