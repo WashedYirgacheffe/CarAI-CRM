@@ -119,10 +119,15 @@ function proxyError(e: unknown): string {
 export async function enqueueMatrixJob(input: {
   tenantId: string;
   accountId: string;
-  kind: "login" | "open" | "check" | "inbox" | "reply";
+  kind: "login" | "open" | "check" | "inbox" | "reply" | "export" | "import";
   userId: string | null;
   payload?: Prisma.InputJsonValue;
 }) {
+  // 正在迁移浏览器环境：其它任务都不排（迁完之前环境不在任何一边可用）
+  const moving = await prisma.matrixJob.findFirst({
+    where: { accountId: input.accountId, kind: { in: ["export", "import"] }, status: { in: ["queued", "running", "waiting"] } },
+  });
+  if (moving) return moving;
   // 回复任务领走时才取要发的消息：已经在跑的不算，新消息要再排一个
   const statuses = input.kind === "reply" ? ["queued"] : ["queued", "running", "waiting"];
   const existing = await prisma.matrixJob.findFirst({
@@ -233,6 +238,18 @@ export async function runnableAccounts<T extends { id: string; tenantId: string;
     if (a.deviceId ? t.devices.has(a.deviceId) : t.elsewhere) out.push(a);
   }
   return out;
+}
+
+/**
+ * 运行器接口的调用方：企业 + 运行器 id。桌面软件的运行器 id 由设备决定（dev-<设备 id>），不信任客户端传的；
+ * 其他运行器用自己报的 id。
+ */
+export async function runnerCaller(req: Request, claimed: string | null | undefined) {
+  const auth = await runnerAuth(req);
+  if (!auth) return null;
+  const runnerId = auth.device ? deviceRunnerId(auth.device.id) : (claimed ?? "");
+  if (!auth.device && runnerId.startsWith("dev-")) return null;
+  return { ...auth, runnerId };
 }
 
 /** 从请求头 Authorization: Bearer <令牌> 认出是哪个企业的运行器（云端 / 命令行） */

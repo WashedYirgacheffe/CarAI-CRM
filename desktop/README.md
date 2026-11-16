@@ -23,6 +23,26 @@ npm start        # 连线上 https://crm.caraicrm.com（或 CRM_URL=... npm star
 2. 运行器用设备令牌领任务，只领归属这台电脑的账号的任务；在桌面版里登录 / 打开没有归属的账号时，账号自动归到这台电脑。
 3. 在「设置 → 社媒运行」里移除这台电脑后，令牌立即失效，运行器退出（退出码 3），桌面版回到未配对状态。
 
-## 打包
+## 打包和发布
 
-`npm run dist` 出 DMG（arm64 + x64）。签名、公证、自动更新在 M3 做，见 `docs/desktop-app-plan.md`。
+```bash
+cd desktop
+npm run icons    # 改了图标才需要：build/icon-source.svg → icon.icns、菜单栏 trayTemplate*.png
+npm run dist     # 出 release/ 下的 DMG + ZIP（arm64、x64）和 latest-mac.yml
+cd .. && pnpm desktop:publish   # 传到 OSS 的 desktop/ 目录（需要服务器同样的 OSS_* 环境变量）
+```
+
+- **签名和公证**：有证书和 Apple 账号时自动进行，没有就出未签名的包（只能自用，右键「打开」放行）。
+  - `CSC_LINK`（Developer ID Application 证书 .p12 的路径或 base64）、`CSC_KEY_PASSWORD`
+  - `APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`（公证）
+- **自动更新**：启动 15 秒后检查一次，之后每 4 小时一次；下载完在菜单栏提示「重启并安装」，退出时也会自动装上。
+  更新源 `https://crm.caraicrm.com/api/desktop/update`。Mac 只有签过名的版本能自动更新。
+- **下载地址**：`https://crm.caraicrm.com/api/desktop/download?arch=arm64`（Intel 用 `arch=x64`），设置 →「社媒运行」里有链接。
+- 发新版：先改 `package.json` 的 `version`，再 `dist` + `publish`。运行器代码跟着软件版本走。
+
+## 常驻监听和迁移
+
+- 归属这台电脑、已登录、开了收私信的 TikTok 账号会一直挂在无界面浏览器里，几秒看一眼私信列表，新消息几秒内到收件箱。
+  菜单栏图标旁边的数字就是正在实时收私信的账号数。默认最多 5 个（环境变量 `MATRIX_MAX_WATCH`）。
+- 「迁到这台电脑」：已登录的账号会把原来位置（云端或另一台电脑）的浏览器环境加密打包，经 OSS 迁过来，不用重新登录。
+  迁移期间原来的位置需要在线。

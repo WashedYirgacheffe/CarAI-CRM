@@ -52,6 +52,10 @@ export async function POST(req: Request) {
     await prisma.matrixJob.update({ where: { id: j.id }, data: { status: "failed", error: "运行器重启，任务中断", finishedAt: new Date() } });
     if (j.kind === "login") await prisma.matrixAccount.updateMany({ where: { id: j.accountId, status: "pending" }, data: { status: "new" } });
     if (j.kind === "reply") await settleReplies(j.accountId, [], "运行器重启，没发出去");
+    if (j.kind === "export") await prisma.matrixAccount.update({ where: { id: j.accountId }, data: { statusNote: "迁移没完成：运行器重启" } });
+    if (j.kind === "import") {
+      await prisma.matrixAccount.update({ where: { id: j.accountId }, data: { status: "new", statusNote: "迁入没完成（运行器重启），需要重新登录" } });
+    }
   }
 
   const canceled = running.length
@@ -59,8 +63,8 @@ export async function POST(req: Request) {
     : [];
 
   if (free <= 0) return Response.json({ canceled, job: null });
-  // 企业关掉了云端：云端运行器不再领新任务，空闲后自己退出
-  if (runnerId.startsWith("cloud-") && !(await cloudEnabledFor(tenantId))) return Response.json({ canceled, job: null });
+  // 企业关掉了云端：云端运行器只领「迁出环境」（把账号搬到电脑上），别的不领，空闲后自己退出
+  const exportOnly = runnerId.startsWith("cloud-") && !(await cloudEnabledFor(tenantId));
 
   // 领任务：同一账号已有任务在跑的先不领
   const busyAccounts = (
@@ -68,7 +72,13 @@ export async function POST(req: Request) {
   ).map((j) => j.accountId);
   // 桌面软件只领归属自己的账号；云端和命令行运行器只领没有归属设备的
   const next = await prisma.matrixJob.findFirst({
-    where: { tenantId, status: "queued", accountId: { notIn: busyAccounts }, account: { deviceId: device ? device.id : null } },
+    where: {
+      tenantId,
+      status: "queued",
+      accountId: { notIn: busyAccounts },
+      account: { deviceId: device ? device.id : null },
+      ...(exportOnly ? { kind: "export" } : {}),
+    },
     orderBy: { createdAt: "asc" },
   });
   if (!next) return Response.json({ canceled, job: null });
@@ -95,7 +105,8 @@ export async function POST(req: Request) {
   await logMatrixEvent({ tenantId, accountId: account.id, action: `start:${next.kind}`, runner: host });
 
   // 导入的 Cookie 加密存在任务里，交给运行器时才解开
-  const { cookiesEnc, ...payload } = (next.payload ?? {}) as { cookiesEnc?: string } & Record<string, unknown>;
+  // 迁移环境的一次性密钥同样只在这里解开
+  const { cookiesEnc, keyEnc, ...payload } = (next.payload ?? {}) as { cookiesEnc?: string; keyEnc?: string } & Record<string, unknown>;
   let cookies: unknown[] | undefined;
   if (cookiesEnc) {
     try {
@@ -113,6 +124,7 @@ export async function POST(req: Request) {
       payload,
       ...(cookies ? { cookies } : {}),
       ...(replies ? { replies } : {}),
+      ...(keyEnc ? { transferKey: decryptSecret(keyEnc) } : {}),
       account: {
         id: account.id,
         platform: account.platform,

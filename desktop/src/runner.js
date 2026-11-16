@@ -65,9 +65,11 @@ export async function ensureBrowser(onProgress) {
 }
 
 export class Runner {
-  constructor({ crmUrl, onState }) {
+  constructor({ crmUrl, onState, onWatch }) {
     this.crmUrl = crmUrl;
     this.onState = onState;
+    /** 常驻监听的账号变了：(names: string[]) */
+    this.onWatch = onWatch;
     this.child = null;
     this.token = null;
     this.host = "";
@@ -109,11 +111,22 @@ export class Runner {
     const out = fs.createWriteStream(logFile(), { flags: "a" });
     out.write(`\n──── ${new Date().toISOString()} 运行器启动 ────\n`);
     const feed = (b) => out.write(b);
-    child.stdout.on("data", feed);
+    // 运行器用「@@watch 数量 名字、名字」这一行告诉外壳哪些账号在实时收私信
+    let rest = "";
+    child.stdout.on("data", (b) => {
+      feed(b);
+      const lines = (rest + b.toString()).split("\n");
+      rest = lines.pop() ?? "";
+      for (const l of lines) {
+        const m = /^@@watch (\d+) ?(.*)$/.exec(l.trim());
+        if (m) this.onWatch?.(m[2] ? m[2].split("、") : []);
+      }
+    });
     child.stderr.on("data", feed);
     const started = Date.now();
     child.on("exit", (code) => {
       out.end();
+      this.onWatch?.([]);
       if (this.child !== child) return;
       this.child = null;
       if (this.stopped) return this.set("stopped");

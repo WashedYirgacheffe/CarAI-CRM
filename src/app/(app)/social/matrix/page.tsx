@@ -12,7 +12,7 @@ import { currentDevice } from "@/server/matrix-device";
 import { prisma, tenantDb } from "@/server/db";
 import { appUrl } from "@/server/share";
 import { formatDateTime } from "@/lib/crm";
-import { ACCOUNT_STATUS, JOB_KIND, JOB_STATUS, matrixPlatform } from "@/lib/matrix";
+import { ACCOUNT_STATUS, JOB_KIND, JOB_STATUS, WATCH_STALE_MS, matrixPlatform } from "@/lib/matrix";
 import { cn } from "@/lib/utils";
 import { AccountButton, AccountRowActions, AutoRefresh, ProxyButton, ProxyRowActions, RunnerSetupButton } from "./matrix-client";
 import { AccountFilters, ImportAccountsButton, ImportProxiesButton } from "./matrix-import";
@@ -72,6 +72,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
 
   const crmUrl = appUrl();
   const now = new Date();
+  const watchCut = now.getTime() - WATCH_STALE_MS;
   const months = [usageMonth(now), usageMonth(new Date(now.getFullYear(), now.getMonth() - 1, 15))];
   const [accounts, total, groupRows, proxies, members, runners, tenant, usageRows] = await Promise.all([
     db.matrixAccount.findMany({
@@ -173,6 +174,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
               const onCloud = !!job?.runner?.startsWith("cloud-");
               const liveJob = jobActive && job.kind !== "check" && (onCloud || (job.status === "queued" && cloud && !a.deviceId)) ? job.id : null;
               const deviceOnline = !!a.deviceId && devicesOnline.has(a.deviceId);
+              const watching = a.inboxSync && deviceOnline && !!a.watchedAt && a.watchedAt.getTime() > watchCut;
               return (
                 <li key={a.id} className="grid items-center gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] md:px-5">
                   <div className="flex min-w-0 items-center gap-3">
@@ -216,8 +218,13 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                     </span>
                     {a.checkedAt && <span className="ml-1.5 text-muted-foreground">{formatDateTime(a.checkedAt, tz)} 检查</span>}
                     {a.inboxSync && (
-                      <Link href={`/inbox?acc=${a.id}`} className="ml-1.5 inline-block rounded bg-sky-50 px-1.5 py-px text-sky-700 hover:underline dark:bg-sky-950 dark:text-sky-300">
-                        收私信
+                      <Link
+                        href={`/inbox?acc=${a.id}`}
+                        title={watching ? "桌面版常驻着这个账号，新私信几秒内到收件箱" : undefined}
+                        className="ml-1.5 inline-flex items-center gap-1 rounded bg-sky-50 px-1.5 py-px text-sky-700 hover:underline dark:bg-sky-950 dark:text-sky-300"
+                      >
+                        {watching && <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />}
+                        {watching ? "实时收私信中" : "收私信"}
                       </Link>
                     )}
                     <p className={cn("mt-1 flex items-center gap-1 truncate", a.device && !deviceOnline ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>

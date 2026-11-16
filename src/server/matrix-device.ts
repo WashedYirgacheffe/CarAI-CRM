@@ -24,6 +24,6 @@ export async function bindAccountToCurrentDevice(user: CurrentUser, account: { i
   if (account.deviceId) return account.deviceId;
   const d = await currentDevice(user);
   if (!d) return null;
-  await prisma.matrixAccount.update({ where: { id: account.id }, data: { deviceId: d.id } });
+  await prisma.matrixAccount.update({ where: { id: account.id }, data: { deviceId: d.id, watchedAt: null } });
   return d.id;
 }

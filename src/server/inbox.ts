@@ -7,6 +7,7 @@ import { enqueueMatrixJob, logMatrixEvent, runnableAccounts } from "@/server/mat
 import { kickCloud } from "@/server/matrix-cloud";
 import { googleTranslateCode } from "@/server/translate";
 import { looksForeign } from "@/lib/lang";
+import { WATCH_STALE_MS } from "@/lib/matrix";
 import { INBOX_PLATFORMS, INBOX_SYNC_EVERY_MS, isChineseLang, maskContacts, maskHandle } from "@/lib/inbox";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -291,6 +292,8 @@ export async function scheduleInboxSync() {
       status: "active",
       proxyId: { not: null },
       platform: { in: [...INBOX_PLATFORMS] },
+      // 桌面版正在常驻监听的不用定时同步
+      OR: [{ watchedAt: null }, { watchedAt: { lt: new Date(Date.now() - WATCH_STALE_MS) } }],
       jobs: { none: { OR: [{ kind: "inbox", createdAt: { gte: cutoff } }, { status: { in: ["queued", "running", "waiting"] } }] } },
     },
     select: { id: true, tenantId: true, deviceId: true },

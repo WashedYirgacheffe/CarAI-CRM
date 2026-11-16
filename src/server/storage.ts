@@ -1,7 +1,7 @@
 import "server-only";
 import { createHmac } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import path from "node:path";
@@ -44,7 +44,7 @@ const sign = (s: string) => createHmac("sha1", OSS!.secret).update(s).digest("ba
 const encodeKey = (k: string) => k.split("/").map(encodeURIComponent).join("/");
 
 /** OSS 签名 V1 的请求头（服务器直连 OSS 用） */
-function ossRequest(method: "PUT" | "GET", key: string, headers: Record<string, string | number> = {}) {
+function ossRequest(method: "PUT" | "GET" | "DELETE", key: string, headers: Record<string, string | number> = {}) {
   const o = OSS!;
   const k = fullKey(key);
   const date = new Date().toUTCString();
@@ -96,6 +96,18 @@ export async function putObject(key: string, body: Buffer | Readable, opts: { co
   await mkdir(path.dirname(p), { recursive: true });
   if (Buffer.isBuffer(body)) await writeFile(p, body);
   else await pipeline(body, createWriteStream(p));
+}
+
+/** 删除文件（不存在也算成功） */
+export async function deleteObject(key: string) {
+  checkKey(key);
+  if (OSS) {
+    await send(ossRequest("DELETE", key)).catch((e: { status?: number }) => {
+      if (e.status !== 404) throw e;
+    });
+    return;
+  }
+  await rm(localPath(key), { force: true });
 }
 
 /** 读出整个文件（发邮件时带附件等） */

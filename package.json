@@ -14,6 +14,7 @@
     "typecheck": "node scripts/build-matrix-runner.mjs && next typegen && tsc --noEmit",
     "job:ensure-defaults": "tsx --conditions=react-server scripts/ensure-defaults.mts",
     "job:migrate-uploads": "tsx --conditions=react-server scripts/migrate-uploads-to-oss.mts",
+    "desktop:publish": "tsx --conditions=react-server scripts/desktop-publish.mts",
     "job:pool-recycle": "tsx --conditions=react-server scripts/pool-recycle.mts",
     "worker": "tsx --conditions=react-server scripts/worker.mts",
     "matrix-runner": "tsx scripts/matrix-runner.mts"

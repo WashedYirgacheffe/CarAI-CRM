@@ -497,18 +497,22 @@ export function AccountRowActions({
             <DropdownMenuItem
               disabled={!!activeJobId}
               onSelect={() =>
-                confirm(`把「${account.name}」移到这台电脑运行？\n登录状态留在原来的地方，移过来后要重新登录一次。`) &&
+                confirm(
+                  loggedIn
+                    ? `把「${account.name}」迁到这台电脑运行？\n登录状态会加密后一起迁过来（原来的电脑或云端需要在线）；迁不了时改为移过来后重新登录。`
+                    : `把「${account.name}」移到这台电脑运行？\n移过来后要登录一次。`,
+                ) &&
                 run("move", setAccountDeviceAction(account.id, true))
               }
             >
-              <Laptop /> 移到这台电脑
+              <Laptop /> {loggedIn ? "迁到这台电脑" : "移到这台电脑"}
             </DropdownMenuItem>
           )}
           {place.hasDevice && (
             <DropdownMenuItem
               disabled={!!activeJobId}
               onSelect={() =>
-                confirm(`取消「${account.name}」归属的电脑？\n之后由云端运行器执行（需要在设置里打开），并且要重新登录。`) &&
+                confirm(`取消「${account.name}」归属的电脑？\n之后由云端运行器执行（需要在设置里打开）。云端已打开、电脑在线时登录状态会一起迁过去，否则要重新登录。`) &&
                 run("unbind", setAccountDeviceAction(account.id, false))
               }
             >

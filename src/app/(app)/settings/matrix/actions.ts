@@ -35,7 +35,7 @@ export async function revokeDeviceAction(id: string): Promise<ActionState> {
       data: { status: "failed", error: "所在电脑已被移除", finishedAt: new Date() },
     }),
     prisma.matrixDevice.update({ where: { id: d.id }, data: { revokedAt: new Date() } }),
-    prisma.matrixAccount.updateMany({ where: { tenantId: user.tenantId, deviceId: d.id }, data: { deviceId: null } }),
+    prisma.matrixAccount.updateMany({ where: { tenantId: user.tenantId, deviceId: d.id }, data: { deviceId: null, watchedAt: null } }),
   ]);
   revalidatePath("/settings/matrix");
   revalidatePath("/social/matrix");

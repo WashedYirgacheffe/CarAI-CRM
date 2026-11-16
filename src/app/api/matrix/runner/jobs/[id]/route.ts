@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
-import { logMatrixEvent, notifyAccountDropped, runnerTenant } from "@/server/matrix";
+import { logMatrixEvent, notifyAccountDropped, runnerCaller } from "@/server/matrix";
 import { settleReplies } from "@/server/inbox";
+import { finishTransfer } from "@/server/matrix-transfer";
 
 const Body = z.object({
   runnerId: z.string().min(4).max(80),
@@ -26,14 +27,15 @@ const hasCookies = (p: unknown) => !!p && typeof p === "object" && "cookiesEnc" 
 
 /** 运行器回报任务进度 / 结果，顺带更新账号状态 */
 export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/jobs/[id]">) {
-  const tenantId = await runnerTenant(req);
-  if (!tenantId) return Response.json({ error: "令牌无效" }, { status: 401 });
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "参数不对" }, { status: 400 });
+  const caller = await runnerCaller(req, parsed.data.runnerId);
+  if (!caller) return Response.json({ error: "令牌无效" }, { status: 401 });
+  const { tenantId, runnerId } = caller;
   const { id } = await ctx.params;
   const b = parsed.data;
 
-  const job = await prisma.matrixJob.findFirst({ where: { id, tenantId, runner: b.runnerId } });
+  const job = await prisma.matrixJob.findFirst({ where: { id, tenantId, runner: runnerId } });
   if (!job) return Response.json({ error: "任务不存在" }, { status: 404 });
   const canceled = job.status === "canceled";
 
@@ -50,6 +52,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
         ...(finished && hasCookies(job.payload) ? { payload: { cookieImport: true } } : {}),
       },
     });
+    // 迁移环境：迁出完成 → 账号换到新位置、排迁入；迁入结束 → 清掉密钥
+    if (finished && (job.kind === "export" || job.kind === "import")) {
+      await finishTransfer(job, b.status === "done", b.result ?? {}, b.error ?? null);
+    }
     // 回复任务：逐条记下发没发出去
     if (finished && job.kind === "reply") {
       const parsedReplies = z
@@ -79,7 +85,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
   }
 
   if (b.event) {
-    const runner = await prisma.matrixRunner.findUnique({ where: { id: b.runnerId }, select: { host: true } });
+    const runner = await prisma.matrixRunner.findUnique({ where: { id: runnerId }, select: { host: true } });
     await logMatrixEvent({ tenantId, accountId: job.accountId, action: b.event, detail: b.error ?? null, runner: runner?.host ?? null });
   }
   return Response.json({ ok: true, canceled });

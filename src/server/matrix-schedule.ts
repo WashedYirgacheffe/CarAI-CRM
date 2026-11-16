@@ -2,7 +2,7 @@ import { prisma } from "@/server/db";
 import { enqueueMatrixJob, logMatrixEvent, runnableAccounts } from "@/server/matrix";
 import { kickCloud } from "@/server/matrix-cloud";
 import { scheduleInboxSync, settleReplies } from "@/server/inbox";
-import { AUTO_CHECK_EVERY_MS, JOB_TIMEOUT_MS, RUNNER_STALE_MS } from "@/lib/matrix";
+import { AUTO_CHECK_EVERY_MS, JOB_TIMEOUT_MS, RUNNER_STALE_MS, WATCH_STALE_MS } from "@/lib/matrix";
 
 /*
  * 社媒矩阵的定时活（在 web 进程里跑，见 src/instrumentation.ts）：
@@ -70,6 +70,8 @@ export async function scheduleMatrixChecks() {
       status: "active",
       proxyId: { not: null },
       OR: [{ loggedInAt: null }, { loggedInAt: { lt: cutoff } }],
+      // 常驻监听的账号一直开着页面，掉线会自己发现
+      AND: [{ OR: [{ watchedAt: null }, { watchedAt: { lt: new Date(Date.now() - WATCH_STALE_MS) } }] }],
       // 12 小时内建过检查任务的不再建（失败了也等下一轮，免得反复重试）
       jobs: { none: { OR: [{ kind: "check", createdAt: { gte: cutoff } }, { status: { in: ["queued", "running", "waiting"] } }] } },
     },
