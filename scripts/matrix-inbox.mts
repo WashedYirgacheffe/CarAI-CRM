@@ -39,13 +39,13 @@ type Site = {
 };
 
 const SITES: Record<string, Site> = {
+  // 2026-11 起的新版私信页（dm-new-*）；读和发都走下面的 tiktok* 专用流程，这里只留输入框
   tiktok: {
     inboxUrl: "https://www.tiktok.com/messages",
-    listItem: '[data-e2e="chat-list-item"]',
-    bubble: '[data-e2e="chat-item"]',
+    listItem: '[data-e2e="dm-new-conversation-item"]',
+    bubble: '[data-e2e="dm-new-chat-item"]',
     profileHref: /tiktok\.com\/@([\w.]+)/,
-    composer: '[data-e2e="message-input-area"] [contenteditable="true"], div[contenteditable="true"][role="textbox"]',
-    sendButton: '[data-e2e="message-send"]',
+    composer: '[data-e2e="dm-new-input-editor"] [contenteditable="true"], [data-e2e="message-input-area"] [contenteditable="true"]',
   },
   instagram: {
     inboxUrl: "https://www.instagram.com/direct/inbox/",
@@ -292,6 +292,159 @@ function xCollector(page: Page) {
   };
 }
 
+// ── TikTok：新版私信页 ──
+// 主列表里混着「消息请求」入口（陌生人发来的私信都在里面），两边都要读。
+// 会话项带 data-conv-id（稳定的会话 id）；对方的消息带头像，消息 id 在「更多」按钮的 id 里。
+
+const TT = {
+  list: '[data-e2e="dm-new-conversation-list"]',
+  item: '[data-e2e="dm-new-conversation-item"]',
+  requests: "[data-stranger-entry]",
+  back: '[data-testid="dm-new-v3-back-btn"]',
+  chatItem: '[data-e2e="dm-new-chat-item"]',
+  accept: '[data-e2e="dm-new-stranger-accept"]',
+};
+
+type TtRow = ListRow & { request: boolean };
+
+async function tiktokRows(page: Page, request: boolean): Promise<TtRow[]> {
+  const rows = await page.$$eval(TT.item, (els) =>
+    (els as HTMLElement[])
+      .filter((e) => e.getBoundingClientRect().height > 0)
+      .map((e) => {
+        const name = e.querySelector('[data-e2e="dm-new-conversation-nickname"]')?.textContent?.trim() ?? "";
+        const info = e.querySelector('[data-e2e="dm-new-conversation-nickname"]')?.nextElementSibling as HTMLElement | null;
+        return { key: e.getAttribute("data-conv-id") ?? "", name, preview: (info?.innerText ?? "").replace(/\s+/g, " ").trim() };
+      }),
+  );
+  return rows.filter((r) => r.key).map((r, index) => ({ ...r, index, request: request }));
+}
+
+async function tiktokHome(page: Page) {
+  if (!page.url().startsWith(SITES.tiktok.inboxUrl)) {
+    await page.goto(SITES.tiktok.inboxUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+  }
+  await page.waitForSelector(`${TT.item}, ${TT.requests}`, { timeout: 25_000 }).catch(() => {});
+  await jitter(800, 1500);
+}
+
+/** 进「消息请求」列表；没有请求返回 false */
+async function tiktokEnterRequests(page: Page) {
+  const entry = page.locator(TT.requests).first();
+  if (!(await entry.isVisible().catch(() => false))) return false;
+  await entry.click({ timeout: 10_000 });
+  await page.waitForSelector(TT.back, { timeout: 15_000 }).catch(() => {});
+  await jitter(1500, 2500);
+  return true;
+}
+
+async function tiktokLeaveRequests(page: Page) {
+  const back = page.locator(TT.back).first();
+  if (await back.isVisible().catch(() => false)) {
+    await back.click({ timeout: 10_000 }).catch(() => {});
+    await jitter(1000, 1800);
+  }
+}
+
+/** 打开会话：先在当前列表找，找不到再去「消息请求」里找 */
+async function tiktokOpen(page: Page, key: string) {
+  await tiktokHome(page);
+  const sel = `${TT.item}[data-conv-id="${key.replace(/"/g, '\\"')}"]`;
+  const item = page.locator(sel).first();
+  const shows = (ms: number) => item.waitFor({ state: "visible", timeout: ms }).then(() => true, () => false);
+  if (!(await shows(3000))) {
+    // 可能停在「消息请求」里（上一个会话是请求），先回主列表找；还没有再进请求里找
+    await tiktokLeaveRequests(page);
+    if (!(await shows(5000))) {
+      if (!(await tiktokEnterRequests(page)) || !(await shows(5000))) throw new Error("找不到这个会话");
+    }
+  }
+  await item.click({ timeout: 15_000 });
+  await page.waitForSelector(TT.chatItem, { timeout: 15_000 }).catch(() => {});
+  await jitter(1500, 2500);
+}
+
+/** 读当前打开的会话 */
+async function tiktokRead(page: Page): Promise<{ messages: InboxMessage[]; handle?: string }> {
+  const raw = await page.evaluate((chatItem) => {
+    const list = document.querySelector('[data-e2e="dm-new-message-list"]');
+    const lr = (list ?? document.body).getBoundingClientRect();
+    const msgs = [...document.querySelectorAll<HTMLElement>(chatItem)].map((e) => {
+      const id = /more-action-icon-msg-(\d+)/.exec(e.querySelector('[id^="more-action-icon-msg-"]')?.id ?? "")?.[1];
+      const text = (e.querySelector('[data-e2e="dm-new-message-text"]') as HTMLElement | null)?.innerText.trim() ?? "";
+      const video = !!e.querySelector('[data-e2e="dm-new-shared-video"]');
+      const image = !!e.querySelector('img[alt="sticker"], [class*="Image"] img:not([class*="Avatar"])');
+      // 对方的消息左边有头像；自己的没有，靠右
+      const avatar = !!e.querySelector('[data-e2e="chat-avatar"]');
+      const box = (e.querySelector('[data-area="Actions"]') ?? e).getBoundingClientRect();
+      const fromMe = !avatar && box.left + box.width / 2 > lr.left + lr.width / 2;
+      return { id, text, video, image, fromMe };
+    });
+    const handle = document.querySelector('[data-e2e="chat-uniqueid"]')?.textContent?.trim().replace(/^@/, "");
+    return { msgs, handle };
+  }, TT.chatItem);
+  const messages = raw.msgs
+    .filter((m) => m.text || m.video || m.image)
+    .map((m) => ({
+      id: m.id,
+      fromMe: m.fromMe,
+      text: m.text || (m.video ? "[分享了视频]" : "[图片]"),
+      type: (m.text ? "text" : m.video ? "video" : "image") as InboxMessage["type"],
+    }));
+  return { messages, handle: raw.handle || undefined };
+}
+
+async function tiktokSync(page: Page, profileDir: string, log: Log): Promise<InboxThread[]> {
+  await tiktokHome(page);
+  const main = await tiktokRows(page, false);
+  let reqs: TtRow[] = [];
+  if (await tiktokEnterRequests(page)) {
+    reqs = await tiktokRows(page, true);
+    await tiktokLeaveRequests(page);
+  }
+  const list = [...main, ...reqs];
+  if (!list.length && !(await page.locator(TT.list).count())) throw new Error("没找到 TikTok 私信列表，页面可能改版了");
+  const store = previewStore(profileDir);
+  const first = !fs.existsSync(path.join(profileDir, "inbox-preview.json"));
+  const todo = list.filter((r) => store.changed(r.key, r.preview)).slice(0, first ? 15 : 8);
+  log(`  会话 ${main.length} 个，消息请求 ${reqs.length} 个，打开有变化的 ${todo.length} 个`);
+  const out: InboxThread[] = [];
+  for (const r of todo) {
+    try {
+      await tiktokOpen(page, r.key);
+      const b = await tiktokRead(page);
+      out.push({
+        key: r.key,
+        peer: { name: r.name, handle: b.handle, url: b.handle ? `https://www.tiktok.com/@${b.handle}` : undefined },
+        messages: b.messages,
+      });
+      store.set(r.key, r.preview);
+    } catch (e) {
+      log("  打开会话失败", r.name, (e as Error).message.split("\n")[0]);
+    }
+    await jitter(1500, 3500);
+  }
+  store.save();
+  return out;
+}
+
+/** 回复前：消息请求要先「接受」才能发（回复本身就代表接受） */
+async function tiktokAcceptIfRequest(page: Page, log: Log) {
+  const box = page.locator(TT.accept).first();
+  if (!(await box.isVisible().catch(() => false))) return;
+  await box.locator('[role="button"]').last().click({ timeout: 10_000 });
+  log("  已接受消息请求");
+  await jitter(1500, 2500);
+}
+
+/** X 私信已改成加密的 XChat（/i/chat）：新设备要先输入 4 位私信密码才能解密，否则停在密码页 */
+async function xCheckChatLock(page: Page) {
+  for (let i = 0; i < 10 && !page.url().includes("/i/chat/pin"); i++) await sleep(1500);
+  if (page.url().includes("/i/chat/pin")) {
+    throw new Error("X 私信已加密，需要先在「打开环境」里进入私信页，输入一次 4 位私信密码");
+  }
+}
+
 // ── 列表预览缓存：预览没变的会话不打开（存在账号的环境目录里） ──
 
 function previewStore(dir: string) {
@@ -315,9 +468,11 @@ function previewStore(dir: string) {
 export async function syncInbox(ctx: Ctx, page: Page, platform: string, profileDir: string, log: Log): Promise<InboxThread[] | null> {
   const site = SITES[platform];
   if (!site) return null;
+  if (platform === "tiktok") return tiktokSync(page, profileDir, log);
   const x = platform === "x" ? xCollector(page) : null;
   await page.goto(site.inboxUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
   await jitter(4000, 6000);
+  if (x) await xCheckChatLock(page);
 
   if (platform === "instagram") {
     const api = await instagramApi(page);
@@ -391,12 +546,22 @@ export async function sendReplies(page: Page, platform: string, replies: Reply[]
   if (!site) return { results: replies.map((r) => ({ id: r.id, ok: false, error: "这个平台还不支持回复" })), threads: [] };
   for (const r of replies) {
     try {
-      await openThread(page, site, { key: r.thread.key, url: r.thread.url, name: r.thread.name });
+      if (platform === "tiktok") {
+        await tiktokOpen(page, r.thread.key);
+        await tiktokAcceptIfRequest(page, log);
+      } else {
+        await openThread(page, site, { key: r.thread.key, url: r.thread.url, name: r.thread.name });
+      }
       await typeAndSend(page, site, r.text);
       results.push({ id: r.id, ok: true });
       log(`  已发送给 ${r.thread.name ?? r.thread.key}`);
       // 读接口的平台消息带 id，这里读页面会重复，等下次同步认领
-      const b = platform === "instagram" || platform === "x" ? null : await readBubbles(page, site).catch(() => null);
+      const b =
+        platform === "instagram" || platform === "x"
+          ? null
+          : platform === "tiktok"
+            ? await tiktokRead(page).catch(() => null)
+            : await readBubbles(page, site).catch(() => null);
       if (b?.messages.length) threads.set(r.thread.key, { key: r.thread.key, messages: b.messages });
     } catch (e) {
       const msg = (e as Error).message.split("\n")[0].slice(0, 200);
