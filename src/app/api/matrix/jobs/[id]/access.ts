@@ -8,7 +8,7 @@ export async function liveJobFor(id: string) {
   if (!user) return null;
   const job = await tenantDb(user.tenantId).matrixJob.findFirst({
     where: { id },
-    select: { id: true, status: true, kind: true, error: true, account: { select: { ownerId: true, status: true } } },
+    select: { id: true, tenantId: true, status: true, kind: true, error: true, account: { select: { ownerId: true, status: true } } },
   });
   if (!job) return null;
   if (!can(user, "matrix.manage") && !(can(user, "matrix.use") && job.account.ownerId === user.id)) return null;
