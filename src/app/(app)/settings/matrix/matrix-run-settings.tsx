@@ -104,6 +104,17 @@ export function MatrixRunSettings({ cloudConfigured, cloudEnabled, devices }: { 
             还没有电脑连接。下载车车 CRM 桌面版（Mac），登录后社媒账号就可以在这台电脑上运行。
           </p>
         )}
+        <p className="border-t border-border/70 px-6 py-3 text-xs text-muted-foreground">
+          下载 Mac 桌面版：
+          <a className="ml-1 text-primary hover:underline" href="/api/desktop/download?arch=arm64">
+            Apple 芯片（M1 及以后）
+          </a>
+          <span className="mx-1.5">·</span>
+          <a className="text-primary hover:underline" href="/api/desktop/download?arch=x64">
+            Intel 芯片
+          </a>
+          <span className="ml-2">装好后会自动更新</span>
+        </p>
       </section>
     </div>
   );

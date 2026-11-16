@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db";
-import { runnerTenant } from "@/server/matrix";
+import { runnerCaller } from "@/server/matrix";
 import { pushFrame } from "@/server/matrix-live";
 
 const MAX_FRAME = 2 * 1024 * 1024;
@@ -7,10 +7,10 @@ const statusCache = new Map<string, { at: number; canceled: boolean }>();
 
 /** 云端运行器上传一帧画面（JPEG，画面没变时为空），取回网页上的点击和按键 */
 export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/jobs/[id]/frame">) {
-  const tenantId = await runnerTenant(req);
-  if (!tenantId) return Response.json({ error: "令牌无效" }, { status: 401 });
+  const caller = await runnerCaller(req, req.headers.get("x-runner-id"));
+  if (!caller) return Response.json({ error: "令牌无效" }, { status: 401 });
+  const { tenantId, runnerId } = caller;
   const { id } = await ctx.params;
-  const runnerId = req.headers.get("x-runner-id") ?? "";
 
   // 取消状态每 2 秒查一次库
   let cached = statusCache.get(id);

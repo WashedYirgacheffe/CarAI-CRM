@@ -7,6 +7,7 @@ import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser } from "@/server/auth";
 import { encryptSecret } from "@/server/crypto";
 import { checkProxy, enqueueMatrixJob, logMatrixEvent, onlineDeviceIds, rotateRunnerToken } from "@/server/matrix";
+import { startTransfer } from "@/server/matrix-transfer";
 import { cloudEnabledFor, kickCloud, legacyRunnerOnline } from "@/server/matrix-cloud";
 import { bindAccountToCurrentDevice, currentDevice } from "@/server/matrix-device";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
@@ -305,11 +306,17 @@ export async function setAccountDeviceAction(id: string, here: boolean): Promise
   if (deviceId === acc.deviceId) return { ok: true, message: "运行位置没有变化" };
   const busy = await prisma.matrixJob.count({ where: { accountId: id, status: { in: ["running", "waiting"] } } });
   if (busy) return { ok: false, message: "账号有任务正在执行，等它结束或先取消" };
+  // 已登录、原来的位置在线：连同登录状态一起迁过去，不用重新登录
+  const moving = await startTransfer({ tenantId: user.tenantId, accountId: id, userId: user.id, to: deviceId, toName: device?.name ?? "云端" });
+  if (moving) {
+    revalidatePath(PATH);
+    return { ok: true, message: `正在把登录环境迁到「${device?.name ?? "云端"}」，迁完自动可用（原来的电脑请保持开着）` };
+  }
   await prisma.$transaction([
     prisma.matrixJob.updateMany({ where: { accountId: id, status: "queued" }, data: { status: "canceled", finishedAt: new Date() } }),
     prisma.matrixAccount.update({
       where: { id },
-      data: { deviceId, status: "new", statusNote: device ? `已移到「${device.name}」，需要重新登录` : "已取消归属电脑，需要重新登录" },
+      data: { deviceId, watchedAt: null, status: "new", statusNote: device ? `已移到「${device.name}」，需要重新登录` : "已取消归属电脑，需要重新登录" },
     }),
   ]);
   await logMatrixEvent({ tenantId: user.tenantId, accountId: id, userId: user.id, action: device ? "device:bind" : "device:unbind", detail: device?.name });
@@ -325,6 +332,9 @@ export async function cancelJobAction(id: string): Promise<ActionState> {
   // 运行中的任务由运行器看到 canceled 后自己停下、关窗口
   await prisma.matrixJob.updateMany({ where: { id, status: { in: ["queued", "running", "waiting"] } }, data: { status: "canceled", finishedAt: new Date() } });
   if (job.kind === "login" && job.account.status === "pending") await prisma.matrixAccount.update({ where: { id: job.accountId }, data: { status: "new" } });
+  // 迁移取消：迁出前取消账号留在原处；迁入时取消新位置没有环境，要重新登录
+  if (job.kind === "export") await prisma.matrixAccount.update({ where: { id: job.accountId }, data: { statusNote: "迁移已取消" } });
+  if (job.kind === "import") await prisma.matrixAccount.update({ where: { id: job.accountId }, data: { status: "new", statusNote: "迁入已取消，需要重新登录" } });
   revalidatePath(PATH);
   return { ok: true, message: "已取消" };
 }

@@ -1,7 +1,7 @@
 {
   "name": "cheche-crm-desktop",
   "productName": "车车 CRM",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "车车 CRM 桌面版：CRM 主窗口 + 内置社媒环境运行器（Camoufox）",
   "type": "module",
@@ -10,10 +10,12 @@
     "build:runner": "node scripts/build-runner.mjs",
     "start": "npm run build:runner && electron .",
     "dev": "npm run build:runner && CRM_URL=http://localhost:3000 electron .",
-    "dist": "npm run build:runner && electron-builder --mac"
+    "dist": "npm run build:runner && electron-builder --mac --publish never",
+    "icons": "electron scripts/make-icons.mjs"
   },
   "dependencies": {
     "camoufox": "0.5.9",
+    "electron-updater": "^6.8.11",
     "playwright-core": "^1.62.1"
   },
   "devDependencies": {
@@ -23,13 +25,56 @@
   },
   "build": {
     "appId": "com.caraicrm.desktop",
-    "directories": { "output": "release" },
     "productName": "车车 CRM",
-    "files": ["src/**", "dist/**", "package.json"],
-    "asarUnpack": ["dist/**", "node_modules/camoufox/**", "node_modules/playwright-core/**"],
+    "artifactName": "cheche-crm-${version}-${arch}-mac.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "dist/**",
+      "build/trayTemplate*.png",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "dist/**",
+      "node_modules/camoufox/**",
+      "node_modules/playwright-core/**"
+    ],
     "mac": {
       "category": "public.app-category.business",
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }]
-    }
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "车车 CRM ${version}"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://crm.caraicrm.com/api/desktop/update",
+        "channel": "latest"
+      }
+    ]
   }
 }

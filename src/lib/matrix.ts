@@ -145,6 +145,8 @@ export const JOB_KIND: Record<string, string> = {
   check: "检查登录",
   inbox: "收私信",
   reply: "发私信",
+  export: "迁出环境",
+  import: "迁入环境",
 };
 
 /** 任务最长能跑多久，超时由 CRM 标成失败（运行器自己也会掐） */
@@ -154,7 +156,20 @@ export const JOB_TIMEOUT_MS: Record<string, number> = {
   open: 4 * 60 * 60_000,
   inbox: 12 * 60_000,
   reply: 6 * 60_000,
+  export: 30 * 60_000,
+  import: 30 * 60_000,
 };
+
+/** 桌面版常驻监听（实时收私信）已适配的平台；其他平台还是定时同步 */
+export const WATCH_PLATFORMS = ["tiktok"] as const;
+export const isWatchPlatform = (p: string) => (WATCH_PLATFORMS as readonly string[]).includes(p);
+/** 常驻监听心跳多久没更新就算停了 */
+export const WATCH_STALE_MS = 90_000;
+
+/** 迁移浏览器环境：加密后的压缩包按这个大小分块上传（每块一个请求，不超过请求体上限） */
+export const TRANSFER_PART_BYTES = 16 * 1024 * 1024;
+/** 最多多少块（约 1.6 GB） */
+export const TRANSFER_MAX_PARTS = 100;
 
 /** 自动检查登录：每个已登录账号隔多久检查一次 */
 export const AUTO_CHECK_EVERY_MS = 12 * 60 * 60_000;

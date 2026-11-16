@@ -8,7 +8,7 @@
 // 云端（Vercel Sandbox）由 CRM 按需启动，带 MATRIX_HEADLESS=1：不弹窗口，
 // 把画面实时推给 CRM，人在 CRM 网页里点击、输入、扫码；空闲 MATRIX_IDLE_EXIT_MIN 分钟后自己退出、CRM 停掉 Sandbox。
 import { config as loadEnv } from "dotenv";
-import { createHash, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -17,12 +17,12 @@ import os from "node:os";
 import path from "node:path";
 import { ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
 import { socksDispatcher } from "fetch-socks";
-import { JOB_TIMEOUT_MS, matrixPlatform, type MatrixPlatformInfo } from "@/lib/matrix";
-import { sendReplies, syncInbox, type InboxThread, type Reply } from "./matrix-inbox.mjs";
+import { JOB_TIMEOUT_MS, TRANSFER_MAX_PARTS, TRANSFER_PART_BYTES, matrixPlatform, type MatrixPlatformInfo } from "@/lib/matrix";
+import { sendReplies, syncInbox, watchHome, watchSupported, watchTick, type InboxThread, type Reply } from "./matrix-inbox.mjs";
 
 loadEnv({ path: ".env.runner", quiet: true });
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const CRM_URL = (process.env.CRM_URL || "http://localhost:3000").replace(/\/+$/, "");
 const TOKEN = process.env.MATRIX_RUNNER_TOKEN || "";
 const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-crm", "matrix");
@@ -33,6 +33,10 @@ const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const HEADLESS = process.env.MATRIX_HEADLESS === "1";
 /** 空闲多久自己退出（0 = 不退出） */
 const IDLE_EXIT_MS = Number(process.env.MATRIX_IDLE_EXIT_MIN || 0) * 60_000;
+/** 桌面版（设备令牌）：开启常驻监听 */
+const DEVICE = TOKEN.startsWith("md_");
+/** 最多同时常驻几个账号（每个是一个无界面浏览器，约 300~500 MB 内存） */
+const MAX_WATCH = Math.max(0, Number(process.env.MATRIX_MAX_WATCH ?? 5));
 
 const log = (...a: unknown[]) => console.log(new Date().toLocaleTimeString(), ...a);
 
@@ -73,7 +77,10 @@ type Proxy = { server: string; username?: string; password?: string };
 type Cookie = Parameters<Ctx["addCookies"]>[0][number];
 type Job = {
   id: string;
-  kind: "login" | "open" | "check" | "inbox" | "reply";
+  kind: "login" | "open" | "check" | "inbox" | "reply" | "export" | "import";
+  payload?: { parts?: number; sha256?: string };
+  /** 迁移环境：一次性密钥（base64，32 字节） */
+  transferKey?: string;
   account: { id: string; platform: string; name: string; os: string; fingerprint: Record<string, unknown> | null; status: string };
   proxy: Proxy;
   /** 导入 Cookie 建号：启动后先写进浏览器 */
@@ -392,6 +399,7 @@ function notify(title: string, text: string) {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 // ── 实时画面（无界面模式）：截图推给 CRM，顺便取回人在网页上的点击、按键 ──
 
@@ -540,8 +548,28 @@ async function runJob(job: Job, state: JobState) {
   const platform = matrixPlatform(job.account.platform);
   if (!platform) return report(job.id, { status: "failed", error: `不支持的平台 ${job.account.platform}` });
   log(`▶ ${job.kind} · ${platform.label} · ${job.account.name}`);
+  const accId = job.account.id;
+  const w = watchers.get(accId);
+  // 常驻着的账号：收私信、发私信、检查登录直接在常驻页面上做，不另开浏览器
+  if (w?.ready && (job.kind === "inbox" || job.kind === "reply" || job.kind === "check")) return runOnWatcher(job, w, platform);
+  // 其它任务要独占环境目录（同一个目录不能被两个浏览器同时打开）：先停掉常驻，任务完了常驻会自己恢复
+  busyAccounts.add(accId);
+  try {
+    if (w) {
+      log("  先暂停常驻监听");
+      await stopWatcher(w);
+    }
+    return await runJobExclusive(job, state, platform);
+  } finally {
+    busyAccounts.delete(accId);
+  }
+}
+
+async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatformInfo) {
   let ctx: Ctx | null = null;
   let finished = false;
+  /** 迁入：环境已经解开放好（之后出错不用重新登录） */
+  let extracted = false;
   let live: Promise<void> | null = null;
   // 看门狗：任务超过时限就关掉浏览器（CRM 那边也会把任务标成超时）
   const limit = (JOB_TIMEOUT_MS[job.kind] ?? JOB_TIMEOUT_MS.login) - 30_000;
@@ -552,7 +580,18 @@ async function runJob(job: Job, state: JobState) {
     void ctx?.close().catch(() => {});
   }, limit);
   try {
-    const background = job.kind === "check" || job.kind === "inbox" || job.kind === "reply";
+    if (job.kind === "export") {
+      await report(job.id, { event: "export:start" });
+      const result = await exportEnv(job, state);
+      await report(job.id, { status: "done", result, event: "export:ok" });
+      log(`  ✅ 环境已迁出：${job.account.name}`);
+      return;
+    }
+    if (job.kind === "import") {
+      await importEnv(job, state);
+      extracted = true;
+    }
+    const background = job.kind === "check" || job.kind === "inbox" || job.kind === "reply" || job.kind === "import";
     const launched = await launch(job, background || HEADLESS);
     ctx = launched.ctx;
     if (job.cookies?.length) await addCookies(ctx, job.cookies);
@@ -597,6 +636,21 @@ async function runJob(job: Job, state: JobState) {
         account: { ...fp, checked: true },
         event: failed ? `reply:failed ${failed}/${results.length}` : "reply:ok",
       });
+      return;
+    }
+
+    // 迁入：解开后打开一次，确认登录状态还在
+    if (job.kind === "import") {
+      await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+      await sleep(4000);
+      const ok = await stillLoggedIn(ctx, platform);
+      await report(job.id, {
+        status: "done",
+        result: { loggedIn: ok, url: page.url() },
+        account: { ...fp, status: ok ? "active" : "new", statusNote: ok ? null : "迁过来的登录状态失效了，需要重新登录", checked: true },
+        event: ok ? "import:ok" : "import:expired",
+      });
+      log(`  ${ok ? "✅ 迁入完成，登录状态正常" : "迁入完成，但登录状态失效了"}`);
       return;
     }
 
@@ -682,6 +736,7 @@ async function runJob(job: Job, state: JobState) {
       status: "failed",
       error: msg,
       ...(job.kind === "login" ? { account: { status: "new" as const } } : {}),
+      ...(extracted ? { result: { extracted: true } } : {}),
       event: `${job.kind}:error`,
     });
   } finally {
@@ -689,6 +744,321 @@ async function runJob(job: Job, state: JobState) {
     finished = true;
     await live?.catch(() => {});
     await ctx?.close().catch(() => {});
+  }
+}
+
+// ── 迁移浏览器环境：打包 → AES-256-GCM 加密 → 分块传给 CRM（存 OSS）；迁入反过来 ──
+
+/** 缓存、崩溃报告、锁文件不带（体积大、换台电脑没用） */
+const ENV_EXCLUDES = [
+  "cache2", "startupCache", "thumbnails", "shader-cache", "jumpListCache", "crashes", "minidumps",
+  "datareporting", "saved-telemetry-pings", "safebrowsing", "lock", ".parentlock", "parent.lock", "*.tmp",
+];
+
+function tar(args: string[]) {
+  return new Promise<void>((resolve, reject) =>
+    execFile("tar", args, { maxBuffer: 16 * 1024 * 1024 }, (e, _o, err) => (e ? reject(new Error(`打包失败：${(err || e.message).trim().slice(0, 200)}`)) : resolve())),
+  );
+}
+
+const bundleUrl = (jobId: string, part: number) => `${CRM_URL}/api/matrix/runner/jobs/${jobId}/bundle?part=${part}`;
+const runnerHeaders = { authorization: `Bearer ${TOKEN}`, "x-runner-id": RUNNER_ID };
+
+async function exportEnv(job: Job, state: JobState) {
+  const dir = path.join(ROOT, job.account.id);
+  if (!job.transferKey) throw new Error("缺少迁移密钥");
+  if (!fs.existsSync(dir)) throw new Error("这里没有这个账号的浏览器环境");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cc-env-"));
+  try {
+    const tgz = path.join(tmp, "env.tgz");
+    await tar(["-czf", tgz, ...ENV_EXCLUDES.flatMap((e) => ["--exclude", e]), "-C", dir, "."]);
+    const plain = fs.readFileSync(tgz);
+    const iv = randomBytes(12);
+    const c = createCipheriv("aes-256-gcm", Buffer.from(job.transferKey, "base64"), iv);
+    const enc = Buffer.concat([iv, c.update(plain), c.final(), c.getAuthTag()]);
+    const parts = Math.ceil(enc.length / TRANSFER_PART_BYTES);
+    if (parts > TRANSFER_MAX_PARTS) throw new Error(`浏览器环境太大（${Math.round(enc.length / 1048576)} MB）`);
+    log(`  环境打包好了：${Math.round(enc.length / 1048576)} MB，分 ${parts} 块上传`);
+    for (let i = 0; i < parts; i++) {
+      if (state.canceled) throw new Error("已取消");
+      const body = enc.subarray(i * TRANSFER_PART_BYTES, (i + 1) * TRANSFER_PART_BYTES);
+      for (let attempt = 1; ; attempt++) {
+        const res = await fetch(bundleUrl(job.id, i), {
+          method: "PUT",
+          headers: { ...runnerHeaders, "content-type": "application/octet-stream" },
+          body: new Uint8Array(body),
+          signal: AbortSignal.timeout(5 * 60_000),
+        }).catch((e: Error) => ({ ok: false, status: 0, statusText: e.message }) as const);
+        if (res.ok) break;
+        if (attempt >= 3) throw new Error(`上传第 ${i + 1} 块失败（${res.status || res.statusText}）`);
+        await sleep(3000 * attempt);
+      }
+    }
+    return { parts, size: enc.length, sha256: createHash("sha256").update(enc).digest("hex") };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+async function importEnv(job: Job, state: JobState) {
+  const dir = path.join(ROOT, job.account.id);
+  const parts = job.payload?.parts ?? 0;
+  if (!job.transferKey || !parts || !job.payload?.sha256) throw new Error("迁移信息不完整");
+  const chunks: Buffer[] = [];
+  for (let i = 0; i < parts; i++) {
+    if (state.canceled) throw new Error("已取消");
+    for (let attempt = 1; ; attempt++) {
+      const res = await fetch(bundleUrl(job.id, i), { headers: runnerHeaders, signal: AbortSignal.timeout(5 * 60_000) }).catch(() => null);
+      if (res?.ok) {
+        chunks.push(Buffer.from(await res.arrayBuffer()));
+        break;
+      }
+      if (attempt >= 3) throw new Error(`下载第 ${i + 1} 块失败（${res?.status ?? "连不上"}）`);
+      await sleep(3000 * attempt);
+    }
+  }
+  const enc = Buffer.concat(chunks);
+  if (createHash("sha256").update(enc).digest("hex") !== job.payload.sha256) throw new Error("压缩包校验不通过");
+  const d = createDecipheriv("aes-256-gcm", Buffer.from(job.transferKey, "base64"), enc.subarray(0, 12));
+  d.setAuthTag(enc.subarray(enc.length - 16));
+  const plain = Buffer.concat([d.update(enc.subarray(12, enc.length - 16)), d.final()]);
+  const tmp = fs.mkdtempSync(path.join(ROOT, `.import-${job.account.id}-`));
+  try {
+    fs.writeFileSync(path.join(tmp, "env.tgz"), plain);
+    const out = path.join(tmp, "env");
+    fs.mkdirSync(out);
+    await tar(["-xzf", path.join(tmp, "env.tgz"), "-C", out]);
+    // 原来有旧环境就挪开，新的放好再删旧的
+    const old = `${dir}.old-${Date.now()}`;
+    if (fs.existsSync(dir)) fs.renameSync(dir, old);
+    fs.renameSync(out, dir);
+    fs.rmSync(old, { recursive: true, force: true });
+    log(`  环境已迁入：${Math.round(plain.length / 1048576)} MB`);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ── 常驻监听（桌面版）：账号的无界面浏览器一直停在私信页，几秒看一眼会话列表 ──
+
+type WatchAccount = Job["account"] & { proxy: Proxy };
+type Watcher = {
+  acc: WatchAccount;
+  ctx: Ctx | null;
+  page: Page | null;
+  /** 已登录、页面就绪 */
+  ready: boolean;
+  stop: boolean;
+  /** 同一个页面一次只做一件事（监听一轮 / 发私信） */
+  lock: <T>(fn: () => Promise<T>) => Promise<T>;
+  done: Promise<void>;
+};
+const watchers = new Map<string, Watcher>();
+/** 正在跑独占任务的账号（这期间不常驻） */
+const busyAccounts = new Set<string>();
+/** 常驻连续出错的账号：过一会儿再试 */
+const watchBackoff = new Map<string, number>();
+const EXPIRED = "常驻时发现登录已失效，需要重新登录";
+
+function mutex() {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T,>(fn: () => Promise<T>) => {
+    const r = tail.then(fn);
+    tail = r.catch(() => {});
+    return r;
+  };
+}
+
+const watchReport = (id: string, body: { threads?: InboxThread[]; expired?: string; fingerprint?: Record<string, unknown> }) =>
+  api<{ ok: boolean; received?: number }>(`/api/matrix/runner/watch/${id}`, {
+    ...body,
+    ...(body.threads ? { threads: body.threads.slice(0, 100).map((t) => ({ ...t, messages: t.messages.slice(-300) })) } : {}),
+  });
+
+/** 可以随时被 stop 打断的等待 */
+async function nap(ms: number, w: Watcher) {
+  const until = Date.now() + ms;
+  while (!w.stop && !stopping && Date.now() < until) await sleep(Math.min(500, until - Date.now()));
+}
+
+async function stillLoggedIn(ctx: Ctx, platform: MatrixPlatformInfo) {
+  if (await loggedIn(ctx, platform).catch(() => false)) return true;
+  await sleep(5000); // Cookie 偶尔刷新慢一拍，再看一次
+  return loggedIn(ctx, platform).catch(() => false);
+}
+
+async function watchLoop(w: Watcher) {
+  const { acc } = w;
+  const platform = matrixPlatform(acc.platform)!;
+  const dir = path.join(ROOT, acc.id);
+  const job = { id: "watch", kind: "inbox", account: acc, proxy: acc.proxy } as Job;
+  let fails = 0;
+  try {
+    const l = await launch(job, true);
+    w.ctx = l.ctx;
+    l.ctx.on("close", () => (w.stop = true));
+    if (w.stop) return;
+    if (l.fingerprint) {
+      acc.fingerprint = l.fingerprint;
+      await watchReport(acc.id, { fingerprint: l.fingerprint }).catch(() => {});
+    }
+    const page = l.ctx.pages()[0] ?? (await l.ctx.newPage());
+    w.page = page;
+    await page.goto(platform.homeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+    await sleep(3000);
+    if (!(await stillLoggedIn(l.ctx, platform))) {
+      await watchReport(acc.id, { expired: EXPIRED }).catch(() => {});
+      log(`  常驻：${acc.name} 登录已失效`);
+      return;
+    }
+    await watchHome(page, acc.platform);
+    w.ready = true;
+    log(`👂 开始实时收私信：${platform.label} · ${acc.name}`);
+    let deepAt = Date.now();
+    let reloadAt = Date.now() + rand(30, 60) * 60_000;
+    while (!w.stop && !stopping) {
+      try {
+        const threads = await w.lock(async () => {
+          if (Date.now() > reloadAt) {
+            // 页面开久了会越来越占内存，也可能漏推送：隔一阵刷新一次，顺便确认还登录着
+            reloadAt = Date.now() + rand(30, 60) * 60_000;
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+            await sleep(3000);
+            if (!(await stillLoggedIn(l.ctx, platform))) throw new Error(EXPIRED);
+          }
+          const deep = Date.now() - deepAt > 5 * 60_000;
+          if (deep) deepAt = Date.now();
+          return watchTick(page, acc.platform, dir, log, { deep });
+        });
+        fails = 0;
+        // 报一次心跳也让 CRM 知道还在常驻（没新消息时由 refreshWatch 统一报）
+        if (threads.length) {
+          const r = await watchReport(acc.id, { threads });
+          log(`  ${acc.name}：${threads.length} 个会话有新内容，新消息 ${r.received ?? 0} 条`);
+        }
+      } catch (e) {
+        const msg = (e as Error).message.split("\n")[0];
+        if (msg === EXPIRED) {
+          await watchReport(acc.id, { expired: EXPIRED }).catch(() => {});
+          log(`  常驻：${acc.name} 登录已失效`);
+          return;
+        }
+        if (w.stop || stopping) break;
+        fails++;
+        log(`  常驻出错（${fails}/5）：${acc.name}`, msg);
+        if (fails >= 5) {
+          log(`  ${acc.name} 连续出错，10 分钟后再试`);
+          watchBackoff.set(acc.id, Date.now() + 10 * 60_000);
+          return;
+        }
+        await w.lock(() => watchHome(page, acc.platform)).catch(() => {});
+      }
+      await nap(rand(5000, 10_000), w);
+    }
+  } catch (e) {
+    log(`  常驻启动失败：${acc.name}`, (e as Error).message.split("\n")[0]);
+    watchBackoff.set(acc.id, Date.now() + 10 * 60_000);
+  } finally {
+    w.ready = false;
+    await w.ctx?.close().catch(() => {});
+    watchers.delete(acc.id);
+    if (!stopping) log(`  停止常驻：${acc.name}`);
+    watchStatus();
+  }
+}
+
+function startWatcher(acc: WatchAccount) {
+  const w = { acc, ctx: null, page: null, ready: false, stop: false, lock: mutex() } as unknown as Watcher;
+  watchers.set(acc.id, w);
+  w.done = watchLoop(w);
+}
+
+async function stopWatcher(w: Watcher) {
+  w.stop = true;
+  await w.done.catch(() => {});
+}
+
+/** 在常驻页面上跑任务（收私信 / 发私信 / 检查登录） */
+async function runOnWatcher(job: Job, w: Watcher, platform: MatrixPlatformInfo) {
+  const ctx = w.ctx!;
+  const page = w.page!;
+  const dir = path.join(ROOT, job.account.id);
+  log("  在常驻页面上执行");
+  try {
+    await w.lock(async () => {
+      const ok = await stillLoggedIn(ctx, platform);
+      if (job.kind === "check" || !ok) {
+        await report(job.id, {
+          status: ok ? "done" : "failed",
+          ...(ok ? { result: { loggedIn: true, url: page.url() } } : { error: "账号登录已失效" }),
+          account: ok ? { status: "active", statusNote: null, checked: true } : { status: "expired", statusNote: EXPIRED, checked: true },
+          event: ok ? "check:ok" : `${job.kind}:expired`,
+        });
+        if (!ok) w.stop = true;
+        return;
+      }
+      try {
+        if (job.kind === "inbox") {
+          const threads = (await syncInbox(ctx, page, job.account.platform, dir, log)) ?? [];
+          const received = await reportInbox(job.id, threads);
+          await report(job.id, { status: "done", result: { threads: threads.length, received }, account: { checked: true }, event: "inbox:ok" });
+          log(`  同步了 ${threads.length} 个会话，新消息 ${received} 条`);
+        } else {
+          const { results, threads } = await sendReplies(page, job.account.platform, job.replies ?? [], log);
+          await reportInbox(job.id, threads).catch((e) => log("  ", (e as Error).message));
+          const failed = results.filter((r) => !r.ok).length;
+          await report(job.id, {
+            status: "done",
+            result: { replies: results },
+            account: { checked: true },
+            event: failed ? `reply:failed ${failed}/${results.length}` : "reply:ok",
+          });
+        }
+      } finally {
+        await watchHome(page, job.account.platform).catch(() => {});
+      }
+    });
+  } catch (e) {
+    const msg = (e as Error).message.split("\n")[0].slice(0, 400);
+    log("  ✖", msg);
+    await report(job.id, { status: "failed", error: msg, event: `${job.kind}:error` });
+  }
+}
+
+let lastStatus = "";
+/** 给桌面外壳看的一行状态（菜单栏显示几个账号在实时收私信） */
+function watchStatus() {
+  const names = [...watchers.values()].filter((w) => w.ready).map((w) => w.acc.name);
+  const line = `@@watch ${names.length} ${names.join("、")}`;
+  if (line !== lastStatus) console.log((lastStatus = line));
+}
+
+/** 每 30 秒：报心跳，取回该常驻的账号，启停监听 */
+async function refreshWatch() {
+  const ready = [...watchers.values()].filter((w) => w.ready).map((w) => w.acc.id);
+  const { accounts } = await api<{ accounts: WatchAccount[] }>("/api/matrix/runner/watch", { watching: ready });
+  const want = new Map(accounts.filter((a) => watchSupported(a.platform)).map((a) => [a.id, a]));
+  for (const [id, w] of watchers) if (!want.has(id) && !w.stop) void stopWatcher(w);
+  for (const a of want.values()) {
+    if (watchers.size >= MAX_WATCH) break;
+    if (watchers.has(a.id) || busyAccounts.has(a.id) || (watchBackoff.get(a.id) ?? 0) > Date.now()) continue;
+    startWatcher(a);
+  }
+  watchStatus();
+}
+
+async function watchMain() {
+  let lastErr = "";
+  while (!stopping) {
+    try {
+      await refreshWatch();
+      lastErr = "";
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg !== lastErr && msg !== UNAUTHORIZED) log("常驻监听刷新失败：", msg);
+      lastErr = msg;
+    }
+    for (let i = 0; i < 60 && !stopping; i++) await sleep(500);
   }
 }
 
@@ -719,6 +1089,7 @@ async function poll() {
 async function main() {
   log(`社媒矩阵运行器 ${VERSION} · ${HOST} · ${CRM_URL}`);
   log(`浏览器环境目录：${ROOT}`);
+  if (DEVICE && MAX_WATCH) void watchMain();
   let lastErr = "";
   let busyAt = Date.now();
   while (!stopping) {
@@ -755,8 +1126,9 @@ async function shutdown() {
   stopping = true;
   log("正在退出，关闭所有环境…");
   for (const s of running.values()) s.canceled = true;
+  for (const w of watchers.values()) w.stop = true;
   const until = Date.now() + 10_000;
-  while (running.size && Date.now() < until) await sleep(300);
+  while ((running.size || watchers.size) && Date.now() < until) await sleep(300);
   process.exit(0);
 }
 process.on("SIGINT", shutdown);

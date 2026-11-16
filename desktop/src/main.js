@@ -6,6 +6,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, session, shell, Tray } 
 import path from "node:path";
 import { clearToken, loadDevice, saveDevice } from "./store.js";
 import { ensureBrowser, killHelpers, Runner, runnerLogPath } from "./runner.js";
+import { startUpdater } from "./updater.js";
 
 const CRM_URL = (process.env.CRM_URL || "https://crm.caraicrm.com").replace(/\/+$/, "");
 const ORIGIN = new URL(CRM_URL).origin;
@@ -15,12 +16,17 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 let win = null;
 let tray = null;
+let trayIconMissing = false;
 let quitting = false;
 /** 这次启动里有没有用当前登录会话配对过（退出登录后重置） */
 let pairedThisSession = false;
 let pairing = null;
 let browserReady = null;
 const status = { state: "stopped", detail: "", device: "" };
+/** 正在实时收私信的账号 */
+let watching = [];
+let updater = null;
+let update = { status: "idle", version: "", error: "" };
 
 function deviceName() {
   try {
@@ -58,15 +64,30 @@ const runner = new Runner({
     }
     refreshTray();
   },
+  onWatch: (names) => {
+    watching = names;
+    refreshTray();
+  },
 });
 
 function refreshTray() {
   if (!tray) return;
   const line = status.detail || STATE_TEXT[status.state] || status.state;
-  tray.setToolTip(`车车 CRM · ${line}`);
+  tray.setToolTip(`车车 CRM · ${line}${watching.length ? ` · ${watching.length} 个账号实时收私信` : ""}`);
+  // 菜单栏图标旁边显示几个账号在实时收私信
+  tray.setTitle(watching.length ? String(watching.length) : trayIconMissing ? "车车" : "");
+  const updateItems =
+    update.status === "ready"
+      ? [{ label: `重启并安装新版本 ${update.version}`, click: () => ((quitting = true), updater?.install()) }]
+      : update.status === "downloading"
+        ? [{ label: `正在下载新版本 ${update.version}${update.progress ? ` ${update.progress}%` : ""}…`, enabled: false }]
+        : [{ label: `检查更新（当前 ${VERSION}）`, click: () => updater?.check(), enabled: app.isPackaged }];
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: status.device ? `${status.device} · ${line}` : line, enabled: false },
+      ...(watching.length
+        ? [{ label: `实时收私信：${watching.slice(0, 5).join("、")}${watching.length > 5 ? ` 等 ${watching.length} 个` : ""}`, enabled: false }]
+        : []),
       { type: "separator" },
       { label: "打开车车 CRM", click: showWindow },
       { label: "查看运行器日志", click: () => shell.openPath(runnerLogPath()) },
@@ -78,6 +99,8 @@ function refreshTray() {
         checked: app.getLoginItemSettings().openAtLogin,
         click: (i) => app.setLoginItemSettings({ openAtLogin: i.checked, openAsHidden: true }),
       },
+      { type: "separator" },
+      ...updateItems,
       { label: "退出车车 CRM", accelerator: "Command+Q", click: () => ((quitting = true), app.quit()) },
     ]),
   );
@@ -214,9 +237,11 @@ function showWindow() {
 }
 
 function createTray() {
-  // 先用文字占位，图标随 M3 安装包一起做
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle("车车");
+  // 模板图标：系统按菜单栏深浅色自动反色（@2x 自动匹配）
+  const icon = nativeImage.createFromPath(path.join(app.getAppPath(), "build", "trayTemplate.png"));
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
+  trayIconMissing = icon.isEmpty();
   refreshTray();
 }
 
@@ -235,6 +260,10 @@ ipcMain.handle("desktop:status", () => ({ paired: !!loadDevice().token, state: s
 app.whenReady().then(() => {
   status.device = deviceName();
   createTray();
+  updater = startUpdater((s) => {
+    update = s;
+    refreshTray();
+  });
   createWindow();
   // 之前配对过就直接开跑，不用等主窗口登录
   const saved = loadDevice();

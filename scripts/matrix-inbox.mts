@@ -307,6 +307,14 @@ const TT = {
 
 type TtRow = ListRow & { request: boolean };
 
+/**
+ * 列表预览里去掉相对时间（「2m」「3小时」「昨天」「12:30」…）：时间每分钟都在变，
+ * 不去掉的话常驻监听会把没有新消息的会话也反复打开
+ */
+const TIME_TOKEN =
+  /(^|\s|·)(\d+\s?(s|m|h|d|w|mo|y|sec|min|mins|hr|hrs|秒|分钟|小时|天|周|个月|年)(\s?ago|前)?|\d{1,2}:\d{2}(\s?[AP]M)?|\d{1,2}\/\d{1,2}(\/\d{2,4})?|\d{4}-\d{1,2}-\d{1,2}|just now|刚刚|yesterday|昨天|mon|tue|wed|thu|fri|sat|sun|周[一二三四五六日])(?=$|\s|·)/gi;
+const stablePreview = (s: string) => s.replace(TIME_TOKEN, " ").replace(/[\s·]+/g, " ").trim();
+
 async function tiktokRows(page: Page, request: boolean): Promise<TtRow[]> {
   const rows = await page.$$eval(TT.item, (els) =>
     (els as HTMLElement[])
@@ -317,7 +325,7 @@ async function tiktokRows(page: Page, request: boolean): Promise<TtRow[]> {
         return { key: e.getAttribute("data-conv-id") ?? "", name, preview: (info?.innerText ?? "").replace(/\s+/g, " ").trim() };
       }),
   );
-  return rows.filter((r) => r.key).map((r, index) => ({ ...r, index, request: request }));
+  return rows.filter((r) => r.key).map((r, index) => ({ ...r, preview: stablePreview(r.preview), index, request: request }));
 }
 
 async function tiktokHome(page: Page) {
@@ -443,6 +451,63 @@ async function xCheckChatLock(page: Page) {
   if (page.url().includes("/i/chat/pin")) {
     throw new Error("X 私信已加密，需要先在「打开环境」里进入私信页，输入一次 4 位私信密码");
   }
+}
+
+// ── 常驻监听（桌面版）：页面一直停在私信页，几秒看一眼会话列表 ──
+
+/** 已适配常驻监听的平台（和 src/lib/matrix.ts 的 WATCH_PLATFORMS 一致） */
+export const watchSupported = (platform: string) => platform === "tiktok";
+
+/** 常驻页面回到私信页 */
+export async function watchHome(page: Page, platform: string) {
+  if (platform === "tiktok") {
+    await tiktokLeaveRequests(page).catch(() => {});
+    await tiktokHome(page);
+  }
+}
+
+/**
+ * 常驻监听一轮：只读会话列表预览，有变化的会话才点开读。
+ * 「消息请求」入口的文字变了，或者 deep = true（每隔几分钟）时，进去看一次请求列表。
+ * 返回有新内容的会话（没有变化返回空数组）。
+ */
+export async function watchTick(page: Page, platform: string, profileDir: string, log: Log, opts: { deep: boolean }): Promise<InboxThread[]> {
+  if (platform !== "tiktok") return [];
+  if (!page.url().startsWith(SITES.tiktok.inboxUrl)) await tiktokHome(page);
+  await tiktokLeaveRequests(page);
+  const store = previewStore(profileDir);
+  const main = await tiktokRows(page, false);
+  const entry = page.locator(TT.requests).first();
+  const entryText = (await entry.isVisible().catch(() => false)) ? stablePreview((await entry.innerText().catch(() => "")).replace(/\s+/g, " ")) : "";
+  let reqs: TtRow[] = [];
+  if (entryText && (opts.deep || store.changed("__requests__", entryText))) {
+    if (await tiktokEnterRequests(page)) {
+      reqs = await tiktokRows(page, true);
+      await tiktokLeaveRequests(page);
+    }
+    store.set("__requests__", entryText);
+  }
+  if (!main.length && !reqs.length && !(await page.locator(TT.list).count())) throw new Error("没找到 TikTok 私信列表，页面可能改版了");
+  const todo = [...main, ...reqs].filter((r) => store.changed(r.key, r.preview)).slice(0, 8);
+  const out: InboxThread[] = [];
+  for (const r of todo) {
+    try {
+      await tiktokOpen(page, r.key);
+      const b = await tiktokRead(page);
+      out.push({
+        key: r.key,
+        peer: { name: r.name, handle: b.handle, url: b.handle ? `https://www.tiktok.com/@${b.handle}` : undefined },
+        messages: b.messages,
+      });
+      store.set(r.key, r.preview);
+    } catch (e) {
+      log("  打开会话失败", r.name, (e as Error).message.split("\n")[0]);
+    }
+    await jitter(800, 1800);
+  }
+  if (todo.length) await tiktokLeaveRequests(page);
+  store.save();
+  return out;
 }
 
 // ── 列表预览缓存：预览没变的会话不打开（存在账号的环境目录里） ──

@@ -1532,6 +1532,8 @@ model MatrixAccount {
   inboxAt     DateTime?
   /// 浏览器环境放在哪台桌面软件上；为空 = 没有归属（企业开了云端就交给云端运行器）
   deviceId    String?
+  /// 桌面版常驻监听这个账号的最近心跳（90 秒内 = 实时收私信中，服务器不再排定时同步）
+  watchedAt   DateTime?
   createdById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

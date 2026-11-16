@@ -101,7 +101,8 @@ export function InboxLive({ thread }: { thread?: string }) {
       }
     };
     void check();
-    const t = setInterval(check, thread ? 5000 : 15000);
+    // 常驻监听几秒就把新私信送到，列表也勤快点看
+    const t = setInterval(check, thread ? 4000 : 6000);
     const onVisible = () => void check();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
