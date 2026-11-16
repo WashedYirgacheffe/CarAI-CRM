@@ -49,6 +49,7 @@ import { selectionSkyUrl } from "@/lib/agentes/sky/selection";
 import { ModuleColorContext, RailHorizon } from "@/components/agentes/sky";
 import type { AgentPresetColor } from "@/lib/agentes/agent/engine.js";
 import { cn } from "@/lib/utils";
+import { useSlideIndicator } from "@/hooks/use-slide-indicator";
 
 const ICONS: Record<string, LucideIcon> = {
   BarChart3,
@@ -113,6 +114,7 @@ export function AppShell({
 
   const menu = active?.module.menu;
   const color = moduleColor(active?.module.key);
+  const railRef = useSlideIndicator<HTMLElement>(active?.module.key);
 
   return (
     <ModuleColorContext.Provider value={color}>
@@ -160,7 +162,7 @@ export function AppShell({
             )}
           >
             <RailHorizon level={0.45} />
-            <nav aria-label="模块" className="relative flex h-full flex-col items-stretch gap-1 overflow-x-hidden overflow-y-auto px-2 py-3">
+            <nav ref={railRef} aria-label="模块" className="relative isolate flex h-full flex-col items-stretch gap-1 overflow-x-hidden overflow-y-auto px-2 py-3">
               {modules.map((m) => (
                 <RailItem key={m.key} module={m} active={active?.module.key === m.key} count={m.badge ? badges[m.badge] : 0} />
               ))}
@@ -307,11 +309,14 @@ function TabBar({
   // 「更多」上的红点：不在标签栏里的模块的未读数
   const moreCount = modules.filter((m) => m.badge && !tabs.includes(m)).reduce((n, m) => n + (badges[m.badge!] ?? 0), 0);
   const item = "relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] leading-none transition-colors";
+  const moreOn = moreOpen || !inTabs;
+  const ref = useSlideIndicator<HTMLElement>(moreOn ? "more" : activeKey);
   return (
     <nav
+      ref={ref}
       aria-label="主导航"
       data-shell-tabs
-      className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(3.75rem+env(safe-area-inset-bottom))] border-t border-sidebar-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 isolate flex h-[calc(3.75rem+env(safe-area-inset-bottom))] border-t border-sidebar-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
     >
       {tabs.map((m) => {
         const Icon = ICONS[m.icon] ?? ChevronRight;
@@ -325,6 +330,7 @@ function TabBar({
             className={cn(item, on ? "text-foreground" : "text-muted-foreground")}
           >
             <span
+              data-slide-on={on || undefined}
               className={cn(
                 "relative flex h-7 w-12 items-center justify-center rounded-[10px] transition-colors",
                 on ? "ac-tile ac-tile--pop" : "ac-tint",
@@ -342,14 +348,12 @@ function TabBar({
           </Link>
         );
       })}
-      <button type="button" onClick={onMore} className={cn(item, moreOpen || !inTabs ? "text-foreground" : "text-muted-foreground")}>
+      <button type="button" onClick={onMore} className={cn(item, moreOn ? "text-foreground" : "text-muted-foreground")}>
         <span
-          className={cn(
-            "relative flex h-7 w-12 items-center justify-center rounded-[10px] transition-colors",
-            (moreOpen || !inTabs) && "ac-tile ac-tile--pop",
-          )}
+          data-slide-on={moreOn || undefined}
+          className={cn("relative flex h-7 w-12 items-center justify-center rounded-[10px] transition-colors", moreOn && "ac-tile ac-tile--pop")}
         >
-          <LayoutGrid className="size-[19px]" strokeWidth={moreOpen || !inTabs ? 2 : 1.7} />
+          <LayoutGrid className="size-[19px]" strokeWidth={moreOn ? 2 : 1.7} />
           {moreCount > 0 && (
             <span className="absolute -top-1 right-1">
               <CountPill count={moreCount} />
@@ -365,9 +369,10 @@ function TabBar({
 /** 手机上模块的二级菜单：页面顶部一行可横滑的胶囊（客户列表 / 公海 / 联系人…） */
 function SubTabs({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]>; activeLeaf?: string }) {
   const items = groups.flatMap((g) => g.items);
+  const ref = useSlideIndicator<HTMLElement>(activeLeaf);
   if (items.length < 2) return null;
   return (
-    <nav aria-label="二级菜单" className="-mx-3 mb-3 flex gap-2 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] md:hidden">
+    <nav ref={ref} aria-label="二级菜单" className="relative isolate -mx-3 mb-3 flex gap-2 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] md:hidden">
       {items.map((i) => {
         const on = i.href === activeLeaf;
         return (
@@ -375,6 +380,7 @@ function SubTabs({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]
             key={i.href}
             href={i.href}
             aria-current={on ? "page" : undefined}
+            data-slide-on={on || undefined}
             className={cn(
               "flex h-8 shrink-0 items-center rounded-[10px] px-3.5 text-[13px] whitespace-nowrap ring-1 transition-colors",
               on ? "ac-sel ring-transparent" : "bg-card text-foreground/75 ring-transparent shadow-card",
@@ -401,6 +407,7 @@ function RailItem({ module: m, active, count = 0 }: { module: NavModule; active:
       )}
     >
       <span
+        data-slide-on={active || undefined}
         className={cn(
           "grid size-8 place-items-center transition-transform duration-200 group-hover/rail:scale-105",
           active ? "ac-tile ac-tile--pop" : "ac-tint",
@@ -419,8 +426,9 @@ function RailItem({ module: m, active, count = 0 }: { module: NavModule; active:
 }
 
 function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["menu"]>; activeLeaf?: string }) {
+  const ref = useSlideIndicator<HTMLDivElement>(activeLeaf);
   return (
-    <div className="relative space-y-4">
+    <div ref={ref} className="relative isolate space-y-4">
       {groups.map((g, gi) => (
         <div key={g.group ?? gi}>
           {g.group && <p className="mb-1 px-2 text-xs text-muted-foreground">{g.group}</p>}
@@ -432,6 +440,7 @@ function MenuGroups({ groups, activeLeaf }: { groups: NonNullable<NavModule["men
                   <Link
                     href={item.href}
                     aria-current={on ? "page" : undefined}
+                    data-slide-on={on || undefined}
                     className={cn(
                       "flex items-center justify-between rounded-[10px] px-3 py-2 text-sm transition-colors",
                       on ? "ac-sel" : "text-foreground/75 hover:bg-sidebar-accent hover:text-foreground",

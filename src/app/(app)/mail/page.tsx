@@ -13,6 +13,7 @@ import { formatDateTime } from "@/lib/crm";
 import { MAIL_INTENT_LABELS } from "@/lib/mail";
 import { cn } from "@/lib/utils";
 import type { Prisma } from "@/generated/prisma/client";
+import { HeroLink, HeroText } from "@/lib/nav-hero";
 import { MailReader } from "./mail-reader";
 import { MailShortcuts } from "./mail-shortcuts";
 import { SyncButton } from "./sync-button";
@@ -288,8 +289,10 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
             return (
               <li key={m.id}>
                 <MailSwipe id={m.id} seen={m.seen} starred={m.starred} inbox={m.folder === "INBOX"}>
-                  <Link
+                  <HeroLink
                     href={href({ id: m.id })}
+                    hero={{ key: `mail:${m.id}`, name: m.subject || "(无主题)" }}
+                    scope="lg"
                     scroll={false}
                     data-mail-id={m.id}
                     className={cn(
@@ -321,7 +324,9 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                           <span className="hidden lg:inline">{formatDateTime(m.date, user.timezone)}</span>
                         </span>
                       </div>
-                      <p className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>{m.subject || "(无主题)"}</p>
+                      <HeroText as="p" heroKey={`mail:${m.id}`} scope="lg" className={cn("mt-0.5 truncate text-sm", !m.seen ? "font-medium" : "text-foreground/90")}>
+                        {m.subject || "(无主题)"}
+                      </HeroText>
                       {m.aiSummary && m.folder === "INBOX" ? (
                         <p className="line-clamp-2 text-xs text-foreground/75" title={m.snippet ?? undefined}>
                           <Sparkles className="mr-0.5 inline size-3 -translate-y-px text-brand" />
@@ -346,7 +351,7 @@ export default async function MailPage({ searchParams }: PageProps<"/mail">) {
                         </div>
                       )}
                     </div>
-                  </Link>
+                  </HeroLink>
                 </MailSwipe>
               </li>
             );
