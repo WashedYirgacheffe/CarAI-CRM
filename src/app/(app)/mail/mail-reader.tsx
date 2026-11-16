@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeroPage, HeroText, markBack } from "@/lib/nav-hero";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -251,10 +252,11 @@ export function MailReader({
   const priority = m.aiPriority ? MAIL_PRIORITY_LABELS[m.aiPriority] : null;
 
   return (
+    <HeroPage>
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-1 border-b px-2 py-2 md:px-3">
         <Button asChild variant="ghost" size="icon-sm" className="lg:hidden" aria-label="返回列表">
-          <Link href={backHref}>
+          <Link href={backHref} onClick={markBack}>
             <ChevronLeft />
           </Link>
         </Button>
@@ -300,7 +302,9 @@ export function MailReader({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-3 border-b px-4 py-4 md:px-5">
-          <h2 className="text-xl leading-snug font-normal tracking-[-0.01em]">{m.subject || "(无主题)"}</h2>
+          <HeroText as="h2" heroKey={`mail:${m.id}`} scope="lg" className="text-xl leading-snug font-normal tracking-[-0.01em]">
+            {m.subject || "(无主题)"}
+          </HeroText>
           <div className="space-y-0.5 text-sm break-words">
             <p>
               <span className="font-medium">{m.fromName || m.fromAddr}</span> <span className="text-muted-foreground">&lt;{m.fromAddr}&gt;</span>
@@ -494,6 +498,7 @@ export function MailReader({
         </DialogContent>
       </Dialog>
     </div>
+    </HeroPage>
   );
 }
 

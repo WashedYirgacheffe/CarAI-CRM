@@ -5,6 +5,7 @@ import { SELECT_EVENT } from "@/components/ai/ai-context-menu";
 import Link from "next/link";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { setHero, useHeroClass, type Hero } from "@/lib/nav-hero";
 import { EmptyState } from "@/components/crm/empty-state";
 import { SwipeRow, type SwipeAction } from "@/components/crm/swipe-row";
 
@@ -47,9 +48,12 @@ export function MobileCard({
   select,
   selected,
   swipe,
+  hero,
   className,
 }: {
   href?: string;
+  /** 列表进详情时，标题移到详情页的标题位置（见 nav-hero） */
+  hero?: Hero;
   leading?: React.ReactNode;
   title: React.ReactNode;
   aside?: React.ReactNode;
@@ -62,6 +66,7 @@ export function MobileCard({
   className?: string;
 }) {
   const press = useRef<{ t: ReturnType<typeof setTimeout> | null; x: number; y: number; fired: boolean }>({ t: null, x: 0, y: 0, fired: false });
+  const heroCls = useHeroClass(hero?.key ?? "", "all");
   const selecting = !!select && (select.selecting ?? select.checked);
   const cancel = () => {
     if (press.current.t) clearTimeout(press.current.t);
@@ -132,7 +137,11 @@ export function MobileCard({
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1 text-[15px] leading-snug font-medium">
               {href ? (
-                <Link href={href} className="line-clamp-2 after:absolute after:inset-0 after:content-['']">
+                <Link
+                  href={href}
+                  onClick={hero ? (e) => setHero(hero, "all", e.currentTarget) : undefined}
+                  className={cn("line-clamp-2 after:absolute after:inset-0 after:content-['']", hero && heroCls.name)}
+                >
                   {title}
                 </Link>
               ) : (

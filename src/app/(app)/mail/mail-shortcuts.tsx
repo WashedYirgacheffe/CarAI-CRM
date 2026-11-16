@@ -6,6 +6,7 @@ import { Keyboard } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useHotkeys } from "@/hooks/use-hotkeys";
+import { markBack, markSwitch } from "@/lib/nav-hero";
 
 export const MAIL_KEYS: [string, string][] = [
   ["j", "下一封"],
@@ -30,7 +31,10 @@ export function MailShortcuts({ list, selectedId, listHref }: { list: { id: stri
 
   const go = (d: 1 | -1) => {
     const target = i < 0 ? list[d === 1 ? 0 : list.length - 1] : list[i + d];
-    if (target) router.push(target.href, { scroll: false });
+    if (target) {
+      markSwitch();
+      router.push(target.href, { scroll: false });
+    }
   };
 
   useHotkeys({
@@ -38,7 +42,11 @@ export function MailShortcuts({ list, selectedId, listHref }: { list: { id: stri
     k: () => go(-1),
     c: () => router.push("/mail/compose"),
     "/": () => document.querySelector<HTMLInputElement>("input[name=q]")?.focus(),
-    Escape: () => selectedId && router.push(listHref, { scroll: false }),
+    Escape: () => {
+      if (!selectedId) return;
+      markBack();
+      router.push(listHref, { scroll: false });
+    },
     "?": () => setHelp(true),
   });
 

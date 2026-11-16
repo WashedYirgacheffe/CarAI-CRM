@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { HeroPage, markBack, useHeroClass } from "@/lib/nav-hero";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -222,6 +223,7 @@ export function ChatView({
   const fileInput = useRef<HTMLInputElement>(null);
   const lastCount = useRef(0);
   const title = chat.name || (chat.phone ? `+${chat.phone}` : "未知号码");
+  const hero = useHeroClass(`wa:${chat.id}`, "md");
 
   // ── 自动翻译：对方的外文消息译成中文；可选「中文写、发前译成客户的语言」──
   const [trOn, setTrOn] = useState(true);
@@ -587,6 +589,7 @@ export function ChatView({
   );
 
   return (
+    <HeroPage>
     <>
       <section
         // 手机：像 WhatsApp 一样整屏（顶栏和底部标签栏由 data-immersive 隐藏），高度跟着键盘走
@@ -610,7 +613,7 @@ export function ChatView({
       >
         <header className="flex items-center gap-2 border-b border-border/70 px-3 py-2.5 max-md:gap-1 max-md:px-1.5 max-md:pt-[max(0.5rem,env(safe-area-inset-top))] max-md:pb-2 sm:px-4">
           <Button asChild variant="ghost" size="icon" className="md:hidden" aria-label="返回">
-            <Link href={backHref}>
+            <Link href={backHref} onClick={markBack}>
               <ChevronLeft />
             </Link>
           </Button>
@@ -620,10 +623,10 @@ export function ChatView({
             className="flex min-w-0 flex-1 items-center gap-3 text-left max-md:gap-2.5"
             title="查看资料"
           >
-            <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className="size-10 text-sm max-md:size-9" />
+            <WaAvatar src={chat.avatar} name={chat.name} phone={chat.phone} className={cn("size-10 text-sm max-md:size-9", hero.avatar)} />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
-                <span className="truncate font-medium">{title}</span>
+                <span className={cn("truncate font-medium", hero.name)}>{title}</span>
                 {chat.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="已置顶" />}
               </span>
               <span className="block truncate text-xs text-muted-foreground">
@@ -998,6 +1001,7 @@ export function ChatView({
         />
       )}
     </>
+    </HeroPage>
   );
 }
 

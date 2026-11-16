@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { NativeSelect } from "@/components/native-select";
 import { runAction } from "@/hooks/use-action-form";
 import { cn } from "@/lib/utils";
+import { HeroText, setHero } from "@/lib/nav-hero";
 import { formatDate, relativeDays } from "@/lib/crm";
 import { CountryLabel, StarRating, StatusBadge, Tags } from "@/components/crm/bits";
 import { CustomerForm, type CustomerOptionsProp } from "@/components/crm/customer-form";
@@ -174,6 +175,7 @@ export function CustomerTable({
               key={r.id}
               href={`/customers/${r.id}`}
               title={r.name}
+              hero={{ key: `cust:${r.id}`, name: r.name }}
               aside={<StatusBadge name={r.statusName} color={r.statusColor} />}
               sub={
                 <span className="flex items-center gap-2">
@@ -270,8 +272,14 @@ export function CustomerTable({
                     <Checkbox aria-label={`选择 ${r.name}`} checked={selected.has(r.id)} onCheckedChange={(v) => toggle(r.id, !!v)} />
                   </TableCell>
                   <TableCell className="max-w-72">
-                    <Link href={`/customers/${r.id}`} className="font-medium hover:text-primary hover:underline">
-                      {r.name}
+                    <Link
+                      href={`/customers/${r.id}`}
+                      onClick={(e) => setHero({ key: `cust:${r.id}`, name: r.name }, "all", e.currentTarget)}
+                      className="font-medium hover:text-primary hover:underline"
+                    >
+                      <HeroText heroKey={`cust:${r.id}`} className="inline-block align-top [text-decoration:inherit]">
+                        {r.name}
+                      </HeroText>
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <StarRating value={r.star} />

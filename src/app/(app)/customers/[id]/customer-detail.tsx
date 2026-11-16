@@ -2,6 +2,7 @@
 
 import { CardSky } from "@/components/agentes/sky";
 import { useState, useSyncExternalStore } from "react";
+import { HeroPage, HeroText, markBack } from "@/lib/nav-hero";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -236,11 +237,16 @@ export function CustomerDetail({
   };
 
   return (
+    <HeroPage>
     <div className="space-y-3 md:space-y-4">
       {/* 标题栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href={listHref} className="inline-flex items-center gap-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+          <Link
+            href={listHref}
+            onClick={markBack}
+            className="inline-flex items-center gap-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
             <ChevronLeft className="size-4" />
             {access.inPool ? "公海客户" : "客户列表"}
           </Link>
@@ -323,7 +329,11 @@ export function CustomerDetail({
                   </span>
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  <h2 className="text-xl leading-snug font-normal break-words">{c.name}</h2>
+                  <h2 className="text-xl leading-snug font-normal break-words">
+                    <HeroText heroKey={`cust:${c.id}`} className="inline-block max-w-full">
+                      {c.name}
+                    </HeroText>
+                  </h2>
                   <div className="flex flex-wrap items-center gap-2">
                     <StarRating value={c.star} size="md" onChange={canEdit ? (v) => setStarAction(c.id, v) : undefined} />
                     {c.statusName && <StatusBadge name={c.statusName} color={c.statusColor} />}
@@ -689,6 +699,7 @@ export function CustomerDetail({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </HeroPage>
   );
 }
 

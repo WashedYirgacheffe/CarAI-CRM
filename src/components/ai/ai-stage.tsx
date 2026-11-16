@@ -3,6 +3,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { LayoutGrid, MessageCircle } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { useSlideIndicator } from "@/hooks/use-slide-indicator";
 
 /*
  * 工作台的「AI 舞台」：工作台上 AI 对话不再是右下角浮窗，而是页面主角。
@@ -52,9 +53,14 @@ export const isStageTabs = () => !!stage.slot && !stage.wide && stage.mode === "
 
 /** 切换布局时的过渡动画；浏览器不支持或用户减少动态效果时直接切 */
 export function withStageTransition(update: () => void) {
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  const doc = document as Document & { startViewTransition?: (arg: unknown) => unknown };
   if (!doc.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return update();
-  doc.startViewTransition(update);
+  // 带上类型 ai-stage：没类型的过渡在 globals.css 里一律不播（那是浏览器后退之类）
+  try {
+    doc.startViewTransition({ update, types: ["ai-stage"] });
+  } catch {
+    doc.startViewTransition(update);
+  }
 }
 
 export function AiStage({ greeting, sub, children }: { greeting: string; sub: string; children: React.ReactNode }) {
@@ -76,6 +82,7 @@ export function AiStage({ greeting, sub, children }: { greeting: string; sub: st
   const side = split && wide;
   const tabs = split && !wide;
   const go = (p: StagePane) => withStageTransition(() => setStagePane(p));
+  const tabsRef = useSlideIndicator<HTMLDivElement>(tabs ? pane : null);
 
   return (
     <div
@@ -88,7 +95,7 @@ export function AiStage({ greeting, sub, children }: { greeting: string; sub: st
       )}
     >
       {tabs && (
-        <div role="tablist" aria-label="切换视图" className="mx-auto inline-flex shrink-0 rounded-[12px] bg-muted p-1">
+        <div ref={tabsRef} role="tablist" aria-label="切换视图" className="relative isolate mx-auto inline-flex shrink-0 rounded-[12px] bg-muted p-1">
           {(
             [
               { key: "chat", label: "对话", icon: MessageCircle },
@@ -100,6 +107,7 @@ export function AiStage({ greeting, sub, children }: { greeting: string; sub: st
               type="button"
               role="tab"
               aria-selected={pane === t.key}
+              data-slide-on={pane === t.key || undefined}
               onClick={() => go(t.key)}
               className={cn(
                 "relative inline-flex h-8 items-center gap-1.5 rounded-[9px] px-4 text-[13px] font-medium transition-colors",

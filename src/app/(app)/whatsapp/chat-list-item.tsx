@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { setHero, useHeroClass } from "@/lib/nav-hero";
 import { useRouter } from "next/navigation";
 import {
   Archive,
@@ -56,6 +57,7 @@ export function ChatListItem({ c, backHref, ai }: { c: ChatRow; backHref: string
   const [menuOpen, setMenuOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
   const unread = c.unread > 0;
+  const hero = useHeroClass(`wa:${c.id}`, "md");
 
   const items: MenuEntry[] = [
     {
@@ -126,6 +128,9 @@ export function ChatListItem({ c, backHref, ai }: { c: ChatRow; backHref: string
         <ContextActions items={items} aiActions={chatAi} disabled={isMobile}>
           <Link
             href={c.href}
+            onClick={(e) => {
+              if (!e.defaultPrevented) setHero({ key: `wa:${c.id}`, name: c.name }, "md", e.currentTarget);
+            }}
             data-long-press
             {...press(() => setSheet(true))}
             className={cn(
@@ -134,10 +139,10 @@ export function ChatListItem({ c, backHref, ai }: { c: ChatRow; backHref: string
               menuOpen && !c.active && "bg-muted/60",
             )}
           >
-            <WaAvatar src={c.avatar} name={c.rawName} phone={c.phone} className="size-12" />
+            <WaAvatar src={c.avatar} name={c.rawName} phone={c.phone} className={cn("size-12", hero.avatar)} />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
-                <span className="min-w-0 truncate text-[15px] font-medium">{c.name}</span>
+                <span className={cn("min-w-0 truncate text-[15px] font-medium", hero.name)}>{c.name}</span>
                 {/* 关联的客户跟在名字后面，不另占一行 */}
                 {c.customer ? (
                   <span className="inline-flex max-w-[45%] min-w-0 shrink items-center gap-1 self-center rounded-md bg-primary/8 px-1.5 py-px text-[11px] text-primary">

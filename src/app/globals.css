@@ -368,6 +368,129 @@ html {
   animation-duration: 0.3s;
 }
 
+/*
+ * 列表进详情的共享元素（src/lib/nav-hero.tsx）：点到的那一行的名字 / 头像移到详情的标题位置。
+ * - .vt-all 任何宽度都共享；.vt-md 只在手机（WhatsApp：电脑上左右分栏同时在屏）；.vt-lg 到平板（邮件）
+ * - 只有从入口点进去 / 点返回（html[data-vt]，nav-hero 的 setHero / markBack）播动画；
+ *   其它切换（浏览器后退、iOS 右滑、自动刷新、普通跳转）一律不播，保持原来的样子
+ * - 动画期间点击照常落到页面上，不会被过渡层挡住
+ */
+:root {
+  --vt-page: 500ms;
+}
+@media (min-width: 768px) {
+  :root {
+    --vt-page: 330ms;
+  }
+}
+::view-transition {
+  pointer-events: none;
+}
+.vt-hero-name.vt-all {
+  view-transition-name: hero-name;
+  view-transition-class: hero;
+}
+.vt-hero-avatar.vt-all {
+  view-transition-name: hero-avatar;
+  view-transition-class: hero;
+}
+@media (max-width: 767px) {
+  .vt-hero-name.vt-md {
+    view-transition-name: hero-name;
+    view-transition-class: hero;
+  }
+  .vt-hero-avatar.vt-md {
+    view-transition-name: hero-avatar;
+    view-transition-class: hero;
+  }
+}
+@media (max-width: 1023px) {
+  .vt-hero-name.vt-lg {
+    view-transition-name: hero-name;
+    view-transition-class: hero;
+  }
+  .vt-hero-avatar.vt-lg {
+    view-transition-name: hero-avatar;
+    view-transition-class: hero;
+  }
+}
+/* 共享的名字不超出所在的格子（列表行里是行内块） */
+.vt-hero-name {
+  max-width: 100%;
+}
+/* 共享元素：快起步、长收尾；新旧两张快照叠在一起缩放，字号变化是放大而不是换一份字 */
+/* 移动中的元素始终在最上层（否则会被新页面的卡片底色盖住，落地那一刻看不见） */
+::view-transition-group(.hero) {
+  z-index: 2;
+}
+:root[data-vt]::view-transition-group(.hero) {
+  animation-duration: var(--vt-page);
+  animation-timing-function: var(--ease-drawer);
+}
+/* 列表里常是单行省略、详情里是换行的整段：旧的一份尽早淡出，新的一份稍后淡入，减少两份字叠在一起 */
+:root[data-vt]::view-transition-old(.hero) {
+  animation: vt-out calc(var(--vt-page) * 0.35) var(--ease-in-out) both;
+}
+:root[data-vt]::view-transition-new(.hero) {
+  animation: vt-in calc(var(--vt-page) * 0.4) var(--ease-in-out) calc(var(--vt-page) * 0.1) both;
+}
+/*
+ * 内容区（HeroPage 包住的详情 / 骨架，列表一侧在 root 里）：
+ * 只在起点有的内容先淡出，只在终点有的内容随后淡入，两段略有重叠：中间不会出现整屏空白
+ */
+::view-transition-group(.vt-page) {
+  animation: none;
+}
+:root[data-vt]::view-transition-old(.vt-page) {
+  animation: vt-out calc(var(--vt-page) * 0.4) var(--ease-out) both;
+}
+:root[data-vt]::view-transition-new(.vt-page) {
+  animation: vt-in calc(var(--vt-page) * 0.45) var(--ease-out) calc(var(--vt-page) * 0.25) both;
+}
+/* 只是换右栏内容（电脑上的分栏、邮件 j / k）：没有元素在移动，新旧直接交叉淡化，不留空档 */
+:root[data-vt="switch"]::view-transition-old(.vt-page) {
+  animation: vt-out calc(var(--vt-page) * 0.5) var(--ease-out) both;
+}
+:root[data-vt="switch"]::view-transition-new(.vt-page) {
+  animation: vt-in calc(var(--vt-page) * 0.6) var(--ease-out) both;
+}
+@keyframes vt-out {
+  to { opacity: 0; }
+}
+@keyframes vt-in {
+  from { opacity: 0; }
+}
+/* 其余画面整体交叉淡化（外壳两边一样，叠加后看不出变化；列表一侧的内容在这里换） */
+:root[data-vt]::view-transition-old(root) {
+  /* 旧画面叠在新画面上面慢慢淡出（默认新的在上，会把还没淡出的列表直接盖住） */
+  z-index: 1;
+  animation: vt-out calc(var(--vt-page) * 0.55) var(--ease-in-out) both;
+}
+:root[data-vt]::view-transition-new(root) {
+  animation: none;
+}
+:root:not([data-vt], :active-view-transition-type(ai-stage))::view-transition-group(*),
+:root:not([data-vt], :active-view-transition-type(ai-stage))::view-transition-old(*),
+:root:not([data-vt], :active-view-transition-type(ai-stage))::view-transition-new(*) {
+  animation: none;
+}
+/* 详情页里带共享名的那一块不做进场上浮：否则标题落地后还会再往上挪 8px、透明度从 0 开始 */
+[data-page-root] > :has(.vt-hero-name),
+.skeleton-shell:has(.vt-hero-name) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 只留 150ms 交叉淡化，不移动、不缩放 */
+  ::view-transition-group(*) {
+    animation: none !important;
+  }
+  :root[data-vt]::view-transition-old(*),
+  :root[data-vt]::view-transition-new(*) {
+    animation-duration: 150ms !important;
+    animation-delay: 0s !important;
+  }
+}
+
 /* AI 图表卡片的入场动画 */
 @keyframes ai-fade { from { opacity: 0; transform: translateY(6px); } }
 @keyframes ai-grow { from { transform: scaleX(0); } }
