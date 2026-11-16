@@ -13,6 +13,8 @@ npm start        # 连线上 https://crm.caraicrm.com（或 CRM_URL=... npm star
 ```
 
 - 第一次启动会下载 Camoufox 浏览器内核（压缩包 1 GB 多，放在 `~/Library/Caches/camoufox`），菜单栏里能看到进度。
+  下载期间运行器照常上线（设置页显示「在线」和下载进度），只是不领任务；内核好了自动开始。
+  进度通过 userData 下的 `browser-state.json`（环境变量 `MATRIX_BROWSER_STATE`）传给运行器。
 - 运行器日志：菜单栏 →「查看运行器日志」（`~/Library/Application Support/车车 CRM/logs/runner.log`）。
 - 浏览器环境目录：`~/Library/Application Support/车车 CRM/matrix/<账号 id>`。
 
@@ -49,4 +51,7 @@ cd .. && pnpm desktop:publish   # 传到 OSS 的 desktop/ 目录（需要服务�
 - 归属这台电脑、已登录、开了收私信的 TikTok 账号会一直挂在无界面浏览器里，几秒看一眼私信列表，新消息几秒内到收件箱。
   菜单栏图标旁边的数字就是正在实时收私信的账号数。默认最多 5 个（环境变量 `MATRIX_MAX_WATCH`）。
 - 「迁到这台电脑」：已登录的账号会把原来位置（云端或另一台电脑）的浏览器环境加密打包，经 OSS 迁过来，不用重新登录。
-  迁移期间原来的位置需要在线。
+  迁移期间原来的位置需要在线。任务行会显示进度（打包、上传 i/n 块、下载、校验、确认登录），排队时写明在等什么。
+- 本机账号的「打开浏览器」会在这台电脑上弹出这个账号的独立浏览器窗口（固定指纹和代理），可以直接操作。
+- 运行器在收私信、检查、打开、登录、迁入后截一张 JPEG 当账号封面（常驻时 15 分钟最多一次），
+  传到 `/api/matrix/runner/snapshot/<账号>`，社媒矩阵列表左侧显示。

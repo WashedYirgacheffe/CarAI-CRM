@@ -80,7 +80,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
       orderBy: [{ platform: "asc" }, { createdAt: "asc" }],
       include: {
         owner: { select: { name: true } },
-        device: { select: { id: true, name: true } },
+        device: { select: { id: true, name: true, statusNote: true } },
         proxy: { select: { id: true, name: true, exitIp: true, country: true, countryCode: true, timezone: true, lastError: true } },
         jobs: { orderBy: { createdAt: "desc" }, take: 1 },
       },
@@ -172,13 +172,23 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
               const job = a.jobs[0];
               const jobActive = job && ["queued", "running", "waiting"].includes(job.status);
               const onCloud = !!job?.runner?.startsWith("cloud-");
-              const liveJob = jobActive && job.kind !== "check" && (onCloud || (job.status === "queued" && cloud && !a.deviceId)) ? job.id : null;
+              const liveJob = jobActive && ["login", "open"].includes(job.kind) && (onCloud || (job.status === "queued" && cloud && !a.deviceId)) ? job.id : null;
               const deviceOnline = !!a.deviceId && devicesOnline.has(a.deviceId);
               const watching = a.inboxSync && deviceOnline && !!a.watchedAt && a.watchedAt.getTime() > watchCut;
+              const deviceName = a.device ? (a.device.id === here?.id ? "这台电脑" : `「${a.device.name}」`) : "";
+              // 排队中的任务在等什么：电脑离线 / 电脑还在准备（下载浏览器内核）
+              const waitReason =
+                job?.status === "queued" && a.device
+                  ? !deviceOnline
+                    ? `等${deviceName}打开桌面版`
+                    : a.device.statusNote
+                      ? `等${deviceName}准备好：${a.device.statusNote}`
+                      : null
+                  : null;
               return (
                 <li key={a.id} className="grid items-center gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] md:px-5">
                   <div className="flex min-w-0 items-center gap-3">
-                    <SocialIcon platform={a.platform} className="size-8" />
+                    <AccountCover id={a.id} platform={a.platform} name={a.name} at={a.snapshotAt} tz={tz} />
                     <div className="min-w-0">
                       <p className="truncate font-medium">{a.name}</p>
                       <p className="truncate text-xs text-muted-foreground">
@@ -232,7 +242,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                         <>
                           <span className={cn("size-1.5 shrink-0 rounded-full", deviceOnline ? "bg-emerald-500" : "bg-amber-500")} />
                           {a.device.id === here?.id ? "这台电脑" : a.device.name}
-                          {!deviceOnline && " · 离线，打开桌面版后执行"}
+                          {!deviceOnline ? " · 离线，打开桌面版后执行" : a.device.statusNote ? ` · ${a.device.statusNote}` : ""}
                         </>
                       ) : cloud ? (
                         <>
@@ -252,7 +262,8 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                         )}
                         title={job.error ?? undefined}
                       >
-                        {JOB_KIND[job.kind] ?? job.kind} · {JOB_STATUS[job.status] ?? job.status}
+                        {JOB_KIND[job.kind] ?? job.kind} · {jobActive && job.progress ? job.progress : (JOB_STATUS[job.status] ?? job.status)}
+                        {waitReason && `：${waitReason}`}
                         {job.status === "waiting" &&
                           (onCloud ? "：点「画面」扫码或输入密码" : a.device ? `：去「${a.device.name}」上弹出的窗口里扫码或输入密码` : "：去运行器电脑上的窗口里扫码或输入密码")}
                         {job.status === "failed" && job.error && `：${job.error}`}
@@ -331,6 +342,31 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
         </ul>
       )}
     </>
+  );
+}
+
+/** 账号封面：运行器最近截的页面，左下角标出平台。没截过的显示平台标志 */
+function AccountCover({ id, platform, name, at, tz }: { id: string; platform: string; name: string; at: Date | null; tz: string }) {
+  const label = matrixPlatform(platform)?.label ?? platform;
+  if (!at)
+    return (
+      <span className="flex aspect-[16/10] w-24 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/60">
+        <SocialIcon platform={platform} className="size-8" title={label} />
+      </span>
+    );
+  const src = `/api/matrix/accounts/${id}/snapshot?v=${at.getTime()}`;
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      title={`${label} · ${name}：${formatDateTime(at, tz)} 的页面截图，点开看大图`}
+      className="relative block aspect-[16/10] w-24 shrink-0 rounded-md border border-border/70 bg-muted/60 transition-shadow hover:shadow-md"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- 运行器截的图，接口按权限返回 */}
+      <img src={src} alt={`${name} 的页面截图`} loading="lazy" className="size-full rounded-[inherit] object-cover object-top" />
+      <SocialIcon platform={platform} className="absolute -bottom-1.5 -left-1.5 size-6 rounded-md ring-2 ring-background" title={label} />
+    </a>
   );
 }
 

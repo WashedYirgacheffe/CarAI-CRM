@@ -467,8 +467,20 @@ export function AccountRowActions({
           {busy === "cancel" ? <Loader2 /> : <X />} 取消
         </Button>
       ) : loggedIn ? (
-        <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run("open", runAccountAction(account.id, "open"))}>
-          {busy === "open" ? <Loader2 /> : <ExternalLink />} 打开环境
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!!busy}
+          title={
+            place.onThisDevice
+              ? "在这台电脑上弹出这个账号的独立浏览器窗口（固定指纹和代理），直接操作"
+              : place.hasDevice
+                ? "在账号归属的电脑上弹出浏览器窗口"
+                : "在云端打开，在「画面」里操作"
+          }
+          onClick={() => run("open", runAccountAction(account.id, "open"))}
+        >
+          {busy === "open" ? <Loader2 /> : <ExternalLink />} {place.onThisDevice ? "打开浏览器" : "打开环境"}
         </Button>
       ) : (
         <Button size="sm" disabled={!!busy} onClick={() => run("login", runAccountAction(account.id, "login"))}>

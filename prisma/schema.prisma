@@ -1530,6 +1530,9 @@ model MatrixAccount {
   inboxSync   Boolean   @default(false)
   /// 上次同步私信完成的时间（为空 = 还没同步过，第一次同步的消息不算未读）
   inboxAt     DateTime?
+  /// 封面：运行器最近一次截的账号页面（存储里的 key）
+  snapshotKey String?
+  snapshotAt  DateTime?
   /// 浏览器环境放在哪台桌面软件上；为空 = 没有归属（企业开了云端就交给云端运行器）
   deviceId    String?
   /// 桌面版常驻监听这个账号的最近心跳（90 秒内 = 实时收私信中，服务器不再排定时同步）
@@ -1563,6 +1566,8 @@ model MatrixJob {
   error       String?
   /// 哪台运行器在跑
   runner      String?
+  /// 运行中的进度说明（如「上传 1/2 块」）
+  progress    String?
   createdById String?
   createdAt   DateTime  @default(now())
   startedAt   DateTime?
@@ -1618,6 +1623,8 @@ model MatrixDevice {
   /// 设备令牌 md_… 的 sha256，明文只在配对时返回一次
   tokenHash  String    @unique
   lastSeenAt DateTime?
+  /// 桌面版报上来的状态（如「正在下载浏览器内核 41%」），正常运行时为空
+  statusNote String?
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())
 

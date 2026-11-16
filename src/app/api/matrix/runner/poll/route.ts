@@ -13,6 +13,8 @@ const Body = z.object({
   running: z.array(z.string()).max(50),
   /** 还能再接几个任务 */
   free: z.number().int().min(0).max(20),
+  /** 桌面版的状态说明（如「正在下载浏览器内核 41%」，这期间 free 为 0） */
+  note: z.string().max(200).optional(),
 });
 
 /**
@@ -25,11 +27,11 @@ export async function POST(req: Request) {
   const { tenantId, device } = auth;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "参数不对" }, { status: 400 });
-  const { host, version, running, free } = parsed.data;
+  const { host, version, running, free, note } = parsed.data;
   // 桌面软件的运行器 id 由设备决定，不信任客户端传的
   const runnerId = device ? deviceRunnerId(device.id) : parsed.data.runnerId;
   if (!device && runnerId.startsWith("dev-")) return Response.json({ error: "参数不对" }, { status: 400 });
-  if (device) await prisma.matrixDevice.update({ where: { id: device.id }, data: { lastSeenAt: new Date(), appVersion: version } });
+  if (device) await prisma.matrixDevice.update({ where: { id: device.id }, data: { lastSeenAt: new Date(), appVersion: version, statusNote: note || null } });
 
   // 云端运行器按心跳间隔累计运行时长
   if (runnerId.startsWith("cloud-")) {
