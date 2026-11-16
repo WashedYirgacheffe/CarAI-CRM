@@ -6,8 +6,9 @@ import { z } from "zod";
 import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser } from "@/server/auth";
 import { encryptSecret } from "@/server/crypto";
-import { checkProxy, enqueueMatrixJob, logMatrixEvent, onlineRunners, rotateRunnerToken } from "@/server/matrix";
-import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
+import { checkProxy, enqueueMatrixJob, logMatrixEvent, onlineDeviceIds, rotateRunnerToken } from "@/server/matrix";
+import { cloudEnabledFor, kickCloud, legacyRunnerOnline } from "@/server/matrix-cloud";
+import { bindAccountToCurrentDevice, currentDevice } from "@/server/matrix-device";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 import { isMatrixPlatform, JOB_KIND, MATRIX_PLATFORMS, matrixPlatform, PROXY_PROTOCOLS, type MatrixPlatform } from "@/lib/matrix";
 import { parseCookies } from "@/lib/matrix-cookies";
@@ -163,12 +164,23 @@ const AccountSchema = z.object({
 const tagsOf = (raw: string | undefined) =>
   [...new Set((raw ?? "").split(/[,，;；、\n]/).map((t) => t.trim()).filter(Boolean))].slice(0, 10).map((t) => t.slice(0, 20));
 
-/** 没有自己电脑上的运行器在线，就拉起云端运行器。返回是不是走云端 */
-async function kickRunner(tenantId: string) {
-  const local = (await onlineRunners(tenantId)).some((r) => !r.id.startsWith("cloud-"));
-  const cloud = !local && cloudConfigured();
-  if (cloud) after(() => ensureCloudRunner(tenantId));
-  return cloud;
+/** 有交给云端的任务就拉起云端运行器（企业开了云端才会）。返回这个账号的任务是不是走云端 */
+async function kickRunner(tenantId: string, accountId?: string) {
+  return kickCloud(tenantId, accountId, (fn) => after(fn));
+}
+
+/**
+ * 账号的任务现在能不能执行：归属的电脑在线；或者没有归属电脑，企业开了云端 / 有命令行运行器。
+ * 返回 null = 能执行；否则是给用户看的原因。
+ */
+async function whyCannotRun(tenantId: string, deviceId: string | null) {
+  if (deviceId) {
+    if ((await onlineDeviceIds(tenantId)).has(deviceId)) return null;
+    const d = await prisma.matrixDevice.findUnique({ where: { id: deviceId }, select: { name: true } });
+    return `「${d?.name ?? "归属的电脑"}」不在线，打开那台电脑上的车车 CRM 桌面版后会自动执行`;
+  }
+  if ((await cloudEnabledFor(tenantId)) || (await legacyRunnerOnline(tenantId))) return null;
+  return "这个账号还没有归属的电脑：请在车车 CRM 桌面版里操作（会自动归到那台电脑），或在「设置 → 社媒运行」里打开云端运行器";
 }
 
 /** 导入 Cookie：加密放进一个检查任务，运行器写进浏览器后检查登录 */
@@ -219,16 +231,19 @@ export async function saveAccountAction(_: ActionState, fd: FormData): Promise<A
     const changes = [acc.proxyId !== d.proxyId && "换了代理", acc.ownerId !== (d.ownerId || null) && "换了负责人"].filter(Boolean).join("、");
     await logMatrixEvent({ tenantId: user.tenantId, accountId: d.id, userId: user.id, action: "edit", detail: changes || null });
     if (cookies) {
+      await bindAccountToCurrentDevice(user, acc);
       await enqueueCookieImport(user.tenantId, d.id, user.id, cookies);
-      await kickRunner(user.tenantId);
+      await kickRunner(user.tenantId, d.id);
     }
   } else {
     const shared = await db.matrixAccount.count({ where: { proxyId: d.proxyId, platform: d.platform } });
-    const acc = await db.matrixAccount.create({ data: { ...data, os: d.os, tenantId: user.tenantId, createdById: user.id } });
+    // 在桌面版里新建的账号直接归到这台电脑
+    const here = await currentDevice(user);
+    const acc = await db.matrixAccount.create({ data: { ...data, os: d.os, tenantId: user.tenantId, createdById: user.id, deviceId: here?.id ?? null } });
     await logMatrixEvent({ tenantId: user.tenantId, accountId: acc.id, userId: user.id, action: "create" });
     if (cookies) {
       await enqueueCookieImport(user.tenantId, acc.id, user.id, cookies);
-      await kickRunner(user.tenantId);
+      await kickRunner(user.tenantId, acc.id);
     }
     revalidatePath(PATH);
     const next = cookies ? "正在用 Cookie 登录，稍后自动检查结果" : "点「登录」开始登录";
@@ -260,16 +275,46 @@ export async function runAccountAction(
   const allowed = canManage(user) || (can(user, "matrix.use") && acc.ownerId === user.id);
   if (!allowed) return { ok: false, message: "这个账号没有分配给你" };
   if (!acc.proxyId) return { ok: false, message: "先给账号绑一个代理 IP" };
+  const deviceId = await bindAccountToCurrentDevice(user, acc);
+  const reason = await whyCannotRun(user.tenantId, deviceId);
+  if (reason) return { ok: false, message: reason };
 
   const job = await enqueueMatrixJob({ tenantId: user.tenantId, accountId: id, kind, userId: user.id });
   await logMatrixEvent({ tenantId: user.tenantId, accountId: id, userId: user.id, action: `request:${kind}` });
   if (kind === "login") await prisma.matrixAccount.update({ where: { id }, data: { status: "pending", statusNote: null } });
   revalidatePath(PATH);
 
-  // 没有自己电脑上的运行器在线，就用云端运行器（画面在网页里看、在网页里操作）
-  const cloud = await kickRunner(user.tenantId);
+  // 归属桌面版的账号在那台电脑上弹窗口；没有归属的交给云端（画面在网页里看、在网页里操作）
+  const cloud = deviceId ? false : await kickRunner(user.tenantId, id);
   if (cloud) return { ok: true, jobId: job.id, cloud, message: `云端浏览器启动中：${JOB_KIND[kind]}` };
-  return { ok: true, jobId: job.id, cloud, message: `已交给运行器：${JOB_KIND[kind]}` };
+  return { ok: true, jobId: job.id, cloud, message: deviceId ? `已交给桌面版：${JOB_KIND[kind]}` : `已交给运行器：${JOB_KIND[kind]}` };
+}
+
+/**
+ * 账号换运行位置：here = 归到当前这台桌面版电脑；否则取消归属（交给云端 / 命令行运行器）。
+ * 浏览器环境（登录状态）留在原来的地方，换位置后要重新登录一次。
+ */
+export async function setAccountDeviceAction(id: string, here: boolean): Promise<ActionState> {
+  const user = await requireUser();
+  const acc = await tenantDb(user.tenantId).matrixAccount.findFirst({ where: { id }, select: { id: true, ownerId: true, deviceId: true } });
+  if (!acc) return { ok: false, message: "账号不存在" };
+  if (!canManage(user) && !(can(user, "matrix.use") && acc.ownerId === user.id)) return { ok: false, message: "这个账号没有分配给你" };
+  const device = here ? await currentDevice(user) : null;
+  if (here && !device) return { ok: false, message: "请在车车 CRM 桌面版里操作" };
+  const deviceId = device?.id ?? null;
+  if (deviceId === acc.deviceId) return { ok: true, message: "运行位置没有变化" };
+  const busy = await prisma.matrixJob.count({ where: { accountId: id, status: { in: ["running", "waiting"] } } });
+  if (busy) return { ok: false, message: "账号有任务正在执行，等它结束或先取消" };
+  await prisma.$transaction([
+    prisma.matrixJob.updateMany({ where: { accountId: id, status: "queued" }, data: { status: "canceled", finishedAt: new Date() } }),
+    prisma.matrixAccount.update({
+      where: { id },
+      data: { deviceId, status: "new", statusNote: device ? `已移到「${device.name}」，需要重新登录` : "已取消归属电脑，需要重新登录" },
+    }),
+  ]);
+  await logMatrixEvent({ tenantId: user.tenantId, accountId: id, userId: user.id, action: device ? "device:bind" : "device:unbind", detail: device?.name });
+  revalidatePath(PATH);
+  return { ok: true, message: device ? `已移到这台电脑「${device.name}」，点「登录」重新登录` : "已取消归属，点「登录」重新登录" };
 }
 
 export async function cancelJobAction(id: string): Promise<ActionState> {
@@ -303,8 +348,11 @@ export async function importCookiesAction(id: string, text: string): Promise<Act
   if (!platform) return { ok: false, message: "不支持的平台" };
   const c = parseCookies(text.slice(0, 200_000), platform);
   if (!c.ok) return { ok: false, message: c.error };
+  const deviceId = await bindAccountToCurrentDevice(user, acc);
+  const reason = await whyCannotRun(user.tenantId, deviceId);
+  if (reason) return { ok: false, message: reason };
   await enqueueCookieImport(user.tenantId, id, user.id, c.cookies);
-  await kickRunner(user.tenantId);
+  await kickRunner(user.tenantId, id);
   revalidatePath(PATH);
   return { ok: true, message: `已导入 ${c.cookies.length} 条 Cookie，正在检查登录` };
 }
@@ -416,6 +464,7 @@ export async function importAccountsAction(text: string): Promise<ImportResult> 
   const rows = parseTableText(text);
   if (rows.length < 2) return { ok: false, message: "至少要有表头和一行数据" };
   if (rows.length - 1 > MAX_ROWS) return { ok: false, message: `一次最多导入 ${MAX_ROWS} 行` };
+  const here = await currentDevice(user);
 
   const head = rows[0].map((h) => h.replace(/\s+/g, "").toLowerCase());
   const col: Partial<Record<keyof typeof HEADERS, number>> = {};
@@ -498,6 +547,7 @@ export async function importAccountsAction(text: string): Promise<ImportResult> 
       data: {
         tenantId: user.tenantId,
         createdById: user.id,
+        deviceId: here?.id ?? null,
         platform,
         name,
         login: cell(r, "login").slice(0, 200) || null,

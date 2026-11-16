@@ -7,8 +7,8 @@ import { prisma, tenantDb } from "@/server/db";
 import { can, requireUser, type CurrentUser } from "@/server/auth";
 import { getCustomerForUser, logActivity } from "@/server/customers";
 import { syncCustomerTimes } from "@/server/pool";
-import { enqueueMatrixJob, logMatrixEvent, onlineRunners } from "@/server/matrix";
-import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
+import { enqueueMatrixJob, logMatrixEvent } from "@/server/matrix";
+import { kickCloud } from "@/server/matrix-cloud";
 import { canUseInbox, syncInboxNow, threadScope } from "@/server/inbox";
 import { googleTranslateCode } from "@/server/translate";
 import { isChineseLang, isInboxPlatform, langName } from "@/lib/inbox";
@@ -30,9 +30,9 @@ async function ownThread(user: CurrentUser, id: string) {
   });
 }
 
+/** 交给云端的任务（账号没有归属设备、企业开了云端）就拉起云端运行器；归属桌面版的由那台电脑自己领 */
 async function kick(tenantId: string) {
-  const local = (await onlineRunners(tenantId)).some((r) => !r.id.startsWith("cloud-"));
-  if (!local && cloudConfigured()) after(() => ensureCloudRunner(tenantId));
+  await kickCloud(tenantId, undefined, (fn) => after(fn));
 }
 
 // ── 发消息 ──

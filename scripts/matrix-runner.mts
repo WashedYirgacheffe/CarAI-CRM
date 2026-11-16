@@ -41,7 +41,7 @@ if (major < 22 || (major === 22 && minor < 15)) {
   console.error(`Camoufox 需要 Node 22.15 以上，当前是 ${process.version}。可以用：PATH=/opt/homebrew/bin:$PATH pnpm matrix-runner`);
   process.exit(1);
 }
-if (!/^mrc?_/.test(TOKEN)) {
+if (!/^(mr|mrc|md)_/.test(TOKEN)) {
   console.error("缺少运行器令牌：到 CRM「社媒矩阵 → 运行器」生成，设成环境变量 MATRIX_RUNNER_TOKEN（或写进 .env.runner）");
   process.exit(1);
 }
@@ -54,6 +54,8 @@ const HOST = process.env.MATRIX_RUNNER_HOST || os.hostname().replace(/\.local$/,
 
 // ── 和 CRM 通信 ──
 
+const UNAUTHORIZED = "令牌无效（HTTP 401）";
+
 async function api<T>(p: string, body: unknown): Promise<T> {
   const res = await fetch(`${CRM_URL}${p}`, {
     method: "POST",
@@ -62,6 +64,7 @@ async function api<T>(p: string, body: unknown): Promise<T> {
     signal: AbortSignal.timeout(20_000),
   });
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (res.status === 401) throw new Error(UNAUTHORIZED);
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -735,6 +738,11 @@ async function main() {
       if (got) continue; // 刚领到任务，马上看看还有没有
     } catch (e) {
       const msg = (e as Error).message;
+      // 令牌失效（设备被移除、企业令牌重新生成）：退出码 3，桌面版据此重新配对，不再重试
+      if (msg === UNAUTHORIZED) {
+        log("运行器令牌已失效，退出");
+        process.exit(3);
+      }
       if (msg !== lastErr) log("连不上 CRM：", msg);
       lastErr = msg;
     }

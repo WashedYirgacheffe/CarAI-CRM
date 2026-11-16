@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { decryptSecret } from "@/server/crypto";
-import { addCloudUsage, logMatrixEvent, playwrightProxy, runnerTenant } from "@/server/matrix";
+import { addCloudUsage, deviceRunnerId, logMatrixEvent, playwrightProxy, runnerAuth } from "@/server/matrix";
 import { claimReplies, settleReplies } from "@/server/inbox";
+import { cloudEnabledFor } from "@/server/matrix-cloud";
 
 const Body = z.object({
   runnerId: z.string().min(4).max(80),
@@ -19,11 +20,16 @@ const Body = z.object({
  * 运行器重启后，之前没跑完的任务（不在 running 里）标成失败。
  */
 export async function POST(req: Request) {
-  const tenantId = await runnerTenant(req);
-  if (!tenantId) return Response.json({ error: "令牌无效" }, { status: 401 });
+  const auth = await runnerAuth(req);
+  if (!auth) return Response.json({ error: "令牌无效" }, { status: 401 });
+  const { tenantId, device } = auth;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "参数不对" }, { status: 400 });
-  const { runnerId, host, version, running, free } = parsed.data;
+  const { host, version, running, free } = parsed.data;
+  // 桌面软件的运行器 id 由设备决定，不信任客户端传的
+  const runnerId = device ? deviceRunnerId(device.id) : parsed.data.runnerId;
+  if (!device && runnerId.startsWith("dev-")) return Response.json({ error: "参数不对" }, { status: 400 });
+  if (device) await prisma.matrixDevice.update({ where: { id: device.id }, data: { lastSeenAt: new Date(), appVersion: version } });
 
   // 云端运行器按心跳间隔累计运行时长
   if (runnerId.startsWith("cloud-")) {
@@ -53,13 +59,16 @@ export async function POST(req: Request) {
     : [];
 
   if (free <= 0) return Response.json({ canceled, job: null });
+  // 企业关掉了云端：云端运行器不再领新任务，空闲后自己退出
+  if (runnerId.startsWith("cloud-") && !(await cloudEnabledFor(tenantId))) return Response.json({ canceled, job: null });
 
   // 领任务：同一账号已有任务在跑的先不领
   const busyAccounts = (
     await prisma.matrixJob.findMany({ where: { tenantId, status: { in: ["running", "waiting"] } }, select: { accountId: true } })
   ).map((j) => j.accountId);
+  // 桌面软件只领归属自己的账号；云端和命令行运行器只领没有归属设备的
   const next = await prisma.matrixJob.findFirst({
-    where: { tenantId, status: "queued", accountId: { notIn: busyAccounts } },
+    where: { tenantId, status: "queued", accountId: { notIn: busyAccounts }, account: { deviceId: device ? device.id : null } },
     orderBy: { createdAt: "asc" },
   });
   if (!next) return Response.json({ canceled, job: null });

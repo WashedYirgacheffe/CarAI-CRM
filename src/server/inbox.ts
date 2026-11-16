@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { can, type CurrentUser } from "@/server/auth";
-import { enqueueMatrixJob, logMatrixEvent, onlineRunners } from "@/server/matrix";
-import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
+import { enqueueMatrixJob, logMatrixEvent, runnableAccounts } from "@/server/matrix";
+import { kickCloud } from "@/server/matrix-cloud";
 import { googleTranslateCode } from "@/server/translate";
 import { looksForeign } from "@/lib/lang";
 import { INBOX_PLATFORMS, INBOX_SYNC_EVERY_MS, isChineseLang, maskContacts, maskHandle } from "@/lib/inbox";
@@ -293,19 +293,17 @@ export async function scheduleInboxSync() {
       platform: { in: [...INBOX_PLATFORMS] },
       jobs: { none: { OR: [{ kind: "inbox", createdAt: { gte: cutoff } }, { status: { in: ["queued", "running", "waiting"] } }] } },
     },
-    select: { id: true, tenantId: true },
+    select: { id: true, tenantId: true, deviceId: true },
     take: 500,
   });
   const tenants = new Set<string>();
-  for (const a of due) {
+  const runnable = await runnableAccounts(due);
+  for (const a of runnable) {
     await enqueueMatrixJob({ tenantId: a.tenantId, accountId: a.id, kind: "inbox", userId: null, payload: { auto: true } });
     tenants.add(a.tenantId);
   }
-  for (const tenantId of tenants) {
-    const local = (await onlineRunners(tenantId)).some((r) => !r.id.startsWith("cloud-"));
-    if (!local && cloudConfigured()) await ensureCloudRunner(tenantId);
-  }
-  return due.length;
+  for (const tenantId of tenants) await kickCloud(tenantId);
+  return runnable.length;
 }
 
 /** 手动「立即同步」 */

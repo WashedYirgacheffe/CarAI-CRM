@@ -5,9 +5,10 @@ import { EmptyState } from "@/components/crm/empty-state";
 import { SocialIcon } from "@/components/crm/social-icon";
 import { Globe, Share2 } from "@/components/icons";
 import { can, requireUser } from "@/server/auth";
-import { onlineRunners, usageMonth } from "@/server/matrix";
+import { onlineDeviceIds, onlineRunners, usageMonth } from "@/server/matrix";
 import type { Prisma } from "@/generated/prisma/client";
-import { cloudConfigured } from "@/server/matrix-cloud";
+import { cloudConfigured, cloudEnabledFor } from "@/server/matrix-cloud";
+import { currentDevice } from "@/server/matrix-device";
 import { prisma, tenantDb } from "@/server/db";
 import { appUrl } from "@/server/share";
 import { formatDateTime } from "@/lib/crm";
@@ -78,6 +79,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
       orderBy: [{ platform: "asc" }, { createdAt: "asc" }],
       include: {
         owner: { select: { name: true } },
+        device: { select: { id: true, name: true } },
         proxy: { select: { id: true, name: true, exitIp: true, country: true, countryCode: true, timezone: true, lastError: true } },
         jobs: { orderBy: { createdAt: "desc" }, take: 1 },
       },
@@ -90,10 +92,10 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
     manage ? prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { matrixRunnerTokenHash: true } }) : null,
     manage ? prisma.matrixUsage.findMany({ where: { tenantId: user.tenantId, month: { in: months } } }) : [],
   ]);
-  const cloud = cloudConfigured();
+  const [cloud, devicesOnline, here] = await Promise.all([cloudEnabledFor(user.tenantId), onlineDeviceIds(user.tenantId), currentDevice(user)]);
   const groups = groupRows.map((g) => g.group!).filter(Boolean);
   const usage =
-    manage && cloud
+    manage && cloudConfigured()
       ? {
           thisMonth: usageRows.find((u) => u.month === months[0])?.cloudSeconds ?? 0,
           lastMonth: usageRows.find((u) => u.month === months[1])?.cloudSeconds ?? 0,
@@ -169,7 +171,8 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
               const job = a.jobs[0];
               const jobActive = job && ["queued", "running", "waiting"].includes(job.status);
               const onCloud = !!job?.runner?.startsWith("cloud-");
-              const liveJob = jobActive && job.kind !== "check" && (onCloud || (job.status === "queued" && cloud)) ? job.id : null;
+              const liveJob = jobActive && job.kind !== "check" && (onCloud || (job.status === "queued" && cloud && !a.deviceId)) ? job.id : null;
+              const deviceOnline = !!a.deviceId && devicesOnline.has(a.deviceId);
               return (
                 <li key={a.id} className="grid items-center gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] md:px-5">
                   <div className="flex min-w-0 items-center gap-3">
@@ -217,6 +220,23 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                         收私信
                       </Link>
                     )}
+                    <p className={cn("mt-1 flex items-center gap-1 truncate", a.device && !deviceOnline ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+                      {a.device ? (
+                        <>
+                          <span className={cn("size-1.5 shrink-0 rounded-full", deviceOnline ? "bg-emerald-500" : "bg-amber-500")} />
+                          {a.device.id === here?.id ? "这台电脑" : a.device.name}
+                          {!deviceOnline && " · 离线，打开桌面版后执行"}
+                        </>
+                      ) : cloud ? (
+                        <>
+                          <span className="size-1.5 shrink-0 rounded-full bg-sky-500" /> 云端运行
+                        </>
+                      ) : (
+                        <>
+                          <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" /> 未归属电脑，在桌面版里登录后运行
+                        </>
+                      )}
+                    </p>
                     {job && (
                       <p
                         className={cn(
@@ -226,7 +246,8 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                         title={job.error ?? undefined}
                       >
                         {JOB_KIND[job.kind] ?? job.kind} · {JOB_STATUS[job.status] ?? job.status}
-                        {job.status === "waiting" && (onCloud ? "：点「画面」扫码或输入密码" : "：去运行器电脑上的窗口里扫码或输入密码")}
+                        {job.status === "waiting" &&
+                          (onCloud ? "：点「画面」扫码或输入密码" : a.device ? `：去「${a.device.name}」上弹出的窗口里扫码或输入密码` : "：去运行器电脑上的窗口里扫码或输入密码")}
                         {job.status === "failed" && job.error && `：${job.error}`}
                         {!jobActive && job.finishedAt && ` · ${formatDateTime(job.finishedAt, tz)}`}
                       </p>
@@ -255,6 +276,7 @@ export default async function SocialMatrixPage({ searchParams }: PageProps<"/soc
                     proxies={proxyOptions}
                     members={members}
                     groups={groups}
+                    place={{ inDesktop: !!here, onThisDevice: !!here && a.deviceId === here.id, hasDevice: !!a.deviceId }}
                   />
                 </li>
               );
@@ -322,8 +344,8 @@ function RunnerBadge({ runners, cloud }: { runners: { host: string; busy: number
     );
   if (!runners.length)
     return (
-      <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground" title="在要跑浏览器的电脑上执行：pnpm matrix-runner">
-        <span className="size-1.5 rounded-full bg-muted-foreground/50" /> 运行器未启动（pnpm matrix-runner）
+      <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground" title="在负责人的电脑上打开车车 CRM 桌面版并登录，账号就在那台电脑上运行">
+        <span className="size-1.5 rounded-full bg-muted-foreground/50" /> 没有电脑在线（打开车车 CRM 桌面版）
       </span>
     );
   return (

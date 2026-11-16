@@ -1,6 +1,5 @@
 import { after } from "next/server";
-import { onlineRunners } from "@/server/matrix";
-import { cloudConfigured, ensureCloudRunner } from "@/server/matrix-cloud";
+import { kickCloud } from "@/server/matrix-cloud";
 import { waitFrame } from "@/server/matrix-live";
 import { liveJobFor } from "../access";
 
@@ -24,13 +23,9 @@ export async function GET(req: Request, ctx: RouteContext<"/api/matrix/jobs/[id]
   };
   if (!["queued", "running", "waiting"].includes(job.status)) return new Response(null, { status: 204, headers });
 
-  if (job.status === "queued" && cloudConfigured() && Date.now() - (kicked.get(job.tenantId) ?? 0) > 20_000) {
+  if (job.status === "queued" && Date.now() - (kicked.get(job.tenantId) ?? 0) > 20_000) {
     kicked.set(job.tenantId, Date.now());
-    const runners = await onlineRunners(job.tenantId);
-    if (!runners.length) {
-      const tenantId = job.tenantId;
-      after(() => ensureCloudRunner(tenantId));
-    }
+    await kickCloud(job.tenantId, job.accountId, (fn) => after(fn));
   }
 
   const seq = Number(new URL(req.url).searchParams.get("seq") || 0);

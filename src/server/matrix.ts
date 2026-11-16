@@ -6,7 +6,7 @@ import { prisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { decryptSecret } from "@/server/crypto";
 import { matrixPlatform, RUNNER_STALE_MS } from "@/lib/matrix";
-import { verifyCloudToken } from "@/server/matrix-cloud";
+import { cloudEnabledFor, legacyRunnerOnline, verifyCloudToken } from "@/server/matrix-cloud";
 
 type ProxyRow = {
   id: string;
@@ -170,10 +170,76 @@ export async function rotateRunnerToken(tenantId: string) {
   return token;
 }
 
-/** 从请求头 Authorization: Bearer <令牌> 认出是哪个企业的运行器 */
+export type RunnerAuth = { tenantId: string; device: { id: string; userId: string } | null };
+
+/** 桌面软件的运行器 id：dev-<设备 id> */
+export const deviceRunnerId = (deviceId: string) => `dev-${deviceId}`;
+
+/** 认出运行器：桌面软件（设备令牌 md_）、云端（mrc_）、命令行（企业令牌 mr_） */
+export async function runnerAuth(req: Request): Promise<RunnerAuth | null> {
+  const m = /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "");
+  if (!m) return null;
+  if (m[1].startsWith("md_")) {
+    const d = await prisma.matrixDevice.findUnique({
+      where: { tokenHash: hashToken(m[1]) },
+      select: { id: true, tenantId: true, userId: true, revokedAt: true, user: { select: { status: true } } },
+    });
+    if (!d || d.revokedAt || d.user.status !== "ACTIVE") return null;
+    return { tenantId: d.tenantId, device: { id: d.id, userId: d.userId } };
+  }
+  const tenantId = await runnerTenant(req);
+  return tenantId ? { tenantId, device: null } : null;
+}
+
+// ── 桌面软件：设备配对 ──
+
+/** 配对：给当前用户的这台电脑发一个设备令牌（同一台电脑重新配对会换新令牌，旧的失效） */
+export async function pairDevice(input: { tenantId: string; userId: string; deviceId?: string | null; name: string; os?: string; appVersion?: string }) {
+  const token = `md_${randomBytes(32).toString("base64url")}`;
+  const tokenHash = hashToken(token);
+  const prev = input.deviceId
+    ? await prisma.matrixDevice.findFirst({ where: { id: input.deviceId, tenantId: input.tenantId, userId: input.userId, revokedAt: null } })
+    : null;
+  const data = { name: input.name.slice(0, 80), os: input.os?.slice(0, 80), appVersion: input.appVersion?.slice(0, 40), tokenHash };
+  const device = prev
+    ? await prisma.matrixDevice.update({ where: { id: prev.id }, data })
+    : await prisma.matrixDevice.create({ data: { ...data, tenantId: input.tenantId, userId: input.userId } });
+  return { deviceId: device.id, token };
+}
+
+/** 设备在线：运行器最近 90 秒报过心跳 */
+export async function onlineDeviceIds(tenantId: string) {
+  const rows = await prisma.matrixRunner.findMany({
+    where: { tenantId, id: { startsWith: "dev-" }, lastSeenAt: { gte: new Date(Date.now() - RUNNER_STALE_MS) } },
+    select: { id: true },
+  });
+  return new Set(rows.map((r) => r.id.slice(4)));
+}
+
+/**
+ * 定时任务只给「现在有地方跑」的账号排：归属的设备在线；或者没有归属设备，并且企业开了云端 / 有命令行运行器在线。
+ * 否则排了也只会堆在队列里超时。
+ */
+export async function runnableAccounts<T extends { id: string; tenantId: string; deviceId: string | null }>(accounts: T[]) {
+  const byTenant = new Map<string, { devices: Set<string>; elsewhere: boolean }>();
+  const out: T[] = [];
+  for (const a of accounts) {
+    let t = byTenant.get(a.tenantId);
+    if (!t) {
+      const [devices, cloud, legacy] = await Promise.all([onlineDeviceIds(a.tenantId), cloudEnabledFor(a.tenantId), legacyRunnerOnline(a.tenantId)]);
+      t = { devices, elsewhere: cloud || legacy };
+      byTenant.set(a.tenantId, t);
+    }
+    if (a.deviceId ? t.devices.has(a.deviceId) : t.elsewhere) out.push(a);
+  }
+  return out;
+}
+
+/** 从请求头 Authorization: Bearer <令牌> 认出是哪个企业的运行器（云端 / 命令行） */
 export async function runnerTenant(req: Request): Promise<string | null> {
   const m = /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "");
   if (!m) return null;
+  if (m[1].startsWith("md_")) return (await runnerAuth(req))?.tenantId ?? null;
   // 云端运行器：签名令牌，不入库
   if (m[1].startsWith("mrc_")) {
     const tenantId = verifyCloudToken(m[1]);
