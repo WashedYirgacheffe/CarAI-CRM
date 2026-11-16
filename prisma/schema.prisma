@@ -88,6 +88,9 @@ model Tenant {
   matrixJobs        MatrixJob[]
   matrixUsage       MatrixUsage[]
   matrixEvents      MatrixEvent[]
+  socialThreads     SocialThread[]
+  socialMessages    SocialMessage[]
+  quickReplies      QuickReply[]
 }
 
 enum UserStatus {
@@ -139,6 +142,7 @@ model User {
   aiMemories         AiMemory[]
   bioPage            BioPage?
   matrixAccounts     MatrixAccount[] @relation("MatrixAccountOwner")
+  socialThreads      SocialThread[]  @relation("SocialThreadAssignee")
 
   @@index([tenantId])
 }
@@ -301,6 +305,7 @@ model Customer {
   shareVisits   ShareVisit[]
   socials       CustomerSocial[]
   socialPosts   SocialPost[]
+  socialThreads SocialThread[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -1517,15 +1522,20 @@ model MatrixAccount {
   loggedInAt  DateTime?
   checkedAt   DateTime?
   note        String?
+  /// 收私信：开了才会定时同步这个账号的私信进收件箱
+  inboxSync   Boolean   @default(false)
+  /// 上次同步私信完成的时间（为空 = 还没同步过，第一次同步的消息不算未读）
+  inboxAt     DateTime?
   createdById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  owner  User?         @relation("MatrixAccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  proxy  MatrixProxy?  @relation(fields: [proxyId], references: [id], onDelete: SetNull)
-  jobs   MatrixJob[]
-  events MatrixEvent[]
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner   User?          @relation("MatrixAccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  proxy   MatrixProxy?   @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+  jobs    MatrixJob[]
+  events  MatrixEvent[]
+  threads SocialThread[]
 
   @@index([tenantId, platform])
 }
@@ -1597,4 +1607,97 @@ model MatrixRunner {
   lastSeenAt DateTime @default(now())
 
   @@index([tenantId, lastSeenAt])
+}
+
+// ───────────────────────── 社媒收件箱 ─────────────────────────
+
+/// 社媒私信会话：矩阵账号和一个对方用户的对话（运行器同步进来）
+model SocialThread {
+  id            String    @id @default(cuid())
+  tenantId      String
+  accountId     String
+  /// 和账号同一个平台（冗余，筛选用）
+  platform      String
+  /// 平台上的会话标识（会话链接里的 id；没有时用对方名字）
+  externalId    String
+  /// 打开这个会话的网址（运行器回复时用）
+  url           String?
+  peerName      String?
+  /// 对方的 @用户名
+  peerHandle    String?
+  /// 对方主页链接
+  peerUrl       String?
+  peerAvatar    String?
+  /// 对方语言（谷歌识别出的语言代码，回复时译成这个）
+  peerLang      String?
+  customerId    String?
+  leadId        String?
+  /// 分给谁处理（默认账号负责人）
+  assigneeId    String?
+  lastMessageAt DateTime?
+  lastText      String?
+  lastFromMe    Boolean   @default(false)
+  unread        Int       @default(0)
+  archived      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  MatrixAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignee User?           @relation("SocialThreadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages SocialMessage[]
+
+  @@unique([accountId, externalId])
+  @@index([tenantId, lastMessageAt])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, customerId])
+}
+
+/// 社媒私信消息
+model SocialMessage {
+  id          String   @id @default(cuid())
+  tenantId    String
+  threadId    String
+  /// 去重用：平台消息 id，没有时用内容摘要；CRM 里发出、还没同步回来的为空
+  externalId  String?
+  fromMe      Boolean
+  /// text / image / video / other
+  type        String   @default("text")
+  body        String   @default("")
+  /// received 收到 / queued 待发送 / sending 发送中 / sent 已发送 / failed 发送失败
+  status      String
+  error       String?
+  sentById    String?
+  /// 收到的：译成中文；发出的：翻译前的中文原文
+  translation String?
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread SocialThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, externalId])
+  @@index([threadId, timestamp])
+  @@index([tenantId, status])
+}
+
+/// 快捷回复话术（收件箱、WhatsApp 共用）
+model QuickReply {
+  id        String   @id @default(cuid())
+  tenantId  String
+  /// 分组（如「报价」「物流」）
+  group     String?
+  title     String
+  /// 正文，可用变量 {客户名} {联系人} {我的名字} {公司}
+  body      String
+  /// 为空 = 全公司共用；有值 = 个人话术
+  ownerId   String?
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ownerId])
 }

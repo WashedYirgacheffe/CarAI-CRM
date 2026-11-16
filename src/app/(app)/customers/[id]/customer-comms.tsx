@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, LoaderCircle, Paperclip, PenSquare, RefreshCw, Sparkles } from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { SocialIcon } from "@/components/crm/social-icon";
 import { formatDateTime } from "@/lib/crm";
 import { cn } from "@/lib/utils";
 import { customerInsightAction } from "../ai-actions";
@@ -128,6 +129,65 @@ export function CustomerWhatsapp({ rows, tz, chatHref }: { rows: CustomerWaRow[]
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+export type CustomerSocialRow = {
+  id: string;
+  threadId: string;
+  platform: string;
+  peer: string | null;
+  fromMe: boolean;
+  body: string;
+  translation: string | null;
+  status: string;
+  timestamp: string;
+  /** 能打开收件箱里的这个会话 */
+  mine: boolean;
+};
+
+/** 关联到客户的社媒私信（TikTok、Instagram、Facebook、LinkedIn、X），按会话分组 */
+export function CustomerSocialMessages({ rows, tz }: { rows: CustomerSocialRow[]; tz: string }) {
+  const threads = new Map<string, CustomerSocialRow[]>();
+  for (const r of rows) threads.set(r.threadId, [...(threads.get(r.threadId) ?? []), r]);
+  return (
+    <div className="space-y-4">
+      {[...threads].map(([tid, list]) => {
+        const head = list[0];
+        return (
+          <section key={tid}>
+            <PaneToolbar
+              action={
+                head.mine && (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href={`/inbox?t=${tid}`}>在收件箱打开</Link>
+                  </Button>
+                )
+              }
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <SocialIcon platform={head.platform} className="size-4" />
+                {head.peer ?? "私信会话"} · 最近 {list.length} 条
+              </span>
+            </PaneToolbar>
+            <div className="max-h-[28rem] space-y-1.5 overflow-y-auto rounded-xl bg-muted/40 p-3">
+              {list.map((m) => (
+                <div key={m.id} className={cn("flex", m.fromMe ? "justify-end" : "justify-start")}>
+                  <div className={cn("max-w-[80%] rounded-lg px-2.5 py-1 text-sm shadow-xs", m.fromMe ? "bg-primary/12" : "bg-card")}>
+                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                    {m.translation && <p className="mt-1 border-t border-foreground/10 pt-1 text-xs whitespace-pre-wrap text-muted-foreground">{m.translation}</p>}
+                    <p className={cn("text-right text-[11px] tabular-nums", m.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
+                      {m.status === "failed" ? "发送失败 · " : m.status === "queued" || m.status === "sending" ? "待发送 · " : ""}
+                      {formatDateTime(m.timestamp, tz)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

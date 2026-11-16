@@ -118,3 +118,44 @@ async function googleTranslateLines(texts: string[], language: string | undefine
   if (!out.some((t) => t.trim())) throw new Error("google empty");
   return out;
 }
+
+/**
+ * 按语言代码翻译多段文字，同时返回谷歌识别出的源语言代码（社媒私信用：记下对方语言，回复时译回去）。
+ * tl 是谷歌语言代码，如 zh-CN / en / es。
+ */
+export async function googleTranslateCode(texts: string[], tl: string): Promise<{ text: string; src: string | null }[]> {
+  const out: { text: string; src: string | null }[] = texts.map(() => ({ text: "", src: null }));
+  const idx = texts.map((t, i) => [t.slice(0, 4800), i] as const).filter(([t]) => t.trim());
+  const batches: (typeof idx)[] = [];
+  let cur: (typeof idx)[number][] = [];
+  let len = 0;
+  for (const x of idx) {
+    if (cur.length && (len + x[0].length > 4500 || cur.length >= 100)) {
+      batches.push(cur);
+      cur = [];
+      len = 0;
+    }
+    cur.push(x);
+    len += x[0].length;
+  }
+  if (cur.length) batches.push(cur);
+  await Promise.all(
+    batches.map(async (b) => {
+      const body = new URLSearchParams();
+      for (const [t] of b) body.append("q", t);
+      const res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(tl)}`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body,
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!res.ok) throw new Error(`google ${res.status}`);
+      const json = (await res.json()) as unknown;
+      if (!Array.isArray(json) || json.length !== b.length) throw new Error("google bad response");
+      json.forEach((x, k) => {
+        out[b[k][1]] = Array.isArray(x) ? { text: String(x[0] ?? ""), src: x[1] ? String(x[1]) : null } : { text: String(x ?? ""), src: null };
+      });
+    }),
+  );
+  return out;
+}

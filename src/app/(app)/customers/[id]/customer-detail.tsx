@@ -45,7 +45,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CustomerAiPanel, CustomerMails, CustomerWhatsapp, type CustomerMailRow, type CustomerWaRow } from "./customer-comms";
+import { CustomerAiPanel, CustomerMails, CustomerSocialMessages, CustomerWhatsapp, type CustomerMailRow, type CustomerSocialRow, type CustomerWaRow } from "./customer-comms";
 import { NativeSelect } from "@/components/native-select";
 import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { runAction, useActionForm } from "@/hooks/use-action-form";
@@ -148,6 +148,7 @@ export type CommsProp = {
   waEnabled: boolean;
   mails: CustomerMailRow[];
   wa: CustomerWaRow[];
+  social: CustomerSocialRow[];
   /** null = 没有 AI 权限 */
   ai: {
     summary: { content: string; createdAt: string } | null;
@@ -529,6 +530,11 @@ export function CustomerDetail({
                       WhatsApp
                     </TabsTrigger>
                   )}
+                  {comms.social.length > 0 && (
+                    <TabsTrigger value="social" className="px-3">
+                      社媒私信
+                    </TabsTrigger>
+                  )}
                 </TabsList>
               </div>
               <div className="p-4 md:p-5">
@@ -598,6 +604,11 @@ export function CustomerDetail({
                 {showWa && (
                   <TabsContent value="wa">
                     <CustomerWhatsapp rows={comms.wa} tz={tz} chatHref={waHref} />
+                  </TabsContent>
+                )}
+                {comms.social.length > 0 && (
+                  <TabsContent value="social">
+                    <CustomerSocialMessages rows={comms.social} tz={tz} />
                   </TabsContent>
                 )}
               </div>

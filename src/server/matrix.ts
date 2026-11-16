@@ -119,12 +119,14 @@ function proxyError(e: unknown): string {
 export async function enqueueMatrixJob(input: {
   tenantId: string;
   accountId: string;
-  kind: "login" | "open" | "check";
+  kind: "login" | "open" | "check" | "inbox" | "reply";
   userId: string | null;
   payload?: Prisma.InputJsonValue;
 }) {
+  // 回复任务领走时才取要发的消息：已经在跑的不算，新消息要再排一个
+  const statuses = input.kind === "reply" ? ["queued"] : ["queued", "running", "waiting"];
   const existing = await prisma.matrixJob.findFirst({
-    where: { accountId: input.accountId, kind: input.kind, status: { in: ["queued", "running", "waiting"] } },
+    where: { accountId: input.accountId, kind: input.kind, status: { in: statuses } },
   });
   if (existing) return existing;
   return prisma.matrixJob.create({

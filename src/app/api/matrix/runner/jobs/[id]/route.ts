@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { logMatrixEvent, notifyAccountDropped, runnerTenant } from "@/server/matrix";
+import { settleReplies } from "@/server/inbox";
 
 const Body = z.object({
   runnerId: z.string().min(4).max(80),
@@ -49,6 +50,13 @@ export async function POST(req: Request, ctx: RouteContext<"/api/matrix/runner/j
         ...(finished && hasCookies(job.payload) ? { payload: { cookieImport: true } } : {}),
       },
     });
+    // 回复任务：逐条记下发没发出去
+    if (finished && job.kind === "reply") {
+      const parsedReplies = z
+        .array(z.object({ id: z.string(), ok: z.boolean(), error: z.string().max(300).optional() }))
+        .safeParse(b.result?.replies);
+      await settleReplies(job.accountId, parsedReplies.success ? parsedReplies.data : [], b.error ?? null);
+    }
   }
 
   if (b.account) {

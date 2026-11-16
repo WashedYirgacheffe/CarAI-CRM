@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/server/db";
 import { decryptSecret } from "@/server/crypto";
 import { addCloudUsage, logMatrixEvent, playwrightProxy, runnerTenant } from "@/server/matrix";
+import { claimReplies, settleReplies } from "@/server/inbox";
 
 const Body = z.object({
   runnerId: z.string().min(4).max(80),
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
   for (const j of lost) {
     await prisma.matrixJob.update({ where: { id: j.id }, data: { status: "failed", error: "运行器重启，任务中断", finishedAt: new Date() } });
     if (j.kind === "login") await prisma.matrixAccount.updateMany({ where: { id: j.accountId, status: "pending" }, data: { status: "new" } });
+    if (j.kind === "reply") await settleReplies(j.accountId, [], "运行器重启，没发出去");
   }
 
   const canceled = running.length
@@ -75,6 +77,12 @@ export async function POST(req: Request) {
     });
     return Response.json({ canceled, job: null });
   }
+  // 回复任务：领走时才取这个账号所有待发的消息
+  const replies = next.kind === "reply" ? await claimReplies(account.id) : undefined;
+  if (replies && !replies.length) {
+    await prisma.matrixJob.update({ where: { id: next.id }, data: { status: "done", finishedAt: new Date() } });
+    return Response.json({ canceled, job: null });
+  }
   await logMatrixEvent({ tenantId, accountId: account.id, action: `start:${next.kind}`, runner: host });
 
   // 导入的 Cookie 加密存在任务里，交给运行器时才解开
@@ -95,6 +103,7 @@ export async function POST(req: Request) {
       kind: next.kind,
       payload,
       ...(cookies ? { cookies } : {}),
+      ...(replies ? { replies } : {}),
       account: {
         id: account.id,
         platform: account.platform,
