@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, CircleAlert, LoaderCircle, Send } from "@/components/icons";
+import { ArrowRight, Check, CircleAlert, LoaderCircle, Send, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -68,8 +68,10 @@ export function ActionCardView({
           ? { label: "没成功", cls: "bg-destructive/10 text-destructive" }
           : state === "running"
             ? { label: "执行中", cls: "bg-brand-soft text-brand-ink" }
-            : card.outward
-              ? { label: "等你确认 · 会发给对方", cls: "bg-warn-soft text-warn" }
+            : card.danger
+              ? { label: "等你确认 · 删除后无法恢复", cls: "bg-destructive/10 text-destructive" }
+              : card.outward
+                ? { label: "等你确认 · 会发给对方", cls: "bg-warn-soft text-warn" }
               : { label: "等你确认", cls: "bg-brand-soft text-brand-ink" };
 
   return (
@@ -134,16 +136,30 @@ export function ActionCardView({
               </Link>
             </Button>
           )
-        ) : state === "cancelled" ? null : card.outward && !confirmOutward ? (
-          <Button size="sm" disabled={state === "running"} onClick={() => setConfirmOutward(true)}>
-            <Send /> {card.confirm}
+        ) : state === "cancelled" ? null : (card.outward || card.danger) && !confirmOutward ? (
+          <Button
+            size="sm"
+            variant={card.danger ? "destructive" : "default"}
+            disabled={state === "running"}
+            onClick={() => setConfirmOutward(true)}
+          >
+            {card.danger ? <Trash2 /> : <Send />} {card.confirm}
           </Button>
         ) : (
           <>
-            {card.outward && <span className="text-xs text-warn">确认后会立即发给对方，无法撤回</span>}
-            <Button size="sm" disabled={state === "running"} onClick={(e) => run(e.currentTarget)}>
+            {card.danger ? (
+              <span className="text-xs text-destructive">删除后无法恢复，确定吗？</span>
+            ) : (
+              card.outward && <span className="text-xs text-warn">确认后会立即发给对方，无法撤回</span>
+            )}
+            <Button
+              size="sm"
+              variant={card.danger ? "destructive" : "default"}
+              disabled={state === "running"}
+              onClick={(e) => run(e.currentTarget)}
+            >
               {state === "running" ? <LoaderCircle /> : <Check />}
-              {card.outward ? `确认${card.confirm}` : card.confirm}
+              {card.outward || card.danger ? `确认${card.confirm}` : card.confirm}
             </Button>
           </>
         )}

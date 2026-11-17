@@ -8,6 +8,7 @@ import { CURRENCIES, FOLLOW_METHODS, formatDateTime, parseLocalInput } from "@/l
 import { TRADE_TERMS, computeTotals, convertPrice, dateInput, formatAmount, round4 } from "@/lib/docs";
 import { REMINDER_KINDS, TIME_PRESETS, presetLocal, type TimePreset } from "@/lib/reminders";
 import type { ActionCard, AiActionKind } from "@/lib/ai-actions";
+import { prepareDataAction } from "@/server/canvas-actions-data";
 
 type P = Record<string, unknown>;
 const str = (v: unknown, max = 5000) => (v == null ? "" : String(v).trim().slice(0, max));
@@ -306,5 +307,7 @@ export async function prepareAction(user: CurrentUser, kind: AiActionKind, p: P)
         alt: { label: "打开序列", href: `/marketing/${seq.id}` },
       };
     }
+    default:
+      return prepareDataAction(user, kind, p);
   }
 }
