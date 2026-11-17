@@ -19,7 +19,7 @@ export async function loadChatView(user: CurrentUser, accountId: string, chatId:
   if (!chat) return null;
   const visible = { hiddenAt: null };
   const customerId = chat.customerId ?? null;
-  const [messages, media, msgCount, starred, firstMsg, tasks, activities, quotations] = await Promise.all([
+  const [messages, media, msgCount, starred, firstMsg, tasks, activities, quotations, files] = await Promise.all([
     db.waMessage.findMany({ where: { chatId: chat.id, ...visible }, orderBy: { timestamp: "desc" }, take: 300 }).then((r) => r.reverse()),
     db.waMessage.findMany({
       where: { chatId: chat.id, ...visible, mediaKey: { not: null }, type: { in: ["image", "video"] } },
@@ -50,6 +50,15 @@ export async function loadChatView(user: CurrentUser, accountId: string, chatId:
           orderBy: { createdAt: "desc" },
           take: 8,
           select: { id: true, no: true, total: true, currency: true, status: true, approval: true, quoteDate: true },
+        })
+      : Promise.resolve([]),
+    // 客户资料里的文件：侧栏「发文件」直接选了发
+    customerId
+      ? db.crmFile.findMany({
+          where: { customerId },
+          orderBy: { createdAt: "desc" },
+          take: 60,
+          select: { id: true, name: true, mime: true, size: true, category: true, createdAt: true },
         })
       : Promise.resolve([]),
   ]);
@@ -140,6 +149,7 @@ export async function loadChatView(user: CurrentUser, accountId: string, chatId:
         approval: x.approval,
         date: x.quoteDate.toISOString(),
       })),
+      files: files.map((f) => ({ ...f, createdAt: f.createdAt.toISOString() })),
     },
   };
 }

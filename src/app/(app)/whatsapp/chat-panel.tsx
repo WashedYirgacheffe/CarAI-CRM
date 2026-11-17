@@ -34,8 +34,13 @@ import { STATUS_COLORS, formatDateTime, formatMoney } from "@/lib/crm";
 import { quotationStatus } from "@/lib/docs";
 import { TIME_PRESETS } from "@/lib/reminders";
 import { waListTime } from "@/lib/wa-time";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FileThumb, openFilePreview } from "@/components/crm/file-preview";
+import { FILE_TYPE_FILTERS, fileCategoryLabel, fileKind, fileSizeText } from "@/lib/files";
 import {
   aiChatFollowUpAction,
+  productDetailAction,
+  sendCrmFileAction,
   saveChatFollowUpAction,
   searchProductsAction,
   sendFormAction,
@@ -43,6 +48,7 @@ import {
   sendQuotationAction,
   unlinkChatAction,
   type AiFollowUp,
+  type ProductDetail,
   type ProductPick,
 } from "./actions";
 
@@ -62,6 +68,7 @@ export type PanelData = {
   tasks: TaskItem[];
   activities: { id: string; content: string; createdAt: string; user: string | null; follow: boolean }[];
   quotations: { id: string; no: string; total: string; currency: string; status: string; approval: string; date: string }[];
+  files: { id: string; name: string; mime: string; size: number; category: string; createdAt: string }[];
 };
 
 export type PanelTab = "info" | "follow" | "todo" | "send";
@@ -347,6 +354,21 @@ function SendTab({ data }: { data: PanelData }) {
   const [products, setProducts] = useState<ProductPick[] | null>(null);
   const [withPrice, setWithPrice] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [detail, setDetail] = useState<ProductDetail | "loading" | null>(null);
+  const toggle = (id: string) => setPicked((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const showDetail = async (id: string) => {
+    setDetail("loading");
+    const d = await productDetailAction(id);
+    if (!d) toast.error("商品不存在");
+    setDetail(d);
+  };
+  async function sendProducts(ids: string[]) {
+    setBusy("products");
+    for (const id of ids) if (!(await runAction(sendProductAction(chat.id, id, withPrice))).ok) break;
+    setBusy(null);
+    setPicked([]);
+  }
 
   useEffect(() => {
     const t = setTimeout(async () => setProducts(await searchProductsAction(q)), 200);
@@ -440,9 +462,11 @@ function SendTab({ data }: { data: PanelData }) {
         )}
       </section>
 
+      <FilesSection data={data} />
+
       <section>
         <div className="mb-2 flex items-center gap-2 px-1">
-          <h3 className="flex-1 text-xs font-medium text-muted-foreground">商品（发图片 + 英文规格）</h3>
+          <h3 className="flex-1 text-xs font-medium text-muted-foreground">商品（发图片 + 英文规格 + 产品卡链接）</h3>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             <Checkbox checked={withPrice} onCheckedChange={(v) => setWithPrice(!!v)} className="size-3.5" />
             带价格
@@ -452,47 +476,309 @@ function SendTab({ data }: { data: PanelData }) {
         {products === null ? (
           <p className="py-4 text-center text-xs text-muted-foreground">加载中…</p>
         ) : products.length ? (
-          <ul className="space-y-1.5">
-            {products.map((p) => (
-              <li key={p.id} className="group flex items-center gap-2.5 rounded-xl bg-card p-2 shadow-xs ring-1 ring-border/70">
-                <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
-                  {p.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口
-                    <img src={p.imageUrl} alt="" loading="lazy" className="size-full object-cover" />
-                  ) : (
-                    <Package className="size-5 text-muted-foreground" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium" title={p.name}>
-                    {p.name}
-                  </p>
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {[p.model || p.sku, Number(p.price) > 0 && `${formatMoney(p.price, p.currency)}/${p.unit}`, p.moq && `MOQ ${p.moq}`]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                </div>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  className="shrink-0 text-primary"
-                  disabled={busy !== null}
-                  onClick={() => run(p.id, sendProductAction(chat.id, p.id, withPrice))}
-                  aria-label={`发送 ${p.name}`}
-                  title="发给客户"
-                >
-                  {busy === p.id ? <LoaderCircle className="animate-spin" /> : <Send />}
+          <>
+            <ul className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pt-0.5 pb-2 [scrollbar-width:thin]">
+              {products.map((p) => {
+                const on = picked.includes(p.id);
+                return (
+                  <li key={p.id} className="shrink-0 snap-start">
+                    <button
+                      type="button"
+                      onClick={() => toggle(p.id)}
+                      onDoubleClick={() => void showDetail(p.id)}
+                      aria-pressed={on}
+                      aria-label={p.name}
+                      title={`${p.name}\n单击选中，双击看详情`}
+                      className={cn(
+                        "group relative block size-24 overflow-hidden rounded-xl bg-muted ring-1 ring-border/70 transition",
+                        on ? "ring-2 ring-primary" : "hover:ring-primary/40",
+                      )}
+                    >
+                      {p.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口
+                        <img src={p.imageUrl} alt="" loading="lazy" className="size-full object-cover" />
+                      ) : (
+                        <span className="grid size-full place-items-center">
+                          <Package className="size-6 text-muted-foreground" />
+                        </span>
+                      )}
+                      {/* 悬停显示品名 */}
+                      <span className="absolute inset-x-0 bottom-0 translate-y-full bg-gradient-to-t from-black/75 to-black/0 px-1.5 pt-4 pb-1 text-left text-[10.5px] leading-tight text-white transition-transform group-hover:translate-y-0 group-focus-visible:translate-y-0">
+                        <span className="line-clamp-2">{p.name}</span>
+                        {Number(p.price) > 0 && <span className="block opacity-80">{formatMoney(p.price, p.currency)}</span>}
+                      </span>
+                      {on && (
+                        <span className="absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground shadow">
+                          {picked.indexOf(p.id) + 1}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex items-center gap-2 px-1">
+              <span className="flex-1 text-[11px] text-muted-foreground">
+                {picked.length ? `已选 ${picked.length} 个商品` : "单击选中，双击看详情"}
+              </span>
+              {picked.length > 0 && (
+                <Button size="xs" variant="ghost" className="h-7 text-xs" onClick={() => setPicked([])}>
+                  清空
                 </Button>
-              </li>
-            ))}
-          </ul>
+              )}
+              <Button
+                size="xs"
+                className="h-7 text-xs"
+                disabled={!picked.length || busy !== null}
+                onClick={() => void sendProducts(picked)}
+              >
+                {busy === "products" ? <LoaderCircle className="animate-spin" /> : <Send />} 发送{picked.length > 1 ? ` ${picked.length} 个` : ""}
+              </Button>
+            </div>
+          </>
         ) : (
           <p className="py-4 text-center text-xs text-muted-foreground">没有找到商品</p>
         )}
       </section>
+      <ProductDetailDialog
+        detail={detail}
+        onClose={() => setDetail(null)}
+        busy={busy !== null}
+        onSend={(id) => {
+          setDetail(null);
+          void sendProducts([id]);
+        }}
+      />
       <p className="px-1 text-[11px] text-muted-foreground">发出的内容会出现在聊天里，和手机上发的一样。</p>
     </div>
+  );
+}
+
+/** 发文件：客户资料里存好的 PI、CO、报价单、证书、产品图…；横向滑动挑，可多选，附言随第一个文件 */
+function FilesSection({ data }: { data: PanelData }) {
+  const { chat, files } = data;
+  const [type, setType] = useState<string>("all");
+  const [cat, setCat] = useState<string>("all");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [caption, setCaption] = useState("");
+  const [busy, setBusy] = useState(false);
+  const cats = [...new Set(files.map((f) => f.category))];
+  const shown = files.filter(
+    (f) =>
+      (type === "all" || (type === "doc" ? ["doc", "slides"].includes(fileKind(f.name, f.mime)) : fileKind(f.name, f.mime) === type)) &&
+      (cat === "all" || f.category === cat),
+  );
+  const toggle = (id: string) => setPicked((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const send = async () => {
+    setBusy(true);
+    let first = true;
+    for (const id of picked) {
+      const ok = await runAction(sendCrmFileAction(chat.id, id, first ? caption.trim() : ""));
+      if (!ok.ok) break;
+      first = false;
+    }
+    setBusy(false);
+    setPicked([]);
+    setCaption("");
+  };
+  const pill = (on: boolean) =>
+    cn("h-6 shrink-0 rounded-full border px-2 text-[11px] transition-colors", on ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-muted");
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center px-1">
+        <h3 className="flex-1 text-xs font-medium text-muted-foreground">文件（客户资料里存好的单据、证书、图片）</h3>
+        {chat.customer && (
+          <Link href={`/customers/${chat.customer.id}`} className="text-xs text-primary hover:underline">
+            管理
+          </Link>
+        )}
+      </div>
+      {!chat.customer ? (
+        <p className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">关联客户后，这里会列出客户资料里的文件。</p>
+      ) : !files.length ? (
+        <p className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">这个客户还没有文件。到客户详情的「文件」里上传，或把聊天里收到的文件存进去。</p>
+      ) : (
+        <>
+          <div className="mb-1.5 flex gap-1 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+            <button type="button" className={pill(type === "all")} onClick={() => setType("all")}>
+              全部类型
+            </button>
+            {FILE_TYPE_FILTERS.map((t) => (
+              <button key={t.value} type="button" className={pill(type === t.value)} onClick={() => setType(t.value)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {cats.length > 1 && (
+            <div className="mb-2 flex gap-1 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+              <button type="button" className={pill(cat === "all")} onClick={() => setCat("all")}>
+                全部单据
+              </button>
+              {cats.map((c) => (
+                <button key={c} type="button" className={pill(cat === c)} onClick={() => setCat(c)}>
+                  {fileCategoryLabel(c)}
+                </button>
+              ))}
+            </div>
+          )}
+          {shown.length ? (
+            <ul className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pt-0.5 pb-2 [scrollbar-width:thin]">
+              {shown.map((f) => {
+                const on = picked.includes(f.id);
+                const src = `/api/crm-files/${f.id}`;
+                return (
+                  <li key={f.id} className="w-[6.5rem] shrink-0 snap-start">
+                    <button
+                      type="button"
+                      onClick={() => toggle(f.id)}
+                      onDoubleClick={() =>
+                        openFilePreview({ src, download: `${src}?download`, name: f.name, mime: f.mime, size: f.size, fileId: f.id, customerId: chat.customer?.id })
+                      }
+                      aria-pressed={on}
+                      title={`${f.name}\n${fileCategoryLabel(f.category)} · ${fileSizeText(f.size)}\n单击选中，双击预览`}
+                      className="group block w-full text-left"
+                    >
+                      <span className={cn("relative block rounded-lg ring-1 ring-border/70 transition", on ? "ring-2 ring-primary" : "group-hover:ring-primary/40")}>
+                        <FileThumb src={src} name={f.name} mime={f.mime} className="aspect-[3/4] w-full rounded-lg" />
+                        {on && (
+                          <span className="absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground shadow">
+                            {picked.indexOf(f.id) + 1}
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-1 line-clamp-2 text-[11px] leading-tight break-all">{f.name}</span>
+                      <span className="block truncate text-[10px] text-muted-foreground">{fileCategoryLabel(f.category)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="py-3 text-center text-xs text-muted-foreground">没有符合筛选的文件</p>
+          )}
+          {picked.length > 0 ? (
+            <div className="flex items-center gap-2 px-1">
+              <Input
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                placeholder="附言（随第一个文件发出，可不填）"
+                className="h-7 flex-1 text-xs"
+              />
+              <Button size="xs" className="h-7 shrink-0 text-xs" disabled={busy} onClick={() => void send()}>
+                {busy ? <LoaderCircle className="animate-spin" /> : <Send />} 发送 {picked.length} 个
+              </Button>
+            </div>
+          ) : (
+            <p className="px-1 text-[11px] text-muted-foreground">单击选中（可多选），双击预览</p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function ProductDetailDialog({
+  detail,
+  onClose,
+  onSend,
+  busy,
+}: {
+  detail: ProductDetail | "loading" | null;
+  onClose: () => void;
+  onSend: (id: string) => void;
+  busy: boolean;
+}) {
+  const [img, setImg] = useState(0);
+  const d = detail === "loading" ? null : detail;
+  return (
+    <Dialog
+      open={!!detail}
+      onOpenChange={(o) => {
+        if (!o) {
+          onClose();
+          setImg(0);
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-2xl">
+        {!d ? (
+          <>
+            <DialogTitle className="sr-only">商品详情</DialogTitle>
+            <div className="flex h-60 items-center justify-center">
+              <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="pr-6">{d.name}</DialogTitle>
+              <DialogDescription>
+                {[d.nameCn !== d.name && d.nameCn, d.sku, d.model].filter(Boolean).join(" · ")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div>
+                <div className="grid aspect-square place-items-center overflow-hidden rounded-xl bg-muted">
+                  {d.images[img] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口
+                    <img src={d.images[img]} alt={d.name} className="size-full object-contain" />
+                  ) : (
+                    <Package className="size-10 text-muted-foreground" />
+                  )}
+                </div>
+                {d.images.length > 1 && (
+                  <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                    {d.images.map((u, i) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => setImg(i)}
+                        className={cn("size-12 shrink-0 overflow-hidden rounded-md ring-1 ring-border", i === img && "ring-2 ring-primary")}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口 */}
+                        <img src={u} alt="" className="size-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 space-y-3 text-sm">
+                <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-[13px]">
+                  {(
+                    [
+                      ["价格", Number(d.price) > 0 ? `${formatMoney(d.price, d.currency)} / ${d.unit}` : null],
+                      ["MOQ", d.moq ? `${d.moq} ${d.unit}` : null],
+                      ["规格", d.spec],
+                      ["包装", d.packing],
+                      ["HS 编码", d.hsCode],
+                    ] as const
+                  )
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => (
+                      <div key={k} className="contents">
+                        <dt className="text-muted-foreground">{k}</dt>
+                        <dd className="whitespace-pre-wrap">{v}</dd>
+                      </div>
+                    ))}
+                </dl>
+                {d.bullets.length > 0 && (
+                  <ul className="list-disc space-y-0.5 pl-4 text-[13px] text-foreground/85">
+                    {d.bullets.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                )}
+                {d.desc && <p className="max-h-40 overflow-y-auto text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">{d.desc}</p>}
+                <Button className="w-full" disabled={busy} onClick={() => onSend(d.id)}>
+                  <Send /> 发给客户
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

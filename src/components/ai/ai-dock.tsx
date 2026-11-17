@@ -20,6 +20,7 @@ import { AgentProfile, DEFAULT_PREFS, Feedback, SIZES, ThreadList, WorkLine, Wor
 import { AI_COMPOSE_EVENT, type ComposeKind } from "./selection-toolbar";
 import { RichText, VisualView } from "./ai-visual";
 import { isStageTabs, setStageMode, setStagePane, useStage, withStageTransition } from "./ai-stage";
+import { getFileSlot, setFileAiReady, takeFileAsk, useFileSlot } from "./ai-file-slot";
 import { publishAiLook } from "./ai-look";
 import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
@@ -268,6 +269,13 @@ export function AiDock({ storageKey }: { storageKey: string }) {
   useEffect(() => {
     stagedRef.current = staged;
   }, [staged]);
+  // 文件预览窗打开了 AI 栏：对话放进预览窗右侧，带上正在看的文件
+  const fileSlot = useFileSlot();
+  const filed = !!fileSlot.slot;
+  useEffect(() => {
+    setFileAiReady(true);
+    return () => void setFileAiReady(false);
+  }, []);
   const hasTurns = turns.length > 0;
   useLayoutEffect(() => {
     setStageMode(hasTurns ? "split" : "hero");
@@ -498,6 +506,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           attachments: media.map((m) => ({ kind: m.kind, name: m.name, frames: m.frames, times: m.times, duration: m.duration, fileId: m.fileId })),
           snippet: look ?? undefined,
           threadId,
+          viewing: getFileSlot().viewing ?? undefined,
         }),
         signal: ac.signal,
       });
@@ -837,7 +846,14 @@ export function AiDock({ storageKey }: { storageKey: string }) {
     </>
   );
 
-  const live = open || staged;
+  // 预览窗上点了「AI 总结 / 翻译…」：替用户发出去（正在回答时等它答完）
+  useEffect(() => {
+    if (!fileSlot.ask || busy || !fileSlot.slot) return;
+    const a = takeFileAsk();
+    if (a) void sendRef.current(a.text, { attachments: [], snippet: null });
+  }, [fileSlot.ask, fileSlot.slot, busy]);
+
+  const live = open || staged || filed;
   const iconBtn =
     "inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
   const settingsButton = (
@@ -1047,7 +1063,11 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         </button>
         {historyButton}
         {settingsButton}
-        {!staged && (
+        {filed ? (
+          <button type="button" onClick={() => fileSlot.close?.()} aria-label="收起 AI 栏" title="收起 AI 栏" className={iconBtn}>
+            <X className="size-[18px]" />
+          </button>
+        ) : !staged && (
           <button type="button" onClick={() => toggle(false)} aria-label="收起" title="收起（Esc）" className={iconBtn}>
             <X className="size-[18px]" />
           </button>
@@ -1055,6 +1075,34 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       </span>
     </header>
   );
+
+  // 文件预览窗右侧：边看文件边问
+  if (filed && fileSlot.slot) {
+    return createPortal(
+      <section aria-label={prefs.name} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {header}
+        {prefsPanel}
+        {hasTurns ? (
+          log
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+            <AgentAvatar name={prefs.name} size="lg" state={agentState} appearance={prefs.look} />
+            <p>
+              我能直接看到「{fileSlot.viewing?.name}」的内容。
+              <br />
+              点上面的按钮，或者直接问：这份 PI 的总金额是多少？
+            </p>
+          </div>
+        )}
+        <div className="p-3 pt-1">
+          {form(
+            "flex items-end gap-2 rounded-xl border border-[var(--line-strong)] bg-background py-1 pr-1.5 pl-3.5 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25",
+          )}
+        </div>
+      </section>,
+      fileSlot.slot,
+    );
+  }
 
   // 工作台：对话界面就是页面主角（电脑左右分栏，手机分「对话 / 工作台」两页）
   if (staged && stage.slot) {
@@ -1470,7 +1518,7 @@ function AssistantView({
               <FileChip
                 key={f.id}
                 className="border border-line bg-card"
-                file={{ src: `/api/crm-files/${f.id}`, download: `/api/crm-files/${f.id}?download`, name: f.name, mime: f.mime, size: f.size }}
+                file={{ src: `/api/crm-files/${f.id}`, download: `/api/crm-files/${f.id}?download`, name: f.name, mime: f.mime, size: f.size, fileId: f.id }}
               />
             ))}
           </div>

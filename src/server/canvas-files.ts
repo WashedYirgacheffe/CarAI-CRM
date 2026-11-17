@@ -5,9 +5,11 @@ import { getCustomerForUser } from "@/server/customers";
 import {
   attachmentSource,
   createGeneratedFile,
+  ensureFileText,
   extractText,
   fileForUser,
   pdfPageImages,
+  previewPdf,
   readFileBuffer,
   type BuildInput,
 } from "@/server/files";
@@ -17,6 +19,7 @@ import {
   fileKind,
   fileSizeText,
   isFileCategory,
+  isOfficeFile,
 } from "@/lib/files";
 import type { ActionCard, AiActionKind } from "@/lib/ai-actions";
 
@@ -116,12 +119,13 @@ export async function readFileTool(
   let text: string | null;
   let state: string;
   let getBuf: () => Promise<Buffer>;
+  let key: string;
   let header: Record<string, unknown> = {};
   if (a.fileId) {
     const found = await fileForUser(user, str(a.fileId));
     if (!found) return { error: "文件不存在或没有权限" };
-    const f = found.file;
-    ({ name, mime, text, textState: state } = f);
+    const f = await ensureFileText(found.file);
+    ({ name, mime, text, textState: state, key } = f);
     getBuf = () => readFileBuffer(f.key);
     header = {
       fileId: f.id,
@@ -136,7 +140,7 @@ export async function readFileTool(
       attId: str(a.attId),
     });
     if (typeof src === "string") return { error: src };
-    ({ name, mime } = src);
+    ({ name, mime, key } = src);
     const buf = src.buffer;
     getBuf = async () => buf;
     ({ text, state } = await extractText(buf, name, mime));
@@ -146,12 +150,16 @@ export async function readFileTool(
     };
   }
   const kind = fileKind(name, mime);
-  // 扫描版 PDF（没有文字），或要看版面 / 印章 / 签名：按页渲染成裁好白边的图片
-  if (kind === "pdf" && (!text || a.asImage === true || a.asImage === "true")) {
+  const office = isOfficeFile(name, mime);
+  const asImage = a.asImage === true || a.asImage === "true";
+  // 扫描版 PDF（没有文字），或要看版面 / 印章 / 签名：按页渲染成裁好白边的图片；Excel / Word 先转成 PDF 再看
+  if ((kind === "pdf" || office) && (!text || asImage)) {
     const room = IMAGE_MAX - images.length;
     if (room <= 0) return { error: "这一轮看的图片太多了，先回答" };
     try {
-      const { pages, total } = await pdfPageImages(await getBuf(), {
+      const pdf = await previewPdf(key, name, mime, await getBuf());
+      if (!pdf) throw new Error("不能转成 PDF");
+      const { pages, total } = await pdfPageImages(pdf, {
         from: Number(a.page) || 1,
         max: Math.min(4, room),
       });
@@ -174,7 +182,7 @@ export async function readFileTool(
       return {
         ...header,
         name,
-        error: "PDF 页面渲染失败（可能加密或损坏），请用户把要看的页面截图发来",
+        error: "页面渲染失败（文件可能加密、损坏或格式太旧），请用户截图或另存为 PDF 再发",
       };
     }
   }

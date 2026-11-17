@@ -18,11 +18,13 @@ import { prisma, tenantDb } from "@/server/db";
 import type { CurrentUser } from "@/server/auth";
 import { getCustomerForUser } from "@/server/customers";
 import { deleteObject, getObject, putObject } from "@/server/storage";
-import { asAttachments, readAttachment } from "@/server/mail/store";
+import { asAttachments, attachmentKeyOf, readAttachment } from "@/server/mail/store";
+import { officeAvailable, officeToPdf } from "@/server/office";
 import {
   fileKind,
   guessCategory,
   isFileCategory,
+  isOfficeFile,
   MAX_FILE_BYTES,
   type FilePreviewData,
 } from "@/lib/files";
@@ -71,33 +73,53 @@ export const cleanName = (name: string) =>
 
 // ── 抽文字 ──
 
+async function pdfToText(buf: Buffer) {
+  const { extractText: pdfText, getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(buf));
+  const r = await pdfText(pdf, { mergePages: false });
+  return r.text
+    .map((t, i) => (r.totalPages > 1 ? `--- 第 ${i + 1} 页 ---\n${t}` : t))
+    .join("\n\n");
+}
+
+/**
+ * 抽文字。旧版 .doc、PPT、WPS、Pages 这些读不了的，先用 LibreOffice 转成 PDF 再抽；
+ * 转出来的 PDF 一并返回，调用方存起来给预览用。
+ */
 export async function extractText(
   buf: Buffer,
   name: string,
   mime: string,
-): Promise<{ text: string | null; state: string }> {
+): Promise<{ text: string | null; state: string; pdf?: Buffer }> {
   const kind = fileKind(name, mime);
+  let pdf: Buffer | undefined;
   try {
     let text = "";
+    const viaOffice = async () => {
+      pdf = (await officeToPdf(buf, name)) ?? undefined;
+      if (!pdf) throw new Error("office convert failed");
+      return pdfToText(pdf);
+    };
     if (kind === "pdf") {
-      const { extractText: pdfText, getDocumentProxy } = await import("unpdf");
-      const pdf = await getDocumentProxy(new Uint8Array(buf));
-      const r = await pdfText(pdf, { mergePages: false });
-      text = r.text
-        .map((t, i) => (r.totalPages > 1 ? `--- 第 ${i + 1} 页 ---\n${t}` : t))
-        .join("\n\n");
+      text = await pdfToText(buf);
     } else if (kind === "sheet") {
-      const wb = XLSX.read(buf, {
-        type: "buffer",
-        cellDates: true,
-        dense: true,
-      });
-      text = wb.SheetNames.map(
-        (n) =>
-          `## 工作表：${n}\n${XLSX.utils.sheet_to_csv(wb.Sheets[n], { FS: "\t", blankrows: false })}`,
-      ).join("\n\n");
-    } else if (kind === "doc") {
+      try {
+        const wb = XLSX.read(buf, {
+          type: "buffer",
+          cellDates: true,
+          dense: true,
+        });
+        text = wb.SheetNames.map(
+          (n) =>
+            `## 工作表：${n}\n${XLSX.utils.sheet_to_csv(wb.Sheets[n], { FS: "\t", blankrows: false })}`,
+        ).join("\n\n");
+      } catch {
+        text = await viaOffice();
+      }
+    } else if (kind === "doc" && /\.docx$/i.test(name)) {
       text = (await mammoth.extractRawText({ buffer: buf })).value;
+    } else if (kind === "doc" || kind === "slides") {
+      text = await viaOffice();
     } else if (kind === "text") {
       text = buf.toString("utf8");
       if (/\.(html?|xml)$/i.test(name))
@@ -110,12 +132,121 @@ export async function extractText(
       .replace(/\n{3,}/g, "\n\n")
       .trim();
     if (text.replace(/\s|-|第 \d+ 页/g, "").length < 10)
-      return { text: null, state: "empty" };
-    return { text: text.slice(0, TEXT_MAX), state: "ok" };
+      return { text: null, state: "empty", pdf };
+    return { text: text.slice(0, TEXT_MAX), state: "ok", pdf };
   } catch (e) {
     console.error("[files] extract", name, e instanceof Error ? e.message : e);
-    return { text: null, state: "failed" };
+    return { text: null, state: "failed", pdf };
   }
+}
+
+// ── 原样预览用的 PDF、缩略图：算一次存起来（和原文件放一起，key 后面加后缀） ──
+
+const pdfKeyOf = (key: string) => `${key}.preview.pdf`;
+const thumbKeyOf = (key: string) => `${key}.thumb.jpg`;
+/** 转换失败的记号：免得每次打开都再转一遍 */
+const failKeyOf = (key: string, what: "pdf" | "thumb") => `${key}.${what}.none`;
+
+const tryGet = (key: string) => getObject(key).catch(() => null);
+
+/**
+ * 原样预览的 PDF：PDF 就是自己；Excel / Word / PPT 用 LibreOffice 转（存起来下次直接用）；别的返回 null
+ */
+export async function previewPdf(
+  key: string,
+  name: string,
+  mime: string,
+  buf?: Buffer,
+): Promise<Buffer | null> {
+  if (fileKind(name, mime) === "pdf") return buf ?? getObject(key);
+  if (!isOfficeFile(name, mime)) return null;
+  const cached = await tryGet(pdfKeyOf(key));
+  if (cached) return cached;
+  if (await tryGet(failKeyOf(key, "pdf"))) return null;
+  const pdf = await officeToPdf(buf ?? (await getObject(key)), name);
+  if (pdf) await putObject(pdfKeyOf(key), pdf, { contentType: "application/pdf" });
+  // 没装 LibreOffice 时不记失败：装上以后还能转
+  else if (officeAvailable()) await putObject(failKeyOf(key, "pdf"), Buffer.from("1"), { contentType: "text/plain" });
+  return pdf;
+}
+
+/** 缩略图（列表里像访达那样一眼认出是哪张单据）：PDF / Office 取第一页，图片缩小；做不了返回 null */
+export async function thumbnail(
+  key: string,
+  name: string,
+  mime: string,
+): Promise<Buffer | null> {
+  const cached = await tryGet(thumbKeyOf(key));
+  if (cached) return cached;
+  if (await tryGet(failKeyOf(key, "thumb"))) return null;
+  const kind = fileKind(name, mime);
+  let jpg: Buffer | null = null;
+  try {
+    if (kind === "image") {
+      const canvas = await import("@napi-rs/canvas");
+      const img = await canvas.loadImage(await getObject(key));
+      const k = Math.min(1, 480 / Math.max(img.width, img.height));
+      const c = canvas.createCanvas(
+        Math.max(1, Math.round(img.width * k)),
+        Math.max(1, Math.round(img.height * k)),
+      );
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      jpg = Buffer.from(await c.encode("jpeg", 80));
+    } else if (kind === "pdf" || isOfficeFile(name, mime)) {
+      const pdf = await previewPdf(key, name, mime);
+      if (pdf) {
+        const { pages } = await pdfPageImages(pdf, {
+          max: 1,
+          crop: false,
+          side: 480,
+          render: 960,
+        });
+        if (pages[0])
+          jpg = Buffer.from(pages[0].url.split(",")[1], "base64");
+      }
+    }
+  } catch (e) {
+    console.error("[files] thumb", name, e instanceof Error ? e.message : e);
+  }
+  if (jpg) await putObject(thumbKeyOf(key), jpg, { contentType: "image/jpeg" });
+  else if (kind === "pdf" || kind === "image" || (isOfficeFile(name, mime) && officeAvailable()))
+    await putObject(failKeyOf(key, "thumb"), Buffer.from("1"), { contentType: "text/plain" });
+  return jpg;
+}
+
+/** 删文件时把预览 PDF、缩略图一起删掉 */
+async function deleteDerived(key: string) {
+  await Promise.all(
+    [pdfKeyOf(key), thumbKeyOf(key), failKeyOf(key, "pdf"), failKeyOf(key, "thumb")].map((k) =>
+      deleteObject(k).catch(() => {}),
+    ),
+  );
+}
+
+/**
+ * 以前存的文件没抽到文字（旧版 .doc、PPT…，当时还不能转）：现在再试一次，抽到了顺手改分类
+ */
+export async function ensureFileText<
+  T extends { id: string; key: string; name: string; mime: string; text: string | null; textState: string; category: string },
+>(file: T): Promise<T> {
+  if (file.text || !isOfficeFile(file.name, file.mime) || file.textState === "empty") return file;
+  const pdf = await previewPdf(file.key, file.name, file.mime);
+  if (!pdf) return file;
+  let text: string | null = null;
+  try {
+    text = (await pdfToText(pdf)).replace(/\n{3,}/g, "\n\n").trim().slice(0, TEXT_MAX);
+  } catch {}
+  const ok = !!text && text.replace(/\s|-|第 \d+ 页/g, "").length >= 10;
+  const category =
+    file.category === "OTHER" ? guessCategory(file.name, file.mime, text) : file.category;
+  await prisma.crmFile.update({
+    where: { id: file.id },
+    data: { text: ok ? text : null, textState: ok ? "ok" : "empty", category },
+  });
+  return { ...file, text: ok ? text : null, textState: ok ? "ok" : "empty", category };
 }
 
 // ── 扫描版 PDF：每页渲染成图片、裁掉白边，给 AI 看 ──
@@ -131,7 +262,7 @@ export type PdfPageImage = { url: string; page: number };
  */
 export async function pdfPageImages(
   buf: Buffer,
-  opts: { from?: number; max?: number; crop?: boolean; side?: number } = {},
+  opts: { from?: number; max?: number; crop?: boolean; side?: number; render?: number } = {},
 ): Promise<{ pages: PdfPageImage[]; total: number }> {
   const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
   const canvas = await import("@napi-rs/canvas");
@@ -144,7 +275,7 @@ export async function pdfPageImages(
     const page = await pdf.getPage(n);
     const vp = page.getViewport({ scale: 1 });
     // 按长边 2400 渲染（A4 约 2.8 倍），小票、名片这类小页面最多放大 4 倍
-    const scale = Math.min(4, 2400 / Math.max(vp.width, vp.height));
+    const scale = Math.min(4, (opts.render ?? 2400) / Math.max(vp.width, vp.height));
     const png = await renderPageAsImage(pdf, n, {
       canvasImport: () => import("@napi-rs/canvas"),
       scale,
@@ -246,14 +377,17 @@ export async function saveFile(
   const ext = extOf(name) || "bin";
   const key = `${user.tenantId}/files/${Date.now().toString(36)}${randomBytes(8).toString("hex")}.${ext}`;
   await putObject(key, f.buffer, { contentType: mime });
-  const { text, state } = await extractText(f.buffer, name, mime);
+  const { text, state, pdf } = await extractText(f.buffer, name, mime);
+  if (pdf) await putObject(pdfKeyOf(key), pdf, { contentType: "application/pdf" }).catch(() => {});
+  // 缩略图在后台先做好，打开列表时就有
+  void thumbnail(key, name, mime).catch(() => {});
   return prisma.crmFile.create({
     data: {
       tenantId: user.tenantId,
       customerId: f.customerId,
       category: isFileCategory(f.category)
         ? f.category
-        : guessCategory(name, mime),
+        : guessCategory(name, mime, text),
       name,
       mime,
       size: f.buffer.length,
@@ -345,8 +479,12 @@ export async function previewData(
 }
 
 /**
- * 预览接口：?preview=json 给表格 / Word / 文本的内容；?preview=raw 从我们自己的域名原样返回（PDF、图片在页面里内嵌打开，
- * 不跳 OSS 链接：OSS 默认域名会强制下载）。调用方已做完权限校验。
+ * 预览接口（调用方已做完权限校验）：
+ * - ?preview=raw   原样返回（图片、视频、音频；PDF 也行）。从我们自己的域名内嵌，不跳 OSS 链接（OSS 默认域名会强制下载）
+ * - ?preview=pdf   原样预览用的 PDF：PDF 本身，或 Excel / Word / PPT 转出来的
+ * - ?preview=pages 上面这个 PDF 有几页；?preview=page&n=1 某一页的图片（浏览器不能内嵌 PDF 时用：桌面版、安卓）
+ * - ?preview=thumb 缩略图
+ * - ?preview=json  表格 / Word / 文本的内容（数据视图）
  */
 export async function previewResponse(
   mode: string,
@@ -355,21 +493,35 @@ export async function previewResponse(
   mime: string,
   page?: string | null,
 ) {
-  const buf = await getObject(key);
-  // 浏览器不能内嵌 PDF（桌面版、安卓）：?preview=pages 给页数，?preview=page&n=1 给一页的图片
-  if (mode === "pages" || mode === "page") {
-    if (fileKind(name, mime) !== "pdf")
-      return new Response("Not a PDF", { status: 400 });
+  if (mode === "thumb") {
+    const jpg = await thumbnail(key, name, mime);
+    if (!jpg) return new Response("No thumbnail", { status: 404, headers: { "Cache-Control": "private, max-age=600" } });
+    return new Response(new Uint8Array(jpg), {
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400" },
+    });
+  }
+  if (mode === "pdf" || mode === "pages" || mode === "page") {
     try {
+      const pdf = await previewPdf(key, name, mime);
+      if (!pdf) return new Response("不能转成 PDF", { status: 415 });
+      if (mode === "pdf")
+        return new Response(new Uint8Array(pdf), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(name.replace(/\.[a-z0-9]{1,8}$/i, "") + ".pdf")}`,
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
       if (mode === "pages") {
         const { getDocumentProxy } = await import("unpdf");
-        const pdf = await getDocumentProxy(new Uint8Array(buf));
+        const doc = await getDocumentProxy(new Uint8Array(pdf));
         return Response.json(
-          { total: pdf.numPages },
+          { total: doc.numPages },
           { headers: { "Cache-Control": "private, max-age=3600" } },
         );
       }
-      const { pages } = await pdfPageImages(buf, {
+      const { pages } = await pdfPageImages(pdf, {
         from: Number(page) || 1,
         max: 1,
         crop: false,
@@ -390,6 +542,7 @@ export async function previewResponse(
       return new Response("Render failed", { status: 500 });
     }
   }
+  const buf = await getObject(key);
   if (mode === "json")
     return Response.json(await previewData(buf, name, mime), {
       headers: { "Cache-Control": "private, max-age=3600" },
@@ -639,6 +792,7 @@ export async function deleteFile(user: CurrentUser, id: string): Promise<Done> {
   await deleteObject(found.file.key).catch((e) =>
     console.error("[files] delete object", e),
   );
+  await deleteDerived(found.file.key);
   return {
     ok: true,
     message: `已删除「${found.file.name}」`,
@@ -659,6 +813,8 @@ export async function attachmentSource(
       name: string;
       mime: string;
       buffer: Buffer;
+      /** 存储里的 key（转 PDF、缩略图的缓存跟着它） */
+      key: string;
       source: string;
       customerId: string | null;
     }
@@ -690,6 +846,7 @@ export async function attachmentSource(
       name: m.mediaName || `whatsapp-${m.type}.${ext}`,
       mime,
       buffer: await getObject(m.mediaKey),
+      key: m.mediaKey,
       source: "whatsapp",
       customerId: m.chat.customerId,
     };
@@ -710,6 +867,7 @@ export async function attachmentSource(
       name: att.filename,
       mime: att.contentType,
       buffer: await readAttachment(user.tenantId, att.id),
+      key: attachmentKeyOf(user.tenantId, att.id),
       source: "mail",
       customerId: m.customerId,
     };

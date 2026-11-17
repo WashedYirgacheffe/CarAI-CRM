@@ -6,6 +6,8 @@ import { tenantDb } from "@/server/db";
 import { aiConfigured } from "@/server/ai";
 import { asAddresses, asAttachments, formatAddress } from "@/server/mail/store";
 import { formatDateTime } from "@/lib/crm";
+import { fileForUser } from "@/server/files";
+import { getCustomerForUser } from "@/server/customers";
 import { ComposeForm } from "./compose-form";
 
 export const metadata: Metadata = { title: "写邮件" };
@@ -60,6 +62,25 @@ export default async function ComposePage({ searchParams }: PageProps<"/mail/com
     }
   }
 
+  // ?files=id1,id2：从文件预览 / AI 带来的客户文件，作为附件
+  const crmFiles: { id: string; name: string; size: number }[] = [];
+  for (const id of s("files").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 10)) {
+    const found = await fileForUser(user, id).catch(() => null);
+    if (found) crmFiles.push({ id: found.file.id, name: found.file.name, size: found.file.size });
+  }
+  // ?customer=：收件人没填时用客户主联系人的邮箱
+  if (!to && s("customer")) {
+    const c = await getCustomerForUser(user, s("customer")).catch(() => null);
+    if (c) {
+      const contact = await db.contact.findFirst({
+        where: { customerId: c.customer.id, email: { not: null } },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        select: { name: true, email: true },
+      });
+      if (contact?.email) to = formatAddress({ name: contact.name ?? "", address: contact.email });
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <Link href="/mail" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -87,6 +108,7 @@ export default async function ComposePage({ searchParams }: PageProps<"/mail/com
             replyToId: s("reply") ? source?.id : undefined,
             forwardId: s("forward") ? source?.id : undefined,
             forwardFiles,
+            crmFiles,
             original: s("reply") ? original : undefined,
           }}
         />

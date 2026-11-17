@@ -11,6 +11,7 @@ import { FieldErrors, FormMessage } from "@/components/form-bits";
 import { AiWriter } from "@/components/ai/ai-writer";
 import { useActionForm } from "@/hooks/use-action-form";
 import { sendMailAction } from "../actions";
+import { fileSizeText } from "@/lib/files";
 
 type Initial = {
   accountId: string;
@@ -21,6 +22,7 @@ type Initial = {
   replyToId?: string;
   forwardId?: string;
   forwardFiles: string[];
+  crmFiles: { id: string; name: string; size: number }[];
   original?: string;
 };
 
@@ -29,6 +31,7 @@ export function ComposeForm({ accounts, initial, canAi }: { accounts: { id: stri
   const [text, setText] = useState(initial.text);
   const [showCc, setShowCc] = useState(!!initial.cc);
   const [files, setFiles] = useState<File[]>([]);
+  const [crmFiles, setCrmFiles] = useState(initial.crmFiles);
   const fileRef = useRef<HTMLInputElement>(null);
   const [state, submit, pending] = useActionForm(
     async (prev, fd) => {
@@ -106,6 +109,15 @@ export function ComposeForm({ accounts, initial, canAi }: { accounts: { id: stri
           {initial.forwardFiles.map((f) => (
             <span key={f} className="rounded-md bg-muted px-2 py-0.5 text-xs">
               {f}（原邮件附件）
+            </span>
+          ))}
+          {crmFiles.map((f) => (
+            <span key={f.id} className="inline-flex items-center gap-1 rounded-md bg-brand-soft px-2 py-0.5 text-xs">
+              <input type="hidden" name="fileIds" value={f.id} />
+              {f.name}（{fileSizeText(f.size)}）
+              <button type="button" aria-label={`移除 ${f.name}`} onClick={() => setCrmFiles(crmFiles.filter((x) => x.id !== f.id))}>
+                <X className="size-3" />
+              </button>
             </span>
           ))}
           {files.map((f, i) => (
