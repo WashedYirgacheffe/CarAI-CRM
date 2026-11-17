@@ -19,20 +19,24 @@ import { cn } from "@/lib/utils";
 import { InsightCard, InsightRow } from "@/components/crm/insights";
 import { Breakdown, Meter, MiniColumns } from "@/components/dashboard/viz";
 import { RAMP, monthKeys, monthLabel, sumByMonth, yuan } from "@/lib/viz";
+import { AGING_BUCKETS, agingBucket, allocatePlans } from "@/lib/receivables";
 
 export const metadata: Metadata = { title: "回款" };
 
 const PAGE_SIZE = 20;
+/** 未到期 → 逾期越久越红；最后一档「未设计划」用灰 */
+const AGING_COLORS = [RAMP[0], "oklch(0.83 0.12 85)", "oklch(0.72 0.15 60)", "oklch(0.62 0.18 35)", "oklch(0.52 0.19 25)", RAMP[1]];
 const TABS = [
   { key: "records", label: "收款记录" },
   { key: "due", label: "待收款订单" },
+  { key: "aging", label: "应收账龄" },
 ] as const;
 
 export default async function PaymentsPage({ searchParams }: PageProps<"/payments">) {
   const user = await requirePermission("order.view");
   const sp = await searchParams;
   const str = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
-  const tab = str("tab") === "due" ? "due" : "records";
+  const tab = TABS.find((t) => t.key === str("tab"))?.key ?? "records";
   const q = str("q");
   const page = Math.max(1, Number(str("page")) || 1);
   const tz = user.timezone;
@@ -107,6 +111,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
         deliveryDate: true,
         customer: { select: { id: true, name: true } },
         owner: { select: { name: true } },
+        plans: { select: { id: true, label: true, amount: true, dueDate: true } },
       },
       take: 5000,
     }),
@@ -125,20 +130,44 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
   const dueOrders = live.map((o) => ({ ...o, due: round2(Number(o.total) - Number(o.paidAmount)) })).filter((o) => o.due > 0);
   const dueCny = round2(dueOrders.reduce((s, o) => s + o.due * Number(o.exchangeRate), 0));
   const liveTotal = live.reduce((n, o) => n + cnyOf(o.total, o.exchangeRate), 0);
-  // 账龄：按下单日期算未收金额挂了多久
-  const todayStart = parseLocalInput(`${today}T00:00`, tz)!.getTime();
-  const AGING = [
-    { label: "30 天内", max: 30 },
-    { label: "31–60 天", max: 60 },
-    { label: "61–90 天", max: 90 },
-    { label: "超过 90 天", max: Infinity },
-  ];
+  // 账龄：有收款计划的按每期到期日算逾期天数；没设计划的单独一栏
+  const todayDate = parseLocalInput(`${today}T00:00`, tz)!;
+  const AGING = [...AGING_BUCKETS.map((b) => ({ label: b.label })), { label: "未设计划" }];
   const aging = AGING.map(() => 0);
+  type Installment = {
+    key: string;
+    order: (typeof dueOrders)[number];
+    label: string;
+    dueDate: Date | null;
+    due: number;
+    overdueDays: number;
+  };
+  const installments: Installment[] = [];
   const byCustomerDue = new Map<string, { label: string; value: number; href?: string }>();
   for (const o of dueOrders) {
     const v = o.due * Number(o.exchangeRate);
-    const age = (todayStart - o.orderDate.getTime()) / 86_400_000;
-    aging[AGING.findIndex((a) => age <= a.max)] += v;
+    if (o.plans.length) {
+      const sched = allocatePlans(
+        o.plans.map((p) => ({ id: p.id, label: p.label, amount: Number(p.amount), dueDate: p.dueDate })),
+        Number(o.paidAmount),
+        todayDate,
+      );
+      let planned = 0;
+      for (const p of sched.filter((x) => x.due > 0)) {
+        planned += p.due;
+        aging[agingBucket(p.overdueDays)] += p.due * Number(o.exchangeRate);
+        installments.push({ key: p.id, order: o, label: p.label, dueDate: p.dueDate, due: p.due, overdueDays: p.overdueDays });
+      }
+      // 计划合计比订单金额少：差额算进「未设计划」
+      const rest = round2(o.due - planned);
+      if (rest > 0) {
+        aging[AGING.length - 1] += rest * Number(o.exchangeRate);
+        installments.push({ key: `${o.id}-rest`, order: o, label: "计划外余款", dueDate: null, due: rest, overdueDays: 0 });
+      }
+    } else {
+      aging[AGING.length - 1] += v;
+      installments.push({ key: o.id, order: o, label: "未设收款计划", dueDate: null, due: o.due, overdueDays: 0 });
+    }
     const key = o.customer?.id ?? o.no;
     const row = byCustomerDue.get(key) ?? {
       label: o.customer?.name ?? o.no,
@@ -149,7 +178,16 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
     byCustomerDue.set(key, row);
   }
   const dueSlice = dueOrders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const total = tab === "records" ? payTotal : dueOrders.length;
+  // 账龄列表：逾期最久的在前，然后是快到期的，最后是没设计划的
+  installments.sort(
+    (a, b) =>
+      b.overdueDays - a.overdueDays ||
+      (a.dueDate ? a.dueDate.getTime() : Infinity) - (b.dueDate ? b.dueDate.getTime() : Infinity) ||
+      b.due * Number(b.order.exchangeRate) - a.due * Number(a.order.exchangeRate),
+  );
+  const instSlice = installments.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const overdueCny = round2(aging.slice(1, AGING_BUCKETS.length).reduce((s, v) => s + v, 0));
+  const total = tab === "records" ? payTotal : tab === "due" ? dueOrders.length : installments.length;
 
   const tabHref = (k: string) => {
     const p = new URLSearchParams();
@@ -178,8 +216,13 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
             · 订单额 {yuan(liveTotal)}
           </p>
         </InsightCard>
-        <InsightCard title="应收账龄" value={yuan(aging[3])} hint="超过 90 天未收齐（按下单日期）">
-          <Breakdown sort={false} money parts={AGING.map((a, i) => ({ label: a.label, value: aging[i], color: RAMP[i] }))} empty="没有待收款" />
+        <InsightCard
+          title="应收账龄"
+          value={yuan(overdueCny)}
+          hint="已逾期未收（按收款计划到期日）"
+          action={{ href: "/payments?tab=aging", label: "明细" }}
+        >
+          <Breakdown sort={false} money parts={AGING.map((a, i) => ({ label: a.label, value: aging[i], color: AGING_COLORS[i] }))} empty="没有待收款" />
         </InsightCard>
         <InsightCard title="待收最多的客户" hint="折人民币">
           <Breakdown parts={[...byCustomerDue.values()]} money max={4} empty="没有待收款" />
@@ -204,7 +247,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
           </nav>
 
           <Form action="/payments" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
-            {tab === "due" && <input type="hidden" name="tab" value="due" />}
+            {tab !== "records" && <input type="hidden" name="tab" value={tab} />}
             <div className="relative w-full sm:w-56">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input name="q" defaultValue={q} placeholder="订单号 / 客户" className="h-8 pl-8" />
@@ -221,7 +264,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
             </Button>
             {(q || from || to) && (
               <Button size="sm" variant="ghost" asChild>
-                <Link href={tab === "due" ? "/payments?tab=due" : "/payments"}>清空筛选</Link>
+                <Link href={tab === "records" ? "/payments" : `/payments?tab=${tab}`}>清空筛选</Link>
               </Button>
             )}
           </Form>
@@ -233,10 +276,34 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
               ? q || from || to
                 ? "没有符合条件的收款记录"
                 : "还没有收款记录，在订单详情页登记收款后会出现在这里"
-              : "没有待收款的订单"
+              : tab === "aging"
+                ? "没有应收款"
+                : "没有待收款的订单"
           }
         >
-          {tab === "records"
+          {tab === "aging"
+            ? instSlice.map((it) => (
+                <MobileCard
+                  key={it.key}
+                  href={`/orders/${it.order.id}`}
+                  title={it.order.customer.name}
+                  sub={
+                    <span className="tabular-nums">
+                      {it.order.no} · {it.label}
+                    </span>
+                  }
+                  aside={<AgingTag days={it.overdueDays} dueDate={it.dueDate} />}
+                >
+                  <MobileMeta
+                    items={[
+                      ["欠款", formatAmount(it.due, it.order.currency), "font-medium text-amber-700"],
+                      ["到期", it.dueDate ? formatDate(it.dueDate, tz) : "—"],
+                      ["负责人", it.order.owner?.name ?? "—"],
+                    ]}
+                  />
+                </MobileCard>
+              ))
+            : tab === "records"
             ? payRows.map((p) => (
                 <MobileCard
                   key={p.id}
@@ -280,13 +347,64 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
               })}
         </MobileList>
         <DesktopOnly>
-          {tab === "records" ? (
+          {tab === "aging" ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">订单</TableHead>
+                  <TableHead>客户</TableHead>
+                  <TableHead>款项</TableHead>
+                  <TableHead>到期日</TableHead>
+                  <TableHead>账龄</TableHead>
+                  <TableHead className="text-right">欠款</TableHead>
+                  <TableHead className="text-right">折人民币</TableHead>
+                  <TableHead>负责人</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {instSlice.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                      没有应收款
+                    </TableCell>
+                  </TableRow>
+                )}
+                {instSlice.map((it) => (
+                  <TableRow key={it.key}>
+                    <TableCell className="pl-4">
+                      <Link href={`/orders/${it.order.id}`} className="font-medium tabular-nums hover:text-primary hover:underline">
+                        {it.order.no}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="max-w-56 truncate">
+                      <Link href={`/customers/${it.order.customer.id}`} className="hover:text-primary hover:underline">
+                        {it.order.customer.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className={cn("max-w-48 truncate", !it.dueDate && "text-muted-foreground")}>{it.label}</TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{it.dueDate ? formatDate(it.dueDate, tz) : "—"}</TableCell>
+                    <TableCell>
+                      <AgingTag days={it.overdueDays} dueDate={it.dueDate} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium whitespace-nowrap text-amber-700 tabular-nums">
+                      {formatAmount(it.due, it.order.currency)}
+                    </TableCell>
+                    <TableCell className="text-right whitespace-nowrap text-muted-foreground tabular-nums">
+                      {yuan(it.due * Number(it.order.exchangeRate))}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{it.order.owner?.name ?? "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : tab === "records" ? (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">收款日期</TableHead>
                   <TableHead>订单</TableHead>
                   <TableHead>客户</TableHead>
+                  <TableHead>单号</TableHead>
                   <TableHead className="text-right">金额</TableHead>
                   <TableHead>方式</TableHead>
                   <TableHead>备注</TableHead>
@@ -296,7 +414,7 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
               <TableBody>
                 {payRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                       {q || from || to ? "没有符合条件的收款记录" : "还没有收款记录，在订单详情页登记收款后会出现在这里"}
                     </TableCell>
                   </TableRow>
@@ -314,8 +432,12 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
                         {p.order.customer.name}
                       </Link>
                     </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">{p.no ?? "—"}</TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap tabular-nums">
                       {formatAmount(p.amount.toString(), p.order.currency)}
+                      {p.fee && Number(p.fee) > 0 && (
+                        <span className="block text-xs font-normal text-muted-foreground">手续费 {formatAmount(p.fee.toString())}</span>
+                      )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{p.method ?? "—"}</TableCell>
                     <TableCell className="max-w-56 truncate text-muted-foreground">{p.remark ?? ""}</TableCell>
@@ -391,5 +513,15 @@ export default async function PaymentsPage({ searchParams }: PageProps<"/payment
         </div>
       </div>
     </>
+  );
+}
+
+function AgingTag({ days, dueDate }: { days: number; dueDate: Date | null }) {
+  if (!dueDate) return <span className="text-xs text-muted-foreground">未设计划</span>;
+  if (days <= 0) return <span className="text-xs text-muted-foreground">未到期</span>;
+  return (
+    <span className={cn("text-xs font-medium whitespace-nowrap", days > 60 ? "text-rose-700" : days > 30 ? "text-rose-600" : "text-amber-700")}>
+      逾期 {days} 天
+    </span>
   );
 }

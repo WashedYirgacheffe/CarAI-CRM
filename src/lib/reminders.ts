@@ -172,9 +172,16 @@ export const REMINDER_GROUPS: { key: string; label: string; color: string; kinds
   },
 ];
 
-export const REMINDER_KINDS: Record<string, ReminderKind & { group: string; color: string }> = Object.fromEntries(
-  REMINDER_GROUPS.flatMap((g) => g.kinds.map((k) => [k.key, { ...k, group: g.label, color: g.color }])),
-);
+/** 系统自动建的提醒类型：只用来显示标签，不出现在手动选择列表里 */
+const SYSTEM_KINDS: (ReminderKind & { group: string; color: string })[] = [
+  { key: "payment_overdue", label: "逾期催款", title: "收款计划逾期，跟进客户付款", when: "tomorrow", group: "付款", color: "rose" },
+  { key: "approval", label: "审批结果", title: "查看审批结果", when: "h1", group: "审批", color: "rose" },
+];
+
+export const REMINDER_KINDS: Record<string, ReminderKind & { group: string; color: string }> = Object.fromEntries([
+  ...REMINDER_GROUPS.flatMap((g) => g.kinds.map((k) => [k.key, { ...k, group: g.label, color: g.color }] as const)),
+  ...SYSTEM_KINDS.map((k) => [k.key, k] as const),
+]);
 
 /** 不同页面优先展示的场景 */
 export const CONTEXT_KINDS: Record<string, string[]> = {

@@ -26,6 +26,7 @@ import {
   Send,
   Settings,
   Share2,
+  Stamp,
   type LucideIcon,
 } from "@/components/icons";
 import { Brand, BrandMark } from "@/components/brand";
@@ -68,6 +69,7 @@ const ICONS: Record<string, LucideIcon> = {
   Send,
   Settings,
   Share2,
+  Stamp,
 };
 
 type Badges = Partial<Record<BadgeKey, number>> & { due?: DueReminder[] };
@@ -478,6 +480,7 @@ const REMINDER_LABEL: Record<BadgeKey, string> = {
   whatsapp: "未读 WhatsApp 消息",
   inbox: "未读社媒私信",
   tasks: "到期的跟进提醒",
+  approvals: "待审批",
 };
 
 /** 顶栏提醒：到点的跟进提醒（可直接完成 / 推迟），再汇总线索、邮件、WhatsApp 的未处理数 */

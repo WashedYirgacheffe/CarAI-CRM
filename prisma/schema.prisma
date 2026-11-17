@@ -44,6 +44,15 @@ model Tenant {
   matrixRunnerTokenHash String?
   /// 云端运行器（Vercel Sandbox）：默认关，账号都在负责人的桌面软件里跑；打开后没有归属设备的账号交给云端
   matrixCloudEnabled    Boolean  @default(false)
+  // ── 审批规则（0 / false = 不需要审批；有「审批」权限的人自己操作不用审批） ──
+  /// 报价单、订单的折扣超过合计的 N% 要审批
+  approvalDiscountPct   Int      @default(0)
+  /// 业务员把客户退回公海要审批
+  approvalRelease       Boolean  @default(false)
+  /// 删除客户要审批
+  approvalDelete        Boolean  @default(false)
+  /// 转移客户给别人要审批
+  approvalTransfer      Boolean  @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -95,6 +104,10 @@ model Tenant {
   socialMessages    SocialMessage[]
   quickReplies      QuickReply[]
   files             CrmFile[]
+  shipments         Shipment[]
+  paymentPlans      PaymentPlan[]
+  auditLogs         AuditLog[]
+  approvals         ApprovalRequest[]
 }
 
 enum UserStatus {
@@ -313,6 +326,7 @@ model Customer {
   socialPosts   SocialPost[]
   socialThreads SocialThread[]
   files         CrmFile[]
+  shipments     Shipment[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -816,6 +830,8 @@ model Order {
   owner       User?          @relation("OrderOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   items       OrderItem[]
   payments    OrderPayment[]
+  plans       PaymentPlan[]
+  shipments   Shipment[]
 
   @@unique([tenantId, no])
   @@index([tenantId, ownerId, orderDate])
@@ -847,15 +863,24 @@ model OrderPayment {
   id          String   @id @default(cuid())
   tenantId    String
   orderId     String
+  /// 回款单号，如 RC20261117-001
+  no          String?
   amount      Decimal  @db.Decimal(14, 2)
+  /// 银行手续费 / 中转行扣费（订单币种），不计入已收
+  fee         Decimal? @db.Decimal(14, 2)
+  /// 付款方（和买方不一致时填，如代付公司）
+  payer       String?
   receivedAt  DateTime
   method      String?
   remark      String?
+  /// 水单 / 汇款凭证（客户资料里的文件）
+  fileId      String?
   createdById String?
   createdAt   DateTime @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  file   CrmFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
 }
@@ -1746,11 +1771,11 @@ model QuickReply {
 
 /// 文件：客户资料里的 PI、CI、CO、装箱单、合同等；customerId 为空 = 发给 AI 看的临时文件（只有上传人能看）
 model CrmFile {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   tenantId    String
   customerId  String?
   /// PI / CI / PL / CO / BL / CONTRACT / QUOTE / CERT / PHOTO / OTHER
-  category    String    @default("OTHER")
+  category    String   @default("OTHER")
   name        String
   mime        String
   size        Int
@@ -1759,18 +1784,185 @@ model CrmFile {
   /// 抽出来的文字（给 AI 读、全文搜索），太长的截断
   text        String?
   /// 抽文字的情况：ok / empty（扫描件等没文字） / failed / skip（图片、视频）
-  textState   String    @default("skip")
+  textState   String   @default("skip")
   note        String?
   /// upload / ai / whatsapp / mail
-  source      String    @default("upload")
+  source      String   @default("upload")
   createdById String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  createdBy User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  payments  OrderPayment[]
 
   @@index([tenantId, customerId, createdAt])
   @@index([tenantId, createdById])
+}
+
+// ───────────────────────── 回款计划 / 物流 / 审批 / 操作日志 ─────────────────────────
+
+/// 订单的收款计划（定金、尾款…）：用来算应收账龄、逾期提醒。已收金额按到期日先后依次冲抵
+model PaymentPlan {
+  id         String    @id @default(cuid())
+  tenantId   String
+  orderId    String
+  sort       Int       @default(0)
+  /// 定金 / 尾款 / 见提单副本付款…
+  label      String
+  amount     Decimal   @db.Decimal(14, 2)
+  dueDate    DateTime
+  /// 上次发逾期提醒的时间（每 7 天最多提醒一次）
+  remindedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, dueDate])
+  @@index([orderId])
+}
+
+enum ShipmentStatus {
+  BOOKING // 待订舱
+  BOOKED // 已订舱
+  LOADED // 已装柜 / 已提货
+  DEPARTED // 已开船 / 已起飞
+  ARRIVED // 已到港
+  DELIVERED // 已签收
+  CANCELLED // 已取消
+}
+
+/// 发货批次：一个订单可以分批发
+model Shipment {
+  id            String         @id @default(cuid())
+  tenantId      String
+  orderId       String
+  customerId    String
+  /// 批次号，如 SH20261117-001
+  no            String
+  status        ShipmentStatus @default(BOOKING)
+  /// sea 海运 / air 空运 / express 快递 / rail 铁路 / truck 陆运
+  mode          String         @default("sea")
+  /// 货代
+  forwarder     String?
+  /// 船公司 / 航空公司 / 快递公司
+  carrier       String?
+  bookingNo     String?
+  /// 提单号 / 空运单号
+  blNo          String?
+  /// 柜号，多个用逗号分隔
+  containerNo   String?
+  /// 20GP / 40HQ / LCL…
+  containerType String?
+  sealNo        String?
+  /// 船名航次 / 航班号
+  vessel        String?
+  /// 快递单号
+  trackingNo    String?
+  /// 自己填的跟踪链接（没有内置船司 / 快递时用）
+  trackingUrl   String?
+  portLoading   String?
+  portDischarge String?
+  /// 件数、毛重（kg）、体积（CBM）
+  packages      Int?
+  grossWeight   Decimal?       @db.Decimal(12, 3)
+  volume        Decimal?       @db.Decimal(10, 3)
+  /// 截关 / 截单时间
+  cutoffAt      DateTime?
+  etd           DateTime?
+  eta           DateTime?
+  /// 实际开船 / 到港 / 签收
+  atd           DateTime?
+  ata           DateTime?
+  deliveredAt   DateTime?
+  /// 运费（成本，内部可见）
+  freight       Decimal?       @db.Decimal(14, 2)
+  freightCcy    String?
+  remark        String?
+  createdById   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order    Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  events   ShipmentEvent[]
+
+  @@unique([tenantId, no])
+  @@index([tenantId, status, eta])
+  @@index([orderId])
+  @@index([customerId])
+}
+
+/// 物流节点：状态变化和手写的进展
+model ShipmentEvent {
+  id         String   @id @default(cuid())
+  shipmentId String
+  /// 变成了哪个状态；手写进展为空
+  status     String?
+  at         DateTime
+  note       String?
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, at])
+}
+
+/// 审批单：报价单 / 订单折扣、退公海、删除客户、转移客户
+model ApprovalRequest {
+  id          String         @id @default(cuid())
+  tenantId    String
+  /// quotation / order / customer_release / customer_delete / customer_transfer
+  kind        String
+  status      ApprovalStatus @default(PENDING)
+  /// 报价单 / 订单 id；客户批量操作时为空（id 在 payload 里）
+  targetId    String?
+  /// 一句话说明：报价单 QT-001 折扣 18%
+  title       String
+  /// 执行需要的参数（客户 id、转给谁、原因…）
+  payload     Json?
+  /// 申请人写的理由
+  reason      String?
+  requesterId String
+  reviewerId  String?
+  reviewNote  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, requesterId, createdAt])
+  @@index([tenantId, kind, targetId])
+}
+
+/// 操作日志：谁在什么时候改了什么（只增不改）
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  /// 当时的名字（人删了也看得到）
+  userName   String?
+  /// create / update / delete / transfer / release / claim / assign / status / approve / reject / login …
+  action     String
+  /// customer / contact / quotation / order / payment / shipment / file / member / role / department / settings / approval / user
+  entity     String
+  entityId   String?
+  entityName String?
+  /// 一句话：把客户 ABC 转给了张三
+  summary    String
+  /// 改了哪些字段：{ 字段: [旧, 新] } 等
+  detail     Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entity, entityId])
+  @@index([tenantId, userId, createdAt])
 }

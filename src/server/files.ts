@@ -1,4 +1,5 @@
 import "server-only";
+import { audit } from "@/server/audit";
 import { randomBytes } from "node:crypto";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth";
@@ -789,6 +790,7 @@ export async function deleteFile(user: CurrentUser, id: string): Promise<Done> {
   if (!found) return { ok: false, message: "文件不存在或没有权限" };
   if (!found.edit) return { ok: false, message: "没有删除这个文件的权限" };
   await prisma.crmFile.delete({ where: { id: found.file.id } });
+  await audit(user, { action: "delete", entity: "file", entityId: found.file.id, entityName: found.file.name, summary: `删除了文件「${found.file.name}」` });
   await deleteObject(found.file.key).catch((e) =>
     console.error("[files] delete object", e),
   );

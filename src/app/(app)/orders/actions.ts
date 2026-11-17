@@ -15,8 +15,33 @@ import {
 } from "@/server/documents";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 import { parseLocalInput } from "@/lib/crm";
-import { ORDER_STATUSES, formatAmount, orderStatus, round2 } from "@/lib/docs";
+import { ORDER_STATUSES, dateInput, formatAmount, orderStatus, round2 } from "@/lib/docs";
 import type { SaveDocResult } from "@/app/(app)/quotations/actions";
+import { audit } from "@/server/audit";
+import { clearDocApproval, docApprovalDecision, submitDocApproval } from "@/server/approvals";
+
+/** 保存后按折扣决定审批状态，返回提示语后缀。confirm = 审批通过后把草稿改成已确认 */
+async function applyApproval(
+  user: CurrentUser,
+  o: { id: string; no: string; customerId: string },
+  next: { subtotal: number; discount: number },
+  prev: { approval: string; subtotal: number; discount: number } | null,
+  confirm = false,
+) {
+  const { decision, pct, limit } = await docApprovalDecision(user, next, prev);
+  if (decision === "pending") {
+    await prisma.order.updateMany({ where: { tenantId: user.tenantId, id: o.id }, data: { approval: "PENDING" } });
+    await submitDocApproval(user, "order", o, pct, limit, { confirm });
+    revalidatePath("/approvals");
+    return `；折扣 ${pct}% 超过 ${limit}%，已提交审批${confirm ? "，通过后自动确认订单" : ""}`;
+  }
+  if (decision === "clear") {
+    await prisma.order.updateMany({ where: { tenantId: user.tenantId, id: o.id }, data: { approval: "NONE" } });
+    await clearDocApproval(user.tenantId, "order", o.id);
+    revalidatePath("/approvals");
+  }
+  return "";
+}
 
 const denied = (message = "没有操作权限"): ActionState => ({ ok: false, message });
 const optText = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
@@ -87,8 +112,21 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
       prisma.orderItem.deleteMany({ where: { orderId: o.id } }),
       prisma.orderItem.createMany({ data: items.map((it) => ({ ...it, orderId: o.id })) }),
     ]);
+    const tip = await applyApproval(
+      user,
+      o,
+      { subtotal, discount: fees.discount },
+      { approval: o.approval, subtotal: Number(o.subtotal), discount: Number(o.discount) },
+    );
+    await audit(user, {
+      action: "update",
+      entity: "order",
+      entityId: o.id,
+      entityName: o.no,
+      summary: `修改了订单 ${o.no}（${formatAmount(total, d.currency)}${Number(o.total) !== total ? `，原 ${formatAmount(Number(o.total), o.currency)}` : ""}）`,
+    });
     revalidate(o.id, o.customerId);
-    return { ok: true, message: "订单已保存", id: o.id };
+    return { ok: true, message: `订单已保存${tip}`, id: o.id };
   }
 
   if (!can(user, "order.create")) return denied();
@@ -103,7 +141,10 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
     if (q && (await docInScope(user, q.ownerId))) quotation = q;
   }
 
-  const draft = !!d.asDraft;
+  const pre = await docApprovalDecision(user, { subtotal, discount: fees.discount }, null);
+  const needApproval = pre.decision === "pending";
+  // 折扣超限：先存成草稿，审批通过后自动确认
+  const draft = !!d.asDraft || needApproval;
   const created = await withDocNo(user.tenantId, "order", tz, (no) =>
     prisma.$transaction(async (tx) => {
       const o = await tx.order.create({
@@ -135,6 +176,14 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
     content: `新建${draft ? "草稿" : ""}订单 ${created.no}（${formatAmount(total, d.currency)}）${quotation ? `，来自报价单 ${quotation.no}` : ""}`,
     userId: user.id,
   });
+  const tip = await applyApproval(user, created, { subtotal, discount: fees.discount }, null, needApproval && !d.asDraft);
+  await audit(user, {
+    action: "create",
+    entity: "order",
+    entityId: created.id,
+    entityName: created.no,
+    summary: `新建了${draft ? "草稿" : ""}订单 ${created.no}（${found.customer.name}，${formatAmount(total, d.currency)}）`,
+  });
   // 草稿不推进商机，确认后再推进
   const won = opportunityId && !draft ? await winOpportunity(user, opportunityId) : null;
 
@@ -143,7 +192,7 @@ export async function saveOrderAction(_p: ActionState, fd: FormData): Promise<Sa
   if (won) revalidatePath("/opportunities");
   return {
     ok: true,
-    message: `${draft ? "草稿" : ""}订单 ${created.no} 已创建${won ? `，商机已移到「${won}」` : ""}`,
+    message: `${draft ? "草稿" : ""}订单 ${created.no} 已创建${won ? `，商机已移到「${won}」` : ""}${tip}`,
     id: created.id,
   };
 }
@@ -182,6 +231,9 @@ export async function setOrderStatusAction(id: string, status: string): Promise<
   if (!o) return denied();
   if (!z.enum(statusValues).safeParse(status).success) return denied("状态不正确");
   if (o.status === status) return { ok: true };
+  if ((o.approval === "PENDING" || o.approval === "REJECTED") && status !== "DRAFT" && status !== "CANCELLED") {
+    return denied(o.approval === "PENDING" ? "订单折扣还在审批中，通过后才能往下走" : "订单折扣审批被驳回，请修改折扣后重新保存");
+  }
   await tenantDb(user.tenantId).order.updateMany({
     where: { id },
     data: { status: status as (typeof ORDER_STATUSES)[number]["value"] },
@@ -193,6 +245,13 @@ export async function setOrderStatusAction(id: string, status: string): Promise<
     event: "order",
     content: `订单 ${o.no} 状态：${orderStatus(o.status).label} → ${orderStatus(status).label}`,
     userId: user.id,
+  });
+  await audit(user, {
+    action: "status",
+    entity: "order",
+    entityId: o.id,
+    entityName: o.no,
+    summary: `订单 ${o.no} 状态：${orderStatus(o.status).label} → ${orderStatus(status).label}`,
   });
   // 草稿确认后才推进商机到赢单
   const won = o.status === "DRAFT" && status !== "CANCELLED" && o.opportunityId ? await winOpportunity(user, o.opportunityId) : null;
@@ -208,6 +267,8 @@ export async function deleteOrderAction(id: string): Promise<ActionState> {
   const o = await db.order.findFirst({ where: { id } });
   if (!o || !(await docInScope(user, o.ownerId))) return denied();
   await db.order.deleteMany({ where: { id } });
+  await clearDocApproval(user.tenantId, "order", id);
+  await audit(user, { action: "delete", entity: "order", entityId: id, entityName: o.no, summary: `删除了订单 ${o.no}（${formatAmount(Number(o.total), o.currency)}）` });
   revalidate(undefined, o.customerId);
   return { ok: true, message: `订单 ${o.no} 已删除` };
 }
@@ -222,10 +283,26 @@ async function refreshPaid(tenantId: string, orderId: string) {
 const paymentSchema = z.object({
   orderId: z.string().min(1),
   amount: z.coerce.number({ message: "金额格式不正确" }).positive("金额要大于 0").max(1e11),
+  fee: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? Number(v) : null))
+    .pipe(z.number({ message: "手续费格式不正确" }).min(0, "不能为负").max(1e9).nullable()),
   receivedAt: z.string().min(1, "请选择收款日期"),
   method: optText(50),
+  payer: optText(200),
+  fileId: optText(40),
   remark: optText(500),
 });
+
+/** 回款单号 RC20261117-01：当天第几笔 */
+async function nextReceiptNo(tenantId: string, tz: string) {
+  const day = dateInput(tz).replaceAll("-", "");
+  const prefix = `RC${day}-`;
+  const n = await tenantDb(tenantId).orderPayment.count({ where: { no: { startsWith: prefix } } });
+  return `${prefix}${String(n + 1).padStart(2, "0")}`;
+}
 
 export async function addPaymentAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const user = await requireUser();
@@ -237,14 +314,28 @@ export async function addPaymentAction(_p: ActionState, fd: FormData): Promise<A
   const receivedAt = parseLocalInput(d.receivedAt, user.timezone);
   if (!receivedAt) return { ok: false, fieldErrors: { receivedAt: ["日期格式不正确"] } };
   const amount = round2(d.amount);
+  // 水单只能挂这个客户（或没归属客户）的文件
+  const fileId = d.fileId
+    ? ((
+        await tenantDb(user.tenantId).crmFile.findFirst({
+          where: { id: d.fileId, OR: [{ customerId: o.customerId }, { customerId: null }] },
+          select: { id: true },
+        })
+      )?.id ?? null)
+    : null;
+  const no = await nextReceiptNo(user.tenantId, user.timezone);
   await tenantDb(user.tenantId).orderPayment.create({
     data: {
       tenantId: user.tenantId,
       orderId: o.id,
+      no,
       amount,
+      fee: d.fee === null ? null : round2(d.fee),
+      payer: d.payer,
       receivedAt,
       method: d.method,
       remark: d.remark,
+      fileId,
       createdById: user.id,
     },
   });
@@ -257,8 +348,16 @@ export async function addPaymentAction(_p: ActionState, fd: FormData): Promise<A
     content: `订单 ${o.no} 收款 ${formatAmount(amount, o.currency)}${d.method ? `（${d.method}）` : ""}`,
     userId: user.id,
   });
+  await audit(user, {
+    action: "create",
+    entity: "payment",
+    entityId: o.id,
+    entityName: no,
+    summary: `订单 ${o.no} 登记收款 ${formatAmount(amount, o.currency)}（${no}${d.method ? `，${d.method}` : ""}）`,
+  });
   revalidate(o.id, o.customerId);
-  return { ok: true, message: "收款已登记" };
+  revalidatePath("/payments");
+  return { ok: true, message: `收款已登记（${no}）` };
 }
 
 export async function deletePaymentAction(id: string): Promise<ActionState> {
@@ -270,6 +369,69 @@ export async function deletePaymentAction(id: string): Promise<ActionState> {
   if (!o) return denied();
   await db.orderPayment.deleteMany({ where: { id } });
   await refreshPaid(user.tenantId, o.id);
+  await audit(user, {
+    action: "delete",
+    entity: "payment",
+    entityId: o.id,
+    entityName: p.no ?? o.no,
+    summary: `删除了订单 ${o.no} 的收款 ${formatAmount(Number(p.amount), o.currency)}${p.no ? `（${p.no}）` : ""}`,
+  });
   revalidate(o.id, o.customerId);
+  revalidatePath("/payments");
   return { ok: true, message: "收款记录已删除" };
+}
+
+// ── 收款计划 ──
+
+const planSchema = z
+  .array(
+    z.object({
+      label: z.string().trim().min(1, "请填写每期的名称").max(60),
+      amount: z.coerce.number({ message: "金额格式不正确" }).positive("每期金额要大于 0").max(1e11),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "请选择到期日"),
+    }),
+  )
+  .max(24, "最多 24 期");
+
+/** 整体替换订单的收款计划（传空数组 = 清空） */
+export async function savePaymentPlanAction(orderId: string, rows: unknown): Promise<ActionState> {
+  const user = await requireUser();
+  const o = await editableOrder(user, orderId);
+  if (!o) return denied();
+  const parsed = planSchema.safeParse(rows);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "收款计划格式不正确" };
+  const plans = parsed.data.map((p, sort) => ({
+    tenantId: user.tenantId,
+    orderId: o.id,
+    sort,
+    label: p.label,
+    amount: round2(p.amount),
+    dueDate: parseLocalInput(`${p.dueDate}T00:00`, user.timezone)!,
+  }));
+  const sum = round2(plans.reduce((s, p) => s + p.amount, 0));
+  const total = round2(Number(o.total));
+  await prisma.$transaction([
+    prisma.paymentPlan.deleteMany({ where: { tenantId: user.tenantId, orderId: o.id } }),
+    prisma.paymentPlan.createMany({ data: plans }),
+  ]);
+  await audit(user, {
+    action: "update",
+    entity: "payment",
+    entityId: o.id,
+    entityName: o.no,
+    summary: plans.length
+      ? `设置了订单 ${o.no} 的收款计划：${parsed.data.map((p) => `${p.label} ${formatAmount(p.amount, o.currency)}（${p.dueDate}）`).join("；")}`
+      : `清空了订单 ${o.no} 的收款计划`,
+  });
+  revalidate(o.id, o.customerId);
+  revalidatePath("/payments");
+  const diff = round2(total - sum);
+  return {
+    ok: true,
+    message: !plans.length
+      ? "收款计划已清空"
+      : diff === 0
+        ? "收款计划已保存"
+        : `收款计划已保存（合计比订单金额${diff > 0 ? "少" : "多"} ${formatAmount(Math.abs(diff), o.currency)}）`,
+  };
 }

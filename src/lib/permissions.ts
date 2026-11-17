@@ -102,13 +102,19 @@ export const PERMISSION_GROUPS = [
     items: [{ key: "report.view", label: "查看统计报表" }],
   },
   {
+    key: "approval",
+    label: "审批",
+    items: [{ key: "approval.review", label: "审批（折扣、退公海、删除和转移客户）；自己操作时不用审批" }],
+  },
+  {
     key: "settings",
     label: "系统设置",
     items: [
       { key: "settings.company", label: "企业信息" },
       { key: "settings.org", label: "部门与成员" },
       { key: "settings.role", label: "角色权限" },
-      { key: "settings.business", label: "业务规则（公海、字段、阶段）" },
+      { key: "settings.business", label: "业务规则（公海、字段、阶段、审批）" },
+      { key: "settings.audit", label: "查看操作日志" },
     ],
   },
 ] as const;

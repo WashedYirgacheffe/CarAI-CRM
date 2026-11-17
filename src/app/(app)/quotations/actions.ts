@@ -16,6 +16,30 @@ import {
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 import { parseLocalInput } from "@/lib/crm";
 import { QUOTATION_STATUSES, formatAmount, quotationStatus } from "@/lib/docs";
+import { audit } from "@/server/audit";
+import { clearDocApproval, docApprovalDecision, submitDocApproval } from "@/server/approvals";
+
+/** 保存后按折扣决定审批状态，返回提示语后缀 */
+async function applyApproval(
+  user: CurrentUser,
+  q: { id: string; no: string; customerId: string },
+  next: { subtotal: number; discount: number },
+  prev: { approval: string; subtotal: number; discount: number } | null,
+) {
+  const { decision, pct, limit } = await docApprovalDecision(user, next, prev);
+  if (decision === "pending") {
+    await prisma.quotation.updateMany({ where: { tenantId: user.tenantId, id: q.id }, data: { approval: "PENDING" } });
+    await submitDocApproval(user, "quotation", q, pct, limit);
+    revalidatePath("/approvals");
+    return `；折扣 ${pct}% 超过 ${limit}%，已提交审批，通过后才能发给客户`;
+  }
+  if (decision === "clear") {
+    await prisma.quotation.updateMany({ where: { tenantId: user.tenantId, id: q.id }, data: { approval: "NONE" } });
+    await clearDocApproval(user.tenantId, "quotation", q.id);
+    revalidatePath("/approvals");
+  }
+  return "";
+}
 
 export type SaveDocResult = ActionState & { id?: string };
 
@@ -89,8 +113,21 @@ export async function saveQuotationAction(_p: ActionState, fd: FormData): Promis
       prisma.quotationItem.deleteMany({ where: { quotationId: q.id } }),
       prisma.quotationItem.createMany({ data: items.map((it) => ({ ...it, quotationId: q.id })) }),
     ]);
+    const tip = await applyApproval(
+      user,
+      q,
+      { subtotal, discount: fees.discount },
+      { approval: q.approval, subtotal: Number(q.subtotal), discount: Number(q.discount) },
+    );
+    await audit(user, {
+      action: "update",
+      entity: "quotation",
+      entityId: q.id,
+      entityName: q.no,
+      summary: `修改了报价单 ${q.no}（${formatAmount(total, d.currency)}${Number(q.total) !== total ? `，原 ${formatAmount(Number(q.total), q.currency)}` : ""}）`,
+    });
     revalidate(q.id, q.customerId);
-    return { ok: true, message: "报价单已保存", id: q.id };
+    return { ok: true, message: `报价单已保存${tip}`, id: q.id };
   }
 
   if (!can(user, "quotation.create")) return denied();
@@ -126,8 +163,16 @@ export async function saveQuotationAction(_p: ActionState, fd: FormData): Promis
       userId: user.id,
     },
   });
+  const tip = await applyApproval(user, created, { subtotal, discount: fees.discount }, null);
+  await audit(user, {
+    action: "create",
+    entity: "quotation",
+    entityId: created.id,
+    entityName: created.no,
+    summary: `新建了报价单 ${created.no}（${found.customer.name}，${formatAmount(total, d.currency)}）`,
+  });
   revalidate(created.id, d.customerId);
-  return { ok: true, message: `报价单 ${created.no} 已创建`, id: created.id };
+  return { ok: true, message: `报价单 ${created.no} 已创建${tip}`, id: created.id };
 }
 
 /** 商机必须属于该客户，否则忽略 */
@@ -156,6 +201,13 @@ export async function setQuotationStatusAction(id: string, status: string): Prom
     event: "quotation",
     content: `报价单 ${q.no} 状态：${quotationStatus(q.status).label} → ${quotationStatus(status).label}`,
     userId: user.id,
+  });
+  await audit(user, {
+    action: "status",
+    entity: "quotation",
+    entityId: q.id,
+    entityName: q.no,
+    summary: `报价单 ${q.no} 状态：${quotationStatus(q.status).label} → ${quotationStatus(status).label}`,
   });
   revalidate(id, q.customerId);
   return { ok: true, message: `已标记为「${quotationStatus(status).label}」` };
@@ -234,8 +286,10 @@ export async function duplicateQuotationAction(id: string): Promise<SaveDocResul
     content: `复制报价单 ${src.no} 为 ${copy.no}`,
     userId: user.id,
   });
+  const tip = await applyApproval(user, copy, { subtotal: Number(copy.subtotal), discount: Number(copy.discount) }, null);
+  await audit(user, { action: "create", entity: "quotation", entityId: copy.id, entityName: copy.no, summary: `把报价单 ${src.no} 复制为 ${copy.no}` });
   revalidate(copy.id, src.customerId);
-  return { ok: true, message: `已复制为 ${copy.no}`, id: copy.id };
+  return { ok: true, message: `已复制为 ${copy.no}${tip}`, id: copy.id };
 }
 
 export async function deleteQuotationAction(id: string): Promise<ActionState> {
@@ -245,6 +299,8 @@ export async function deleteQuotationAction(id: string): Promise<ActionState> {
   const q = await db.quotation.findFirst({ where: { id } });
   if (!q || !(await docInScope(user, q.ownerId))) return denied();
   await db.quotation.deleteMany({ where: { id } });
+  await clearDocApproval(user.tenantId, "quotation", id);
+  await audit(user, { action: "delete", entity: "quotation", entityId: id, entityName: q.no, summary: `删除了报价单 ${q.no}（${formatAmount(Number(q.total), q.currency)}）` });
   revalidate(undefined, q.customerId);
   return { ok: true, message: `报价单 ${q.no} 已删除` };
 }

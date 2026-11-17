@@ -13,6 +13,11 @@ import {
 } from "@/server/auth";
 import { isPermission, type Permission } from "@/lib/permissions";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
+import { audit } from "@/server/audit";
+import { PERMISSION_GROUPS } from "@/lib/permissions";
+
+const PERM_ITEMS: readonly { key: string; label: string }[] = PERMISSION_GROUPS.flatMap((g): readonly { key: string; label: string }[] => g.items);
+const permLabel = (k: string) => PERM_ITEMS.find((i) => i.key === k)?.label ?? k;
 
 async function guard(permission: Permission): Promise<CurrentUser | ActionState> {
   const user = await requireUser();
@@ -37,6 +42,7 @@ export async function updateCompanyAction(_p: ActionState, fd: FormData): Promis
   const parsed = companySchema.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fieldErrorsOf(parsed.error);
   await prisma.tenant.update({ where: { id: user.tenantId }, data: parsed.data });
+  await audit(user, { action: "update", entity: "settings", entityName: "企业信息", summary: `修改了企业信息（${parsed.data.name}，${parsed.data.defaultCurrency}，${parsed.data.timezone}）` });
   revalidatePath("/", "layout");
   return { ok: true, message: "已保存" };
 }
@@ -62,6 +68,7 @@ export async function saveDepartmentAction(_p: ActionState, fd: FormData): Promi
     if (root) {
       // 根部门只能改名
       await db.department.updateMany({ where: { id }, data: { name } });
+      await audit(user, { action: "update", entity: "department", entityId: id, entityName: name, summary: `修改了部门「${name}」` });
       revalidatePath("/settings/departments");
       return { ok: true, message: "已更新" };
     }
@@ -84,6 +91,13 @@ export async function saveDepartmentAction(_p: ActionState, fd: FormData): Promi
   } else {
     await db.department.create({ data: { name, parentId, tenantId: user.tenantId } });
   }
+  await audit(user, {
+    action: id ? "update" : "create",
+    entity: "department",
+    entityId: id ?? null,
+    entityName: name,
+    summary: `${id ? "修改" : "新建"}了部门「${name}」（上级：${parent.name}）`,
+  });
   revalidatePath("/settings/departments");
   return { ok: true, message: id ? "已更新" : "已创建" };
 }
@@ -101,6 +115,7 @@ export async function deleteDepartmentAction(id: string): Promise<ActionState> {
   if (dept._count.children) return { ok: false, message: "请先删除或移走下级部门" };
   if (dept._count.users) return { ok: false, message: "部门下还有成员，请先调整成员部门" };
   await db.department.deleteMany({ where: { id } });
+  await audit(user, { action: "delete", entity: "department", entityId: id, entityName: dept.name, summary: `删除了部门「${dept.name}」` });
   revalidatePath("/settings/departments");
   return { ok: true, message: "已删除" };
 }
@@ -150,6 +165,20 @@ export async function saveMemberAction(_p: ActionState, fd: FormData): Promise<A
     }
     await db.user.updateMany({ where: { id }, data });
     if (password) await revokeUserSessions(id);
+    const changes = [
+      target.name !== name && `姓名 ${target.name} → ${name}`,
+      target.email !== email && `邮箱 ${target.email} → ${email}`,
+      target.departmentId !== departmentId && `部门改为 ${dept.name}`,
+      target.roleId !== roleId && `角色改为 ${role.name}`,
+      password && "重置了密码",
+    ].filter(Boolean);
+    await audit(user, {
+      action: "update",
+      entity: "member",
+      entityId: id,
+      entityName: name,
+      summary: `修改了成员 ${name}${changes.length ? `：${changes.join("，")}` : ""}`,
+    });
   } else {
     if (!password || password.length < 8) {
       return { ok: false, fieldErrors: { password: ["初始密码至少 8 位"] } };
@@ -165,6 +194,7 @@ export async function saveMemberAction(_p: ActionState, fd: FormData): Promise<A
         passwordHash: await hashPassword(password),
       },
     });
+    await audit(user, { action: "create", entity: "member", entityName: name, summary: `添加了成员 ${name}（${email}，${dept.name} / ${role.name}）` });
   }
   revalidatePath("/settings/members");
   return { ok: true, message: id ? "已更新" : "已添加成员" };
@@ -180,6 +210,7 @@ export async function setMemberStatusAction(id: string, active: boolean): Promis
   if (target.id === user.id) return { ok: false, message: "不能停用自己" };
   await db.user.updateMany({ where: { id }, data: { status: active ? "ACTIVE" : "DISABLED" } });
   if (!active) await revokeUserSessions(id);
+  await audit(user, { action: "status", entity: "member", entityId: id, entityName: target.name, summary: `${active ? "启用" : "停用"}了成员 ${target.name}` });
   revalidatePath("/settings/members");
   return { ok: true, message: active ? "已启用" : "已停用，该成员已被强制下线" };
 }
@@ -213,10 +244,26 @@ export async function saveRoleAction(_p: ActionState, fd: FormData): Promise<Act
       where: { id },
       data: { name, description: description || null, dataScope, permissions },
     });
+    const added = permissions.filter((p) => !role.permissions.includes(p));
+    const removed = role.permissions.filter((p) => !(permissions as string[]).includes(p));
+    const changes = [
+      role.dataScope !== dataScope && `数据范围 ${role.dataScope} → ${dataScope}`,
+      added.length && `新增权限：${added.map(permLabel).join("、")}`,
+      removed.length && `去掉权限：${removed.map(permLabel).join("、")}`,
+    ].filter(Boolean);
+    await audit(user, {
+      action: "update",
+      entity: "role",
+      entityId: id,
+      entityName: name,
+      summary: `修改了角色「${name}」${changes.length ? `：${changes.join("；")}` : ""}`,
+      detail: { added, removed, dataScope: [role.dataScope, dataScope] },
+    });
   } else {
     await db.role.create({
       data: { tenantId: user.tenantId, name, description: description || null, dataScope, permissions },
     });
+    await audit(user, { action: "create", entity: "role", entityName: name, summary: `新建了角色「${name}」（${permissions.length} 项权限）` });
   }
   revalidatePath("/settings/roles");
   revalidatePath("/", "layout");
@@ -232,6 +279,7 @@ export async function deleteRoleAction(id: string): Promise<ActionState> {
   if (role.systemKey) return { ok: false, message: "内置角色不能删除" };
   if (role._count.users) return { ok: false, message: `还有 ${role._count.users} 位成员在用这个角色` };
   await db.role.deleteMany({ where: { id } });
+  await audit(user, { action: "delete", entity: "role", entityId: id, entityName: role.name, summary: `删除了角色「${role.name}」` });
   revalidatePath("/settings/roles");
   return { ok: true, message: "已删除" };
 }

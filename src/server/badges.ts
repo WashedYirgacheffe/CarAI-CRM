@@ -5,6 +5,7 @@ import { LEAD_OPEN_STATUSES } from "@/lib/crm";
 import type { BadgeKey } from "@/lib/nav";
 import { countTodo } from "@/server/todo";
 import { canUseInbox, threadScope } from "@/server/inbox";
+import { pendingApprovalCount } from "@/server/approvals";
 
 /**
  * 图标栏 / 顶栏提醒 / 工作台的提醒数：
@@ -17,7 +18,7 @@ import { canUseInbox, threadScope } from "@/server/inbox";
  */
 export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, number>> {
   const t = user.tenantId;
-  const [myLeads, poolLeads, mail, wa, tasks, todo, inbox] = await Promise.all([
+  const [myLeads, poolLeads, mail, wa, tasks, todo, inbox, approvals] = await Promise.all([
     can(user, "lead.view") ? prisma.lead.count({ where: { tenantId: t, ownerId: user.id, status: "NEW" } }) : 0,
     can(user, "lead.view") && can(user, "lead.assign")
       ? prisma.lead.count({ where: { tenantId: t, ownerId: null, status: { in: [...LEAD_OPEN_STATUSES] } } })
@@ -31,8 +32,9 @@ export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, num
     canUseInbox(user)
       ? prisma.socialThread.aggregate({ where: { ...threadScope(user), archived: false }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
       : 0,
+    pendingApprovalCount(user),
   ]);
-  return { leads: myLeads + poolLeads, mail, whatsapp: wa, inbox, tasks, todo };
+  return { leads: myLeads + poolLeads, mail, whatsapp: wa, inbox, tasks, todo, approvals };
 }
 
 export type DueReminder = {
