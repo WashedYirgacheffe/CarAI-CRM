@@ -34,12 +34,37 @@ export async function customerContext(user: CurrentUser, customerId: string) {
         })
       : [],
     wa ? db.waChat.findMany({ where: { accountId: wa.id, customerId }, orderBy: { lastMessageAt: { sort: "desc", nulls: "last" } }, take: 3 }) : [],
-    db.contact.findMany({ where: { customerId }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }], take: 5 }),
+    db.contact.findMany({ where: { customerId }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }], take: 12 }),
   ]);
   const msgs = chats[0] ? (await db.waMessage.findMany({ where: { chatId: chats[0].id }, orderBy: { timestamp: "desc" }, take: 12 })).reverse() : [];
   return {
-    customer: { customerId: c.id, name: c.name, country: c.country, status: c.status?.name ?? null, canEdit: found.access.edit },
-    contacts: contacts.map((x) => ({ name: x.name, title: x.title, email: x.email, whatsapp: x.whatsapp, primary: x.isPrimary })),
+    customer: {
+      customerId: c.id,
+      name: c.name,
+      country: c.country,
+      website: c.website,
+      address: c.address,
+      source: c.source,
+      customerType: c.customerType,
+      mainProducts: c.mainProducts,
+      annualVolume: c.annualVolume,
+      star: c.star,
+      status: c.status?.name ?? null,
+      group: c.group?.name ?? null,
+      tags: c.tags,
+      remark: c.remark ? clip(c.remark, 300) : null,
+      owner: c.owner?.name ?? "公海",
+      canEdit: found.access.edit,
+    },
+    contacts: contacts.map((x) => ({
+      contactId: x.id,
+      name: x.name,
+      title: x.title,
+      email: x.email,
+      phone: x.phone,
+      whatsapp: x.whatsapp,
+      primary: x.isPrimary,
+    })),
     activities: acts.map((a) => ({
       at: formatDateTime(a.createdAt, tz),
       by: a.user?.name,
@@ -116,6 +141,7 @@ export async function listTasks(user: CurrentUser, when: string) {
   });
   return {
     tasks: rows.map((t) => ({
+      taskId: t.id,
       title: t.title,
       due: formatDateTime(t.dueAt, user.timezone),
       customer: t.customer?.name ?? null,

@@ -1,12 +1,24 @@
 "use server";
 
 import { requireUser } from "@/server/auth";
-import { saveQuotationAction } from "@/app/(app)/quotations/actions";
 import { sendMailAction } from "@/app/(app)/mail/actions";
 import { sendFormAction, sendProductAction, sendQuotationAction, sendWaMessageAction } from "@/app/(app)/whatsapp/actions";
-import { saveTaskAction } from "@/app/(app)/schedule/actions";
-import { addFollowUpAction } from "@/app/(app)/customers/actions";
-import { saveLeadAction } from "@/app/(app)/leads/actions";
+import { deleteTaskAction, saveTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
+import {
+  addFollowUpAction,
+  createCustomerAction,
+  deleteContactAction,
+  deleteCustomerAction,
+  releaseCustomersAction,
+  saveContactAction,
+  transferCustomersAction,
+  updateCustomerAction,
+} from "@/app/(app)/customers/actions";
+import { convertLeadAction, deleteLeadAction, saveLeadAction, setLeadStatusAction } from "@/app/(app)/leads/actions";
+import { deleteQuotationAction, saveQuotationAction, setQuotationStatusAction } from "@/app/(app)/quotations/actions";
+import { deleteOrderAction, setOrderStatusAction } from "@/app/(app)/orders/actions";
+import { deleteOpportunityAction, moveOpportunityAction } from "@/app/(app)/opportunities/actions";
+import { deleteProductAction } from "@/app/(app)/products/actions";
 import { enrollAction, setSequenceStatusAction } from "@/app/(app)/marketing/actions";
 import { isAiActionKind, type ActionResult } from "@/lib/ai-actions";
 import type { ActionState } from "@/lib/action";
@@ -16,6 +28,23 @@ const form = (p: Record<string, string>, keys: string[]) => {
   for (const k of keys) if (p[k] != null && p[k] !== "") fd.set(k, String(p[k]));
   return fd;
 };
+
+const CUSTOMER_KEYS = [
+  "name",
+  "country",
+  "website",
+  "address",
+  "source",
+  "customerType",
+  "mainProducts",
+  "annualVolume",
+  "remark",
+  "statusId",
+  "groupId",
+  "star",
+  "tags",
+];
+const ids = (v: string | undefined) => (v ?? "").split(",").filter(Boolean);
 
 const out = (r: ActionState, fallback: string, extra?: Partial<ActionResult>): ActionResult => {
   const fields = r.fieldErrors ? Object.values(r.fieldErrors).flat().filter(Boolean).join("；") : "";
@@ -85,5 +114,64 @@ export async function runAiActionAction(kind: string, raw: Record<string, string
       });
     case "set_sequence_status":
       return out(await setSequenceStatusAction(p.sequenceId, p.active === "true"), p.active === "true" ? "序列已启动" : "序列已暂停");
+
+    // ── 客户和联系人 ──
+    case "create_customer": {
+      const r = await createCustomerAction({}, form(p, [...CUSTOMER_KEYS, "contactName", "contactTitle", "contactEmail", "contactPhone", "contactWhatsapp"]));
+      return out(r, "客户已创建", r.id ? { href: `/customers/${r.id}`, hrefLabel: "打开客户" } : {});
+    }
+    case "update_customer":
+      return out(await updateCustomerAction({}, form(p, ["id", ...CUSTOMER_KEYS])), "客户资料已更新", {
+        href: `/customers/${p.id}`,
+        hrefLabel: "打开客户",
+      });
+    case "delete_customer":
+      return out(await deleteCustomerAction(p.customerId), "客户已删除");
+    case "transfer_customer":
+      return out(await transferCustomersAction(ids(p.customerIds), p.toUserId), "已转移");
+    case "release_customer":
+      return out(await releaseCustomersAction(ids(p.customerIds), p.reason ?? ""), "已放入公海");
+    case "save_contact":
+      return out(await saveContactAction({}, form(p, ["id", "customerId", "name", "title", "email", "phone", "whatsapp", "remark", "isPrimary"])), "联系人已保存");
+    case "delete_contact":
+      return out(await deleteContactAction(p.contactId), "联系人已删除");
+
+    // ── 线索 ──
+    case "update_lead":
+      return out(
+        await saveLeadAction({}, form(p, ["id", "companyName", "contactName", "email", "phone", "whatsapp", "country", "source", "products", "inquiry", "unassigned"])),
+        "线索已更新",
+      );
+    case "set_lead_status":
+      return out(
+        await setLeadStatusAction(p.leadId, p.status as "NEW" | "QUALIFYING" | "CONTACTED" | "INVALID", { reason: p.reason, note: p.note }),
+        "线索状态已更新",
+      );
+    case "convert_lead": {
+      const r = await convertLeadAction({}, form(p, ["id", "customerName", "withOpportunity", "oppName", "amount", "currency"]));
+      return out(r, "已转为客户", r.customerId ? { href: `/customers/${r.customerId}`, hrefLabel: "打开客户" } : {});
+    }
+    case "delete_lead":
+      return out(await deleteLeadAction(p.leadId), "线索已删除");
+
+    // ── 日程、单据、商机、产品 ──
+    case "complete_task":
+      return out(await toggleTaskAction(p.taskId, true), "已完成");
+    case "delete_task":
+      return out(await deleteTaskAction(p.taskId), "日程已删除");
+    case "set_quotation_status":
+      return out(await setQuotationStatusAction(p.quotationId, p.status), "报价单状态已更新");
+    case "delete_quotation":
+      return out(await deleteQuotationAction(p.quotationId), "报价单已删除");
+    case "set_order_status":
+      return out(await setOrderStatusAction(p.orderId, p.status), "订单状态已更新");
+    case "delete_order":
+      return out(await deleteOrderAction(p.orderId), "订单已删除");
+    case "move_opportunity":
+      return out(await moveOpportunityAction(p.opportunityId, p.stageId), "商机阶段已更新");
+    case "delete_opportunity":
+      return out(await deleteOpportunityAction(p.opportunityId), "商机已删除");
+    case "delete_product":
+      return out(await deleteProductAction(p.productId), "产品已删除");
   }
 }
