@@ -1,5 +1,7 @@
-// 打包前补齐两个架构的原生模块：npm 只装当前 CPU 的那一份，
-// 在 Apple 芯片上打 Intel 包时会缺 impit-darwin-x64（Camoufox 下载内核要用），反之亦然。
+// 打包前补齐目标平台的原生模块：npm 只装当前 CPU 的那一份，
+// 在 Apple 芯片上打 Intel 包时会缺 impit-darwin-x64（Camoufox 下载内核要用），打 Windows 包时缺 impit-win32-x64-msvc。
+//   node scripts/ensure-native.mjs        # Mac 两个架构
+//   node scripts/ensure-native.mjs win    # Windows x64
 // 版本跟 impit 主包的 optionalDependencies 对齐。
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -10,7 +12,8 @@ const root = path.join(import.meta.dirname, "..");
 const nm = path.join(root, "node_modules");
 const impit = JSON.parse(fs.readFileSync(path.join(nm, "impit", "package.json"), "utf8"));
 
-for (const name of ["impit-darwin-arm64", "impit-darwin-x64"]) {
+const names = process.argv[2] === "win" ? ["impit-win32-x64-msvc"] : ["impit-darwin-arm64", "impit-darwin-x64"];
+for (const name of names) {
   const version = impit.optionalDependencies?.[name];
   if (!version) throw new Error(`impit 没有声明 ${name}`);
   const dest = path.join(nm, name);

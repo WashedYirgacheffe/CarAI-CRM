@@ -32,6 +32,7 @@ cd desktop
 npm run icons    # 改了图标才需要：build/icon-source.svg → icon.icns、菜单栏 trayTemplate*.png
 npm run dmg-bg   # 改了 DMG 说明文字才需要：scripts/make-dmg-bg.mjs → build/background.tiff
 npm run dist     # 出 release/ 下的 DMG + ZIP（arm64、x64）和 latest-mac.yml
+npm run dist:win # 出 Windows 安装程序 release/cheche-crm-<版本>-win-x64-setup.exe 和 latest.yml（在 Mac 上就能打，不需要 Wine）
 cd .. && pnpm desktop:publish   # 传到 OSS 的 desktop/ 目录（需要服务器同样的 OSS_* 环境变量）
 ```
 
@@ -42,7 +43,7 @@ cd .. && pnpm desktop:publish   # 传到 OSS 的 desktop/ 目录（需要服务�
   - `APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`（公证）
 - **自动更新**：启动 15 秒后检查一次，之后每 4 小时一次；下载完在菜单栏提示「重启并安装」，退出时也会自动装上。
   更新源 `https://crm.caraicrm.com/api/desktop/update`。Mac 只有签过名的版本能自动更新。
-- **下载地址**：`https://crm.caraicrm.com/api/desktop/download?arch=arm64`（Intel 用 `arch=x64`），设置 →「社媒运行」里有链接。
+- **下载地址**：`https://crm.caraicrm.com/api/desktop/download?arch=arm64`（Intel 用 `arch=x64`），Windows 用 `arch=win`，设置 →「社媒运行」里有链接。
 - `node_modules` 全部解包到 asar 外（运行器子进程从外面加载 camoufox 及其依赖）；`scripts/ensure-native.mjs` 补齐两个架构的 impit 原生模块。
 - 发新版：先改 `package.json` 的 `version`，再 `dist` + `publish`。运行器代码跟着软件版本走。
 
@@ -60,3 +61,13 @@ cd .. && pnpm desktop:publish   # 传到 OSS 的 desktop/ 目录（需要服务�
   屏幕上中英文会乱码或空白；中日韩回退字体也指到内核自带的 Windows 字体（微软雅黑等）。
 - 运行器在收私信、检查、打开、登录、迁入后截一张 JPEG 当账号封面（常驻时 15 分钟最多一次），
   传到 `/api/matrix/runner/snapshot/<账号>`，社媒矩阵列表左侧显示。
+
+## Windows 版
+
+- 只出 x64，NSIS 安装程序（可选安装目录，建桌面和开始菜单快捷方式），装在当前用户下不要管理员权限。
+- 没有代码签名证书：第一次运行 SmartScreen 会提示「Windows 已保护你的电脑」，点「更多信息」→「仍要运行」。
+  Windows 版不签名也能自动更新（electron-updater 走 `latest.yml`）。
+- 图标 `build/icon.ico` 由 `scripts/make-ico.mjs` 生成；托盘单击打开主窗口，右键出菜单。
+- 浏览器内核在 `%LOCALAPPDATA%\camoufox\camoufox\Cache\browsers`，准备好后用 resedit 把 `camoufox.exe` 的名字改成「车车浏览器」、图标换成车车图标。
+- 退出时用 `taskkill /T` 连同浏览器一起结束（Windows 上 kill 不走运行器的退出流程）。
+- 环境迁移打包用系统自带的 `tar.exe`（Windows 10 1803 以后都有）。

@@ -1,7 +1,7 @@
 {
   "name": "cheche-crm-desktop",
   "productName": "车车 CRM",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "description": "车车 CRM 桌面版：CRM 主窗口 + 内置社媒环境运行器（Camoufox）",
   "type": "module",
@@ -12,12 +12,14 @@
     "dev": "npm run build:runner && CRM_URL=http://localhost:3000 electron .",
     "dist": "npm run build:runner && node scripts/ensure-native.mjs && electron-builder --mac --publish never $([ -z \"$CSC_LINK\" ] && echo '-c.mac.identity=- -c.mac.hardenedRuntime=false')",
     "icons": "electron scripts/make-icons.mjs",
-    "dmg-bg": "electron scripts/make-dmg-bg.mjs"
+    "dmg-bg": "electron scripts/make-dmg-bg.mjs",
+    "dist:win": "npm run build:runner && node scripts/ensure-native.mjs win && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "camoufox": "0.5.9",
     "electron-updater": "^6.8.11",
-    "playwright-core": "^1.62.1"
+    "playwright-core": "^1.62.1",
+    "resedit": "^1.7.2"
   },
   "devDependencies": {
     "electron": "^45.3.3",
@@ -27,7 +29,6 @@
   "build": {
     "appId": "com.caraicrm.desktop",
     "productName": "车车 CRM",
-    "artifactName": "cheche-crm-${version}-${arch}-mac.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -36,6 +37,7 @@
       "src/**",
       "dist/**",
       "build/trayTemplate*.png",
+      "build/icon.ico",
       "package.json"
     ],
     "asarUnpack": [
@@ -43,6 +45,7 @@
       "node_modules/**"
     ],
     "mac": {
+      "artifactName": "cheche-crm-${version}-${arch}-mac.${ext}",
       "category": "public.app-category.business",
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
@@ -100,6 +103,32 @@
         "url": "https://crm.caraicrm.com/api/desktop/update",
         "channel": "latest"
       }
-    ]
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "cheche-crm-${version}-win-${arch}-setup.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "车车 CRM",
+      "installerLanguages": [
+        "zh_CN"
+      ],
+      "language": "2052",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

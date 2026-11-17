@@ -22,7 +22,7 @@ import { sendReplies, syncInbox, watchHome, watchSupported, watchTick, type Inbo
 
 loadEnv({ path: ".env.runner", quiet: true });
 
-const VERSION = "0.5.1";
+const VERSION = "0.5.2";
 const CRM_URL = (process.env.CRM_URL || "http://localhost:3000").replace(/\/+$/, "");
 const TOKEN = process.env.MATRIX_RUNNER_TOKEN || "";
 const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-crm", "matrix");
@@ -486,7 +486,7 @@ async function launch(job: Job, headless: boolean): Promise<{ ctx: Ctx; fingerpr
         : {
             // 有界面时 Mac 版把字形交给独立的 GPU 进程画，那个进程里没有内核自带的字体，
             // 按别的字体的字形去画，屏幕上中英文全乱（截图却是好的）。在主进程里画就对了
-            "layers.gpu-process.enabled": false,
+            ...(process.platform === "darwin" ? { "layers.gpu-process.enabled": false } : {}),
             ...LOCKED_WINDOW_PREFS,
           }),
     },
