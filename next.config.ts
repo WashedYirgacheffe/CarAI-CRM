@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // 服务器（2 核 3.5G）构建时跳过类型检查：提交前已在本地跑过 tsc，服务器再跑一遍会把内存吃满、整机卡死
   typescript: { ignoreBuildErrors: process.env.SKIP_TYPECHECK === "1" },
-  serverExternalPackages: ["@node-rs/argon2", "imapflow", "mailparser", "nodemailer", "qrcode", "@vercel/sandbox"],
+  serverExternalPackages: ["@node-rs/argon2", "imapflow", "mailparser", "nodemailer", "qrcode", "@vercel/sandbox", "unpdf"],
   experimental: {
     // 写邮件可以带附件
     serverActions: { bodySizeLimit: "30mb" },

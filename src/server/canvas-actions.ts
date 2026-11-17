@@ -1,4 +1,6 @@
 import "server-only";
+import { prepareFileAction } from "@/server/canvas-files";
+import { fileForUser } from "@/server/files";
 import { prisma, tenantDb } from "@/server/db";
 import { can, type CurrentUser } from "@/server/auth";
 import { getCustomerForUser } from "@/server/customers";
@@ -81,15 +83,26 @@ export async function prepareAction(user: CurrentUser, kind: AiActionKind, p: P)
       if (!account) return "用户还没有绑定发件邮箱，请用 open_page 打开 /settings/mailboxes";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+/.test(to)) return "to 必须是邮箱地址（先用 customer_channels 查联系人邮箱）";
       if (!subject && !text) return "主题和正文不能都为空";
+      // 附件：客户资料里的文件（PI、CO、报价单…）
+      const fileIds = (Array.isArray(p.fileIds) ? p.fileIds : typeof p.fileIds === "string" ? p.fileIds.split(",") : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 10);
+      const attached: string[] = [];
+      let bytes = 0;
+      for (const id of fileIds) {
+        const found = await fileForUser(user, id);
+        if (!found) return `附件文件 ${id} 不存在或没有权限（先 list_files）`;
+        bytes += found.file.size;
+        attached.push(found.file.name);
+      }
+      if (bytes > 25 * 1024 * 1024) return "附件合计超过 25MB，少带几个";
       return {
         kind,
         title: `发邮件给 ${to}`,
-        fields: [{ label: "发件邮箱", value: account.email }],
+        fields: [{ label: "发件邮箱", value: account.email }, ...(attached.length ? [{ label: "附件", value: attached.join("\n") }] : [])],
         edit: [
           { key: "subject", label: "主题" },
           { key: "text", label: "正文", multiline: true },
         ],
-        params: { accountId: account.id, to, subject, text },
+        params: { accountId: account.id, to, subject, text, ...(fileIds.length ? { fileIds: fileIds.join(",") } : {}) },
         confirm: "发送邮件",
         outward: true,
         alt: { label: "在写信页打开", href: compose },
@@ -307,6 +320,11 @@ export async function prepareAction(user: CurrentUser, kind: AiActionKind, p: P)
         alt: { label: "打开序列", href: `/marketing/${seq.id}` },
       };
     }
+    case "update_file":
+    case "delete_file":
+    case "send_file_whatsapp":
+    case "save_attachment":
+      return prepareFileAction(user, kind, p);
     default:
       return prepareDataAction(user, kind, p);
   }

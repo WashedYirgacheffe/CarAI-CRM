@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowRight, Eye, Globe, History, NotebookPen, Paperclip, Play, Send, Settings2, Square, SquarePen, Undo2, X } from "@/components/icons";
+import { ArrowRight, Eye, FileText, Globe, History, NotebookPen, Paperclip, Play, Send, Settings2, Square, SquarePen, Undo2, X } from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { CanvasLayout } from "@/lib/canvas";
@@ -25,6 +25,7 @@ import { visualSummary, type Visual } from "@/lib/ai-visual";
 import { cn } from "@/lib/utils";
 import { noAutofill } from "@/lib/no-autofill";
 import { filesToAttachments, MAX_ATTACHMENTS, type AiAttachment } from "./ai-media";
+import { FileChip } from "@/components/crm/file-preview";
 import { AI_LOOK_EVENT, AI_OPEN_EVENT, type AiLookDetail, type PageSnippet } from "./ai-context-menu";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { PixelSpinner as Busy } from "@/components/agentes/pixel-spinner";
@@ -34,7 +35,8 @@ import { undoMemoryAction } from "@/app/(app)/settings/memory/actions";
 type Choice = { question: string; options: { label: string; detail?: string; reply: string }[] };
 type Source = { title: string; url: string; site: string; snippet: string };
 /** 用户这句话带的图片 / 视频（只留缩略图，存得下）和右键给 AI 看的页面内容 */
-type UserMedia = { kind: "image" | "video"; name: string; thumb: string };
+type UserMedia = { kind: "image" | "video" | "file"; name: string; thumb: string; fileId?: string };
+type AiFile = { id: string; name: string; mime: string; size: number };
 type AssistantTurn = {
   role: "assistant";
   /** 用来让这条回复旁边的助手做表情（旧记录没有，读回时补上） */
@@ -59,6 +61,8 @@ type AssistantTurn = {
   feedback?: "up" | "down";
   /** 联网查到 / 读过的网页 */
   sources?: Source[];
+  /** AI 这一轮生成的文件 */
+  files?: AiFile[];
   /** 这一轮记下 / 改掉 / 忘掉的记忆（只有用户说的才有回执） */
   memories?: (MemoryNote & { undone?: boolean })[];
   /** 这一轮参考了哪些记忆 */
@@ -87,6 +91,7 @@ type StreamEvent =
   | { t: "sources"; items: Source[] }
   | { t: "memory"; note: MemoryNote }
   | { t: "recalled"; items: MemoryRef[] }
+  | { t: "file"; file: AiFile }
   | WorkspaceEvent
   | { t: "step" }
   | { t: "drop" }
@@ -110,7 +115,9 @@ function historyOf(turns: Turn[]) {
   return turns.slice(-10).map((t) => {
     if (t.role === "user") {
       const extra = [
-        t.media?.length ? `（我发了${t.media.map((m) => `${m.kind === "video" ? "视频" : "图片"}「${m.name}」`).join("、")}）` : "",
+        t.media?.length
+          ? `（我发了${t.media.map((m) => (m.kind === "file" ? `文件「${m.name}」fileId: ${m.fileId}` : `${m.kind === "video" ? "视频" : "图片"}「${m.name}」`)).join("、")}）`
+          : "",
         t.snippet ? `（我右键给你看了「${t.snippet.label}」：${t.snippet.text.slice(0, 1200)}）` : "",
       ].filter(Boolean);
       return { role: "user" as const, content: [t.text, ...extra].join("\n") };
@@ -119,6 +126,7 @@ function historyOf(turns: Turn[]) {
     if (t.choice) parts.push(`（我问了：${t.choice.question}；选项：${t.choice.options.map((o) => `${o.label} → ${o.reply}`).join("；")}）`);
     for (const v of t.visuals ?? []) parts.push(visualSummary(v));
     for (const c of t.cards) parts.push(cardSummary(c));
+    for (const f of t.files ?? []) parts.push(`（生成了文件「${f.name}」fileId: ${f.id}）`);
     if (t.links.length) parts.push(`（给了跳转按钮：${t.links.map((l) => `${l.label} ${l.href}`).join("，")}）`);
     if (t.sources?.length) parts.push(`（参考了网页：${t.sources.map((x) => `${x.title} ${x.url}`).join("；")}）`);
     for (const m of t.memories ?? [])
@@ -447,7 +455,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
         {
           role: "user",
           text: message,
-          ...(media.length ? { media: media.map((m) => ({ kind: m.kind, name: m.name, thumb: m.thumb })) } : {}),
+          ...(media.length ? { media: media.map((m) => ({ kind: m.kind, name: m.name, thumb: m.thumb, fileId: m.fileId })) } : {}),
           ...(look ? { snippet: { label: look.label, text: look.text.slice(0, 2000) } } : {}),
         },
         {
@@ -487,7 +495,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
           onCanvas: canvasOnPage() && !isStageTabs(),
           narrow: !window.matchMedia("(min-width: 768px)").matches,
           name: prefs.name,
-          attachments: media.map((m) => ({ kind: m.kind, name: m.name, frames: m.frames, times: m.times, duration: m.duration })),
+          attachments: media.map((m) => ({ kind: m.kind, name: m.name, frames: m.frames, times: m.times, duration: m.duration, fileId: m.fileId })),
           snippet: look ?? undefined,
           threadId,
         }),
@@ -528,6 +536,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             if (!here || tabs) patchLast(() => ({ canvas: true }));
             if (tabs) setStagePane("chat", true);
           } else if (e.t === "visual") patchLast((t) => ({ visuals: [...(t.visuals ?? []), e.visual], status: null }));
+          else if (e.t === "file") patchLast((t) => ({ files: [...(t.files ?? []), e.file] }))
           else if (e.t === "link") patchLast((t) => ({ links: [...t.links, { label: e.label, href: e.href }] }));
           else if (e.t === "sources") patchLast((t) => ({ sources: [...(t.sources ?? []), ...e.items].slice(0, 8) }));
           else if (e.t === "memory") patchLast((t) => ({ memories: [...(t.memories ?? []), e.note] }));
@@ -684,18 +693,18 @@ export function AiDock({ storageKey }: { storageKey: string }) {
 
   /** 选的、粘贴的、拖进来的图片和视频 */
   const addFiles = async (list: FileList | File[] | null) => {
-    const arr = [...(list ?? [])].filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+    const arr = [...(list ?? [])];
     if (!arr.length) return false;
     const room = MAX_ATTACHMENTS - files.length;
     if (room <= 0) {
-      toast.error(`一次最多 ${MAX_ATTACHMENTS} 个图片或视频`);
+      toast.error(`一次最多 ${MAX_ATTACHMENTS} 个附件`);
       return true;
     }
     setPreparing((n) => n + 1);
     try {
       const { items, skipped } = await filesToAttachments(arr.slice(0, room));
       setFiles((f) => [...f, ...items].slice(0, MAX_ATTACHMENTS));
-      if (skipped) toast.error(`有 ${skipped} 个文件读不了，已跳过`);
+      if (skipped) toast.error(`有 ${skipped} 个文件读不了或超过 25MB，已跳过`);
       if (arr.length > room) toast.error(`一次最多 ${MAX_ATTACHMENTS} 个，多出的没有加上`);
     } finally {
       setPreparing((n) => n - 1);
@@ -749,8 +758,15 @@ export function AiDock({ storageKey }: { storageKey: string }) {
             className="ac-attach group relative size-12 shrink-0 overflow-hidden rounded-[10px] border border-line bg-muted"
             title={f.name}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={f.thumb} alt={f.name} className="size-full object-cover" />
+            {f.kind === "file" ? (
+              <span className="flex size-full flex-col items-center justify-center gap-0.5 text-muted-foreground">
+                <FileText className="size-4" />
+                <span className="max-w-full truncate px-0.5 text-[9px] uppercase">{/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? "文件"}</span>
+              </span>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={f.thumb} alt={f.name} className="size-full object-cover" />
+            )}
             {f.kind === "video" && (
               <span className="absolute bottom-0.5 left-0.5 flex items-center gap-0.5 rounded bg-black/60 px-1 text-[10px] text-white">
                 <Play className="size-2.5 fill-current" />
@@ -801,7 +817,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*,video/*"
+        accept="image/*,video/*,.pdf,.xlsx,.xls,.csv,.ods,.docx,.txt,.md,.json"
         multiple
         hidden
         onChange={(e) => {
@@ -939,7 +955,7 @@ export function AiDock({ storageKey }: { storageKey: string }) {
       onChange={(e) => setInput(e.target.value)}
       onPaste={(e) => {
         const pasted = [...e.clipboardData.files];
-        if (pasted.some((f) => f.type.startsWith("image/") || f.type.startsWith("video/"))) {
+        if (pasted.length) {
           e.preventDefault();
           void addFiles(pasted);
         }
@@ -1448,6 +1464,17 @@ function AssistantView({
         {turn.cards.map((c, ci) => (
           <ActionCardView key={ci} value={c} agentName={name} onChange={(patch) => onCard(ci, patch)} />
         ))}
+        {turn.files?.length ? (
+          <div className="flex flex-col gap-1.5">
+            {turn.files.map((f) => (
+              <FileChip
+                key={f.id}
+                className="border border-line bg-card"
+                file={{ src: `/api/crm-files/${f.id}`, download: `/api/crm-files/${f.id}?download`, name: f.name, mime: f.mime, size: f.size }}
+              />
+            ))}
+          </div>
+        ) : null}
         {(turn.links.length > 0 || turn.canvas) && (
           <div className="flex flex-wrap gap-2">
             {turn.canvas && onShowCanvas ? (
@@ -1500,8 +1527,15 @@ function UserView({ turn }: { turn: UserTurn }) {
         <span className="flex flex-wrap justify-end gap-1.5">
           {turn.media.map((m, i) => (
             <span key={i} className="relative size-16 overflow-hidden rounded-[10px] border border-line bg-muted" title={m.name}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={m.thumb} alt={m.name} className="size-full object-cover" />
+              {m.kind === "file" ? (
+                <span className="flex size-full flex-col items-center justify-center gap-1 px-1 text-muted-foreground">
+                  <FileText className="size-5" />
+                  <span className="w-full truncate text-center text-[10px]">{m.name}</span>
+                </span>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={m.thumb} alt={m.name} className="size-full object-cover" />
+              )}
               {m.kind === "video" && (
                 <span className="absolute inset-0 grid place-items-center bg-black/20 text-white">
                   <Play className="size-4 fill-current" />

@@ -1,5 +1,8 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
+import { fileForUser, readFileBuffer } from "@/server/files";
+import { putObject } from "@/server/storage";
 import { syncCustomerTimes } from "@/server/pool";
 import { revalidatePath } from "next/cache";
 import { prisma, tenantDb } from "@/server/db";
@@ -149,6 +152,21 @@ export async function sendWaMediaAction(
     mediaSize: file.size,
     quotedId,
   });
+}
+
+/** 把客户资料里的文件（PI、CO、报价单…）用 WhatsApp 发出去：复制一份到 wa/out-，再排队发送 */
+export async function sendCrmFileAction(chatId: string, fileId: string, caption: string): Promise<ActionState> {
+  const user = await waUser();
+  if (!user) return denied();
+  const chat = await ownChat(user, chatId);
+  if (!chat) return denied("会话不存在");
+  const found = await fileForUser(user, fileId);
+  if (!found) return denied("文件不存在或没有权限");
+  const { file } = found;
+  const ext = /\.([a-z0-9]{1,8})$/i.exec(file.name)?.[1]?.toLowerCase() || "bin";
+  const key = `${user.tenantId}/wa/out-${Date.now().toString(36)}${randomBytes(6).toString("hex")}.${ext}`;
+  await putObject(key, await readFileBuffer(file.key), { contentType: file.mime });
+  return sendWaMediaAction(chatId, { key, mime: file.mime, name: file.name, size: file.size }, caption);
 }
 
 /** 图片按图片发（对方直接看到），视频、语音同理，其他一律按文件发 */
