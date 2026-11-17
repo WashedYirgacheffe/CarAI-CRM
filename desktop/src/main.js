@@ -13,6 +13,8 @@ const ORIGIN = new URL(CRM_URL).origin;
 const VERSION = app.getVersion();
 
 if (!app.requestSingleInstanceLock()) app.quit();
+// Windows：任务栏分组和系统通知用的应用 id，要和安装包的 appId 一致
+if (process.platform === "win32") app.setAppUserModelId("com.caraicrm.desktop");
 
 let win = null;
 let tray = null;
@@ -40,7 +42,9 @@ function deviceName() {
 
 function osLabel() {
   const v = process.getSystemVersion?.() || os.release();
-  return process.platform === "darwin" ? `macOS ${v} · ${process.arch}` : `${process.platform} ${v}`;
+  if (process.platform === "darwin") return `macOS ${v} · ${process.arch}`;
+  if (process.platform === "win32") return `Windows ${os.release()} · ${process.arch}`;
+  return `${process.platform} ${v}`;
 }
 
 const STATE_TEXT = {
@@ -101,7 +105,7 @@ function refreshTray() {
       },
       { type: "separator" },
       ...updateItems,
-      { label: "退出车车 CRM", accelerator: "Command+Q", click: () => ((quitting = true), app.quit()) },
+      { label: "退出车车 CRM", accelerator: "CmdOrCtrl+Q", click: () => ((quitting = true), app.quit()) },
     ]),
   );
 }
@@ -204,6 +208,8 @@ function createWindow() {
     minHeight: 600,
     title: "车车 CRM",
     show: false,
+    // Windows 上不显示 File/Edit 那一行菜单（按 Alt 才出来）
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
@@ -245,10 +251,15 @@ function showWindow() {
 }
 
 function createTray() {
-  // 模板图标：系统按菜单栏深浅色自动反色（@2x 自动匹配）
-  const icon = nativeImage.createFromPath(path.join(app.getAppPath(), "build", "trayTemplate.png"));
-  icon.setTemplateImage(true);
+  const mac = process.platform === "darwin";
+  // Mac 用模板图标：系统按菜单栏深浅色自动反色（@2x 自动匹配）；Windows 托盘用彩色图标
+  const icon = mac
+    ? nativeImage.createFromPath(path.join(app.getAppPath(), "build", "trayTemplate.png"))
+    : nativeImage.createFromPath(path.join(app.getAppPath(), "build", "icon.ico"));
+  if (mac) icon.setTemplateImage(true);
   tray = new Tray(icon);
+  // Windows 习惯单击托盘图标打开主窗口，右键出菜单
+  if (!mac) tray.on("click", showWindow);
   trayIconMissing = icon.isEmpty();
   refreshTray();
 }

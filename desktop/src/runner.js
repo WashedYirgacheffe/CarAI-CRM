@@ -36,7 +36,7 @@ function nodeEnv(extra = {}) {
 /** 一次性的子进程（下载内核等），退出软件时一起结束 */
 const helpers = new Set();
 export function killHelpers() {
-  for (const c of helpers) if (c.exitCode === null) c.kill("SIGTERM");
+  for (const c of helpers) if (c.exitCode === null) killTree(c);
 }
 
 function runNode(file, args, env, onLine) {
@@ -84,6 +84,7 @@ const BROWSER_NAME = "车车浏览器";
  * 内核是链接器 ad-hoc 签名，Info.plist 不在签名范围内，改了不用重签。每次启动检查一遍（内核升级会换新目录）。
  */
 function brandBrowser() {
+  if (process.platform === "win32") return brandBrowserWin();
   if (process.platform !== "darwin") return;
   const root = path.join(app.getPath("home"), "Library", "Caches", "camoufox", "browsers");
   const icon = [path.join(process.resourcesPath, "icon.icns"), path.join(app.getAppPath(), "build", "icon.icns")].find((p) => fs.existsSync(p));
@@ -131,6 +132,65 @@ function brandBrowser() {
       fs.appendFileSync(logFile(), `改浏览器名字和图标失败：${e instanceof Error ? e.message : e}\n`);
     }
   }
+}
+
+/**
+ * Windows：改 camoufox.exe 的版本信息（任务栏显示的名字取 FileDescription）和图标。
+ * 内核没有签名，改资源不影响运行；改完在旁边留个标记，下次不再改。
+ */
+function brandBrowserWin() {
+  const base = process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local");
+  const root = path.join(base, "camoufox", "camoufox", "Cache", "browsers");
+  const icon = path.join(app.getAppPath(), "build", "icon.ico");
+  const exes = [];
+  try {
+    for (const channel of fs.readdirSync(root))
+      for (const ver of fs.readdirSync(path.join(root, channel))) {
+        const exe = path.join(root, channel, ver, "camoufox.exe");
+        if (fs.existsSync(exe)) exes.push(exe);
+      }
+  } catch {
+    return;
+  }
+  const { NtExecutable, NtExecutableResource, Resource, Data } = require("resedit");
+  for (const exe of exes) {
+    const mark = path.join(path.dirname(exe), ".cheche-branded");
+    if (fs.existsSync(mark)) continue;
+    try {
+      const bin = NtExecutable.from(fs.readFileSync(exe));
+      const res = NtExecutableResource.from(bin);
+      const vi = Resource.VersionInfo.fromEntries(res.entries)[0] ?? Resource.VersionInfo.createEmpty();
+      const langs = vi.getAllLanguagesForStringValues();
+      const lang = langs[0] ?? { lang: 0x0409, codepage: 1200 };
+      vi.setStringValues(lang, { FileDescription: BROWSER_NAME, ProductName: BROWSER_NAME, CompanyName: "车车 CRM" });
+      vi.outputToResourceEntries(res.entries);
+      if (fs.existsSync(icon)) {
+        // 程序图标是编号最小的那组图标
+        const groups = Resource.IconGroupEntry.fromEntries(res.entries);
+        const first = groups.sort((a, b) => (typeof a.id === "number" && typeof b.id === "number" ? a.id - b.id : 0))[0];
+        const icons = Data.IconFile.from(fs.readFileSync(icon)).icons.map((i) => i.data);
+        Resource.IconGroupEntry.replaceIconsForResource(res.entries, first?.id ?? 1, first?.lang ?? lang.lang, icons);
+      }
+      res.outputResource(bin);
+      const tmp = `${exe}.cheche-tmp`;
+      fs.writeFileSync(tmp, Buffer.from(bin.generate()));
+      fs.renameSync(tmp, exe);
+      fs.writeFileSync(mark, new Date().toISOString());
+    } catch (e) {
+      fs.appendFileSync(logFile(), `改浏览器名字和图标失败：${e instanceof Error ? e.message : e}\n`);
+    }
+  }
+}
+
+/** Windows 上 kill() 会直接结束进程、不走退出流程，浏览器子进程会残留：连同子进程一起结束 */
+function killTree(child, force) {
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      /* 已经退出 */
+    }
+  } else child.kill(force ? "SIGKILL" : "SIGTERM");
 }
 
 export class Runner {
@@ -217,8 +277,8 @@ export class Runner {
     const c = this.child;
     this.child = null;
     if (c && c.exitCode === null) {
-      c.kill("SIGTERM");
-      setTimeout(() => c.exitCode === null && c.kill("SIGKILL"), 8000).unref();
+      killTree(c);
+      setTimeout(() => c.exitCode === null && killTree(c, true), 8000).unref();
     }
     this.set("stopped");
   }
