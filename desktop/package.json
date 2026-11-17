@@ -1,7 +1,7 @@
 {
   "name": "cheche-crm-desktop",
   "productName": "车车 CRM",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "车车 CRM 桌面版：CRM 主窗口 + 内置社媒环境运行器（Camoufox）",
   "type": "module",

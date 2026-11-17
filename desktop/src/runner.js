@@ -1,6 +1,6 @@
 // 环境运行器子进程：用 Electron 自带的 Node（ELECTRON_RUN_AS_NODE）跑 dist/runner.mjs。
 // 崩溃自动重启；首次运行先下载 Camoufox 浏览器内核。
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -65,13 +65,72 @@ export async function ensureBrowser(onProgress) {
   await runNode(camoufoxCli(), ["active"], {}, (l) => {
     if (/not fetched/i.test(l)) notFetched = true;
   });
-  if (!notFetched) return true;
-  onProgress?.("正在下载浏览器内核（只在第一次，文件较大，请保持联网）…");
-  const code = await runNode(camoufoxCli(), ["fetch"], {}, (l) => {
-    const m = /(\d{1,3})%/.exec(l);
-    if (m) onProgress?.(`正在下载浏览器内核 ${m[1]}%`);
-  });
-  return code === 0;
+  if (notFetched) {
+    onProgress?.("正在下载浏览器内核（只在第一次，文件较大，请保持联网）…");
+    const code = await runNode(camoufoxCli(), ["fetch"], {}, (l) => {
+      const m = /(\d{1,3})%/.exec(l);
+      if (m) onProgress?.(`正在下载浏览器内核 ${m[1]}%`);
+    });
+    if (code !== 0) return false;
+  }
+  brandBrowser();
+  return true;
+}
+
+const BROWSER_NAME = "车车浏览器";
+
+/**
+ * 把下载的内核改成「车车浏览器」：程序坞和菜单栏的名字、图标都换成我们的。
+ * 内核是链接器 ad-hoc 签名，Info.plist 不在签名范围内，改了不用重签。每次启动检查一遍（内核升级会换新目录）。
+ */
+function brandBrowser() {
+  if (process.platform !== "darwin") return;
+  const root = path.join(app.getPath("home"), "Library", "Caches", "camoufox", "browsers");
+  const icon = [path.join(process.resourcesPath, "icon.icns"), path.join(app.getAppPath(), "build", "icon.icns")].find((p) => fs.existsSync(p));
+  const apps = [];
+  try {
+    for (const channel of fs.readdirSync(root))
+      for (const ver of fs.readdirSync(path.join(root, channel))) {
+        const a = path.join(root, channel, ver, "Camoufox.app");
+        if (fs.existsSync(path.join(a, "Contents", "Info.plist"))) apps.push(a);
+      }
+  } catch {
+    return;
+  }
+  for (const a of apps) {
+    const res = path.join(a, "Contents", "Resources");
+    const plist = path.join(a, "Contents", "Info.plist");
+    try {
+      if (fs.readFileSync(plist, "utf8").includes(`<string>${BROWSER_NAME}</string>`)) continue;
+      const set = (...args) => execFileSync("plutil", [...args, plist]);
+      set("-replace", "CFBundleName", "-string", BROWSER_NAME);
+      set("-replace", "CFBundleDisplayName", "-string", BROWSER_NAME);
+      if (icon) {
+        fs.copyFileSync(icon, path.join(res, "cheche.icns"));
+        set("-replace", "CFBundleIconFile", "-string", "cheche.icns");
+        // 新系统优先用 Assets.car 里的 AppIcon，去掉才会用上面的图标文件
+        try {
+          set("-remove", "CFBundleIconName");
+        } catch {
+          /* 没有这个键 */
+        }
+      }
+      for (const lp of fs.readdirSync(res).filter((f) => f.endsWith(".lproj"))) {
+        const strings = path.join(res, lp, "InfoPlist.strings");
+        if (fs.existsSync(strings)) fs.writeFileSync(strings, `CFBundleName = "${BROWSER_NAME}";\nCFBundleDisplayName = "${BROWSER_NAME}";\n`);
+      }
+      // 让系统重新读名字和图标
+      const now = new Date();
+      fs.utimesSync(a, now, now);
+      try {
+        execFileSync("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", ["-f", a]);
+      } catch {
+        /* 刷新不了也不影响使用 */
+      }
+    } catch (e) {
+      fs.appendFileSync(logFile(), `改浏览器名字和图标失败：${e instanceof Error ? e.message : e}\n`);
+    }
+  }
 }
 
 export class Runner {
