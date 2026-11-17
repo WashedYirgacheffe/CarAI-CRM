@@ -308,7 +308,7 @@ export function CustomerDetail({
         </div>
       </div>
 
-      {/* 手机 / 平板单栏时用 order 重新排：档案 → AI → 联系人 → 商机/日程 → 写跟进 → 页签 → 资料 */}
+      {/* 手机 / 平板单栏时用 order 重新排：档案 → AI → 联系人 → 页签（客户往来）→ 商机/日程 → 写跟进 → 资料 */}
       {/* xl：两栏，穿透放在右栏最上面；2xl：三栏，穿透单独占右侧一栏 */}
       <div
         className={cn(
@@ -450,60 +450,20 @@ export function CustomerDetail({
           </Panel>
         </div>
 
-        {/* 中栏：进行中的商机 / 计划日程 + 写跟进 + 页签 */}
+        {/* 中栏：页签（客户往来，最常用）+ 进行中的商机 / 计划日程 + 写跟进 */}
         <div className={cn("min-w-0 max-xl:contents xl:col-start-2 xl:space-y-4", research && "xl:row-start-2 2xl:row-start-1")}>
-          <div className="space-y-3 max-xl:order-4">
-            {perms.viewOpportunity && (
-              <CollapseBar
-                title="进行中的商机"
-                count={openOpps.length}
-                action={
-                  canEdit &&
-                  perms.createOpportunity && (
-                    <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("opportunity")}>
-                      <Plus /> 添加
-                    </Button>
-                  )
-                }
-              >
-                {openOpps.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">没有进行中的商机</p>
-                ) : (
-                  <ul className="divide-y divide-border/70">
-                    {openOpps.map((o) => (
-                      <OppRow key={o.id} o={o} tz={tz} onEdit={canEdit ? () => setEditingOpp(o) : undefined} />
-                    ))}
-                  </ul>
-                )}
-              </CollapseBar>
-            )}
-            <CollapseBar
-              title="跟进提醒"
-              count={openTasks.length}
-              action={
-                canEdit && (
-                  <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("task")}>
-                    <Plus /> 设提醒
-                  </Button>
-                )
-              }
-            >
-              <TaskList tasks={openTasks} tz={tz} showCustomer={false} empty="没有待办提醒。在等工厂报价、等船期？点「设提醒」" />
-            </CollapseBar>
-          </div>
-
-          {canEdit && (
-            <div id="follow-up" className="scroll-mt-24 max-xl:order-5">
-              <FollowUpForm customerId={c.id} tz={tz} />
-            </div>
-          )}
-
-          {insights && <div className="max-xl:order-6">{insights}</div>}
-
-          <section className="surface max-xl:order-6">
+          <section
+            aria-label="客户往来"
+            // 最常用的模块：放在中栏最上面，带品牌色描边和更高的阴影，跟其他卡片区分开
+            className="surface relative shadow-e2 ring-1 ring-brand/20 max-xl:order-4"
+          >
             <Tabs defaultValue="timeline" className="gap-0">
               {/* 页签吸顶（顶栏下方） */}
-              <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 overflow-x-auto rounded-t-2xl border-b border-border/70 bg-card px-1 [scrollbar-width:none] md:top-[calc(3.5rem+env(safe-area-inset-top))] md:px-3">
+              <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 flex items-center gap-2 overflow-x-auto rounded-t-2xl border-b border-brand/15 bg-[linear-gradient(180deg,var(--brand-soft),var(--card))] bg-card px-1 [scrollbar-width:none] md:top-[calc(3.5rem+env(safe-area-inset-top))] md:px-3">
+                <span className="flex shrink-0 items-center gap-1.5 pl-2 text-[13px] font-semibold text-brand-ink max-md:hidden">
+                  <span aria-hidden className="size-1.5 rounded-full bg-brand" />
+                  客户往来
+                </span>
                 <TabsList className="my-1.5">
                   <TabsTrigger value="timeline" className="px-3">
                     动态 {activities.length > 0 && <TabCount n={activities.length} />}
@@ -544,7 +504,7 @@ export function CustomerDetail({
                   )}
                 </TabsList>
               </div>
-              <div className="p-4 md:p-5">
+              <div className="p-4 md:p-5 xl:max-h-[min(42rem,72svh)] xl:overflow-y-auto xl:[scrollbar-gutter:stable]">
                 <TabsContent value="timeline">
                   <Timeline activities={activities} tz={tz} customerId={c.id} />
                 </TabsContent>
@@ -624,6 +584,55 @@ export function CustomerDetail({
               </div>
             </Tabs>
           </section>
+
+          <div className="space-y-3 max-xl:order-5">
+            {perms.viewOpportunity && (
+              <CollapseBar
+                title="进行中的商机"
+                count={openOpps.length}
+                action={
+                  canEdit &&
+                  perms.createOpportunity && (
+                    <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("opportunity")}>
+                      <Plus /> 添加
+                    </Button>
+                  )
+                }
+              >
+                {openOpps.length === 0 ? (
+                  <p className="py-4 text-center text-sm text-muted-foreground">没有进行中的商机</p>
+                ) : (
+                  <ul className="divide-y divide-border/70">
+                    {openOpps.map((o) => (
+                      <OppRow key={o.id} o={o} tz={tz} onEdit={canEdit ? () => setEditingOpp(o) : undefined} />
+                    ))}
+                  </ul>
+                )}
+              </CollapseBar>
+            )}
+            <CollapseBar
+              title="跟进提醒"
+              count={openTasks.length}
+              action={
+                canEdit && (
+                  <Button size="xs" variant="ghost" className="text-primary" onClick={() => setModal("task")}>
+                    <Plus /> 设提醒
+                  </Button>
+                )
+              }
+            >
+              <TaskList tasks={openTasks} tz={tz} showCustomer={false} empty="没有待办提醒。在等工厂报价、等船期？点「设提醒」" />
+            </CollapseBar>
+          </div>
+
+          {canEdit && (
+            <div id="follow-up" className="scroll-mt-24 max-xl:order-5">
+              <FollowUpForm customerId={c.id} tz={tz} />
+            </div>
+          )}
+
+          {insights && <div className="max-xl:order-6">{insights}</div>}
+
         </div>
 
         {/* 右栏：AI 穿透（客户公司、关键人、社媒账号、进口数据），作为详情页的重点 */}

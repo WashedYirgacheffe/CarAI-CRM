@@ -3,7 +3,7 @@ import { can, getCurrentUser } from "@/server/auth";
 import { learnFromTurn, type TurnDigest } from "@/server/ai-learn";
 import { aiConfigured } from "@/server/ai";
 import { validThreadId } from "@/server/ai-threads";
-import { runCanvasTurn, type Attachment, type CanvasEvent, type CanvasTurn, type PageSnippet } from "@/server/canvas-ai";
+import { runCanvasTurn, type Attachment, type CanvasEvent, type CanvasTurn, type PageSnippet, type Viewing } from "@/server/canvas-ai";
 
 const fail = (message: string, status = 400) => new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 
@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     attachments?: unknown;
     snippet?: unknown;
     threadId?: unknown;
+    viewing?: unknown;
   } | null;
   const attachments: Attachment[] = (Array.isArray(body?.attachments) ? body.attachments : [])
     .filter(
@@ -47,6 +48,12 @@ export async function POST(request: Request) {
   const snippet: PageSnippet | undefined =
     sn && typeof sn.text === "string" && sn.text.trim()
       ? { label: String(sn.label ?? ""), text: sn.text, href: typeof sn.href === "string" ? sn.href : undefined }
+      : undefined;
+  const vw = body?.viewing as Record<string, unknown> | undefined;
+  const id = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_-]{1,60}$/.test(v) ? v : undefined);
+  const viewing: Viewing | undefined =
+    vw && (id(vw.fileId) || id(vw.waMessageId) || (id(vw.mailId) && id(vw.attId)))
+      ? { name: String(vw.name ?? "").slice(0, 200), fileId: id(vw.fileId), waMessageId: id(vw.waMessageId), mailId: id(vw.mailId), attId: id(vw.attId) }
       : undefined;
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   if (!message && !attachments.length && !snippet) return fail("请输入内容");
@@ -87,6 +94,7 @@ export async function POST(request: Request) {
           name: typeof body?.name === "string" ? body.name : undefined,
           narrow: body?.narrow === true,
           threadId: validThreadId(body?.threadId) ? body.threadId : undefined,
+          viewing,
         },
         emit,
         abort.signal,

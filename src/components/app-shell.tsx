@@ -50,6 +50,7 @@ import { selectionSkyUrl } from "@/lib/agentes/sky/selection";
 import { ModuleColorContext, RailHorizon } from "@/components/agentes/sky";
 import type { AgentPresetColor } from "@/lib/agentes/agent/engine.js";
 import { cn } from "@/lib/utils";
+import { FilePreviewHost } from "@/components/crm/file-preview";
 import { useSlideIndicator } from "@/hooks/use-slide-indicator";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -214,6 +215,7 @@ export function AppShell({
           </main>
         </div>
 
+        <FilePreviewHost />
         {ai && (
           <Suspense>
             <AiDock storageKey={ai} />

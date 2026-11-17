@@ -79,7 +79,7 @@ export async function prepareAction(user: CurrentUser, kind: AiActionKind, p: P)
       const to = str(p.to, 500);
       const subject = str(p.subject, 500);
       const text = str(p.text, 20000);
-      const compose = `/mail/compose?${new URLSearchParams({ to, subject, body: text }).toString()}`.slice(0, 6000);
+
       if (!account) return "用户还没有绑定发件邮箱，请用 open_page 打开 /settings/mailboxes";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+/.test(to)) return "to 必须是邮箱地址（先用 customer_channels 查联系人邮箱）";
       if (!subject && !text) return "主题和正文不能都为空";
@@ -94,6 +94,7 @@ export async function prepareAction(user: CurrentUser, kind: AiActionKind, p: P)
         attached.push(found.file.name);
       }
       if (bytes > 25 * 1024 * 1024) return "附件合计超过 25MB，少带几个";
+      const compose = `/mail/compose?${new URLSearchParams({ to, subject, ...(fileIds.length ? { files: fileIds.join(",") } : {}), body: text }).toString()}`.slice(0, 6000);
       return {
         kind,
         title: `发邮件给 ${to}`,

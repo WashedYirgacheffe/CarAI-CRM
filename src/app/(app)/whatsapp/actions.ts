@@ -702,3 +702,54 @@ ${clip(draft, 3000)}`,
     return denied((e as Error).message);
   }
 }
+
+export type ProductDetail = {
+  id: string;
+  name: string;
+  nameCn: string;
+  sku: string;
+  model: string | null;
+  spec: string | null;
+  images: string[];
+  price: string;
+  currency: string;
+  unit: string;
+  moq: number | null;
+  hsCode: string | null;
+  packing: string | null;
+  bullets: string[];
+  desc: string | null;
+};
+
+/** 侧栏双击商品：看详情（图片、规格、包装、卖点） */
+export async function productDetailAction(id: string): Promise<ProductDetail | null> {
+  const user = await waUser();
+  if (!user) return null;
+  const p = await tenantDb(user.tenantId).product.findFirst({ where: { id } });
+  if (!p) return null;
+  const packing = [
+    p.cartonQty && `${p.cartonQty} ${p.unit}/箱`,
+    p.cartonSize && `外箱 ${p.cartonSize}`,
+    p.grossWeight && `毛重 ${p.grossWeight.toString()} kg`,
+    p.netWeight && `净重 ${p.netWeight.toString()} kg`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return {
+    id: p.id,
+    name: p.nameEn || p.name,
+    nameCn: p.name,
+    sku: p.sku,
+    model: p.model,
+    spec: p.spec,
+    images: [...new Set([p.imageUrl, ...p.images].filter((x): x is string => !!x))].slice(0, 9),
+    price: p.price.toString(),
+    currency: p.currency,
+    unit: p.unit,
+    moq: p.moq,
+    hsCode: p.hsCode,
+    packing: packing || null,
+    bullets: p.bullets.slice(0, 6),
+    desc: (p.listingDesc || p.remark)?.slice(0, 1500) ?? null,
+  };
+}
