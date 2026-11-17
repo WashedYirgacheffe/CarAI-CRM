@@ -1,5 +1,6 @@
 "use client";
 
+import { FileChip } from "@/components/crm/file-preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeroPage, HeroText, markBack } from "@/lib/nav-hero";
 import Link from "next/link";
@@ -7,7 +8,6 @@ import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   Inbox,
-  Download,
   Forward,
   Languages,
   LoaderCircle,
@@ -126,11 +126,6 @@ const TR_MODES: { key: TrMode; label: string }[] = [
   { key: "translated", label: "译文" },
 ];
 
-function sizeLabel(n: number) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 export function MailReader({
   message: m,
@@ -450,15 +445,17 @@ export function MailReader({
             <p className="mb-2 text-xs text-muted-foreground">附件（{m.attachments.length}）</p>
             <div className="flex flex-wrap gap-2">
               {m.attachments.map((a) => (
-                <a
+                <FileChip
                   key={a.id}
-                  href={`/api/mail/attachments/${m.id}/${a.id}`}
-                  className="inline-flex max-w-xs items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-muted"
-                >
-                  <Download className="size-3.5 shrink-0" />
-                  <span className="truncate">{a.filename}</span>
-                  <span className="shrink-0 text-muted-foreground">{sizeLabel(a.size)}</span>
-                </a>
+                  className="max-w-xs border bg-transparent text-xs"
+                  file={{
+                    src: `/api/mail/attachments/${m.id}/${a.id}`,
+                    download: `/api/mail/attachments/${m.id}/${a.id}`,
+                    name: a.filename,
+                    size: a.size,
+                    save: { mailId: m.id, attId: a.id, customerId: m.customer?.id },
+                  }}
+                />
               ))}
             </div>
           </div>

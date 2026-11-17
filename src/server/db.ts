@@ -19,6 +19,7 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 /** 带 tenantId 字段、需要强制隔离的模型。新增业务表时登记到这里。 */
 const TENANT_MODELS = new Set<string>([
+  "CrmFile",
   "User",
   "Department",
   "Role",

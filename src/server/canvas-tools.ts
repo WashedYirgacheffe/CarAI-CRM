@@ -341,7 +341,10 @@ export async function readMail(user: CurrentUser, mailId: string) {
       .replace(/\n{3,}/g, "\n\n")
       .trim()
       .slice(0, 6000),
-    attachments: (m.attachments as { filename?: string; contentType?: string; size?: number }[]).map((x) => x.filename).filter(Boolean),
+    // read_file / save_attachment 用 mailId + attId
+    attachments: (m.attachments as { id?: string; filename?: string; size?: number }[])
+      .filter((x) => x.id && x.filename)
+      .map((x) => ({ attId: x.id, name: x.filename, size: x.size })),
     customer: m.customer ? { customerId: m.customer.id, name: m.customer.name } : null,
     lead: m.lead ? { leadId: m.lead.id, company: m.lead.companyName } : null,
     earlierInThread: before.map((b) => ({ from: b.fromAddr, at: formatDateTime(b.date, user.timezone), text: clip(b.text ?? b.snippet, 600) })),
@@ -420,7 +423,7 @@ export async function readWaChat(user: CurrentUser, chatId: string, limit = 30) 
       text: clip(m.body, 600) || undefined,
       translation: m.translation ? clip(m.translation, 600) : undefined,
       ...(m.type === "image" && m.mediaKey ? { imageMessageId: m.id } : {}),
-      ...(m.mediaName ? { file: m.mediaName } : {}),
+      ...(m.mediaKey && m.type !== "image" && m.type !== "sticker" ? { fileMessageId: m.id, file: m.mediaName || m.type } : {}),
       failed: m.status === "FAILED" || undefined,
     })),
   };

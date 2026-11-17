@@ -59,6 +59,7 @@ import { OpportunityForm, type StageOption } from "@/components/crm/opportunity-
 import { TaskForm, TaskList, type TaskItem } from "@/components/crm/tasks";
 import type { CustomerAccess } from "@/server/customers";
 import { CustomerDocsCard, type CustomerDocRow } from "./customer-docs";
+import { CustomerFiles, type CustomerFileRow } from "./customer-files";
 import { PaneEmpty, PaneToolbar, Panel } from "./detail-ui";
 import { ShareViewRow } from "./share-view-row";
 import {
@@ -174,6 +175,7 @@ export function CustomerDetail({
   tasks,
   quotations,
   orders,
+  files,
   comms,
   insights,
   memories,
@@ -201,6 +203,8 @@ export function CustomerDetail({
   /** null = 没有查看权限 */
   quotations: CustomerDocRow[] | null;
   orders: CustomerDocRow[] | null;
+  /** 客户资料：PI、CI、CO、合同… */
+  files: CustomerFileRow[];
   comms: CommsProp;
 }) {
   const router = useRouter();
@@ -519,6 +523,9 @@ export function CustomerDetail({
                       订单 <TabCount n={orders.length} />
                     </TabsTrigger>
                   )}
+                  <TabsTrigger value="files" className="px-3">
+                    文件 {files.length > 0 && <TabCount n={files.length} />}
+                  </TabsTrigger>
                   <TabsTrigger value="tasks" className="px-3">
                     日程 <TabCount n={openTasks.length} />
                   </TabsTrigger>
@@ -580,6 +587,9 @@ export function CustomerDetail({
                     <CustomerDocsCard kind="order" customerId={c.id} rows={orders} canCreate={canEdit && perms.createOrder} tz={tz} />
                   </TabsContent>
                 )}
+                <TabsContent value="files">
+                  <CustomerFiles customerId={c.id} files={files} canEdit={canEdit} tz={tz} />
+                </TabsContent>
                 <TabsContent value="tasks">
                   <PaneToolbar
                     action={

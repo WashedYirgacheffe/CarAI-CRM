@@ -94,6 +94,7 @@ model Tenant {
   socialThreads     SocialThread[]
   socialMessages    SocialMessage[]
   quickReplies      QuickReply[]
+  files             CrmFile[]
 }
 
 enum UserStatus {
@@ -147,6 +148,7 @@ model User {
   matrixAccounts     MatrixAccount[] @relation("MatrixAccountOwner")
   matrixDevices      MatrixDevice[]
   socialThreads      SocialThread[]  @relation("SocialThreadAssignee")
+  files              CrmFile[]
 
   @@index([tenantId])
 }
@@ -310,6 +312,7 @@ model Customer {
   socials       CustomerSocial[]
   socialPosts   SocialPost[]
   socialThreads SocialThread[]
+  files         CrmFile[]
 
   @@unique([tenantId, nameKey])
   @@index([tenantId, ownerId])
@@ -1739,4 +1742,35 @@ model QuickReply {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, ownerId])
+}
+
+/// 文件：客户资料里的 PI、CI、CO、装箱单、合同等；customerId 为空 = 发给 AI 看的临时文件（只有上传人能看）
+model CrmFile {
+  id          String    @id @default(cuid())
+  tenantId    String
+  customerId  String?
+  /// PI / CI / PL / CO / BL / CONTRACT / QUOTE / CERT / PHOTO / OTHER
+  category    String    @default("OTHER")
+  name        String
+  mime        String
+  size        Int
+  /// 存储 key：<tenantId>/files/<id>.<ext>
+  key         String
+  /// 抽出来的文字（给 AI 读、全文搜索），太长的截断
+  text        String?
+  /// 抽文字的情况：ok / empty（扫描件等没文字） / failed / skip（图片、视频）
+  textState   String    @default("skip")
+  note        String?
+  /// upload / ai / whatsapp / mail
+  source      String    @default("upload")
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId, createdAt])
+  @@index([tenantId, createdById])
 }

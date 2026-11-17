@@ -1,9 +1,6 @@
-import { FileText } from "@/components/icons";
+import { FileChip } from "@/components/crm/file-preview";
 
 export type WaMediaInfo = { type: string; mime: string; name: string | null; size: number | null } | null;
-
-const sizeText = (n: number | null) =>
-  n == null ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 /** WhatsApp 消息里的图片 / 视频 / 语音 / 文件（走 /api/whatsapp/media 鉴权后跳转到 OSS） */
 export function WaMedia({ id, media, onOpen }: { id: string; media: WaMediaInfo; onOpen?: () => void }) {
@@ -29,11 +26,10 @@ export function WaMedia({ id, media, onOpen }: { id: string; media: WaMediaInfo;
   if (media.type === "video") return <video src={src} controls preload="metadata" className="mb-1 max-h-72 max-w-full rounded-md bg-black" />;
   if (media.type === "audio") return <audio src={src} controls preload="none" className="mb-1 h-9 max-w-full" />;
   return (
-    <a href={`${src}?download`} className="mb-1 flex items-center gap-2 rounded-md bg-black/5 px-2 py-1.5 hover:bg-black/10">
-      <FileText className="size-5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate">{media.name || "文件"}</span>
-      <span className="shrink-0 text-[11px] text-muted-foreground">{sizeText(media.size)}</span>
-    </a>
+    <FileChip
+      className="mb-1"
+      file={{ src, download: `${src}?download`, name: media.name || "文件", mime: media.mime, size: media.size, save: { waMessageId: id } }}
+    />
   );
 }
 

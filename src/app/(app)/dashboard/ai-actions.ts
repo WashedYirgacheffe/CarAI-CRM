@@ -1,8 +1,9 @@
 "use server";
 
+import { deleteFileAction, saveAttachmentAction, updateFileAction } from "@/app/(app)/files/actions";
 import { requireUser } from "@/server/auth";
 import { sendMailAction } from "@/app/(app)/mail/actions";
-import { sendFormAction, sendProductAction, sendQuotationAction, sendWaMessageAction } from "@/app/(app)/whatsapp/actions";
+import { sendCrmFileAction, sendFormAction, sendProductAction, sendQuotationAction, sendWaMessageAction } from "@/app/(app)/whatsapp/actions";
 import { deleteTaskAction, saveTaskAction, toggleTaskAction } from "@/app/(app)/schedule/actions";
 import {
   addFollowUpAction,
@@ -62,8 +63,11 @@ export async function runAiActionAction(kind: string, raw: Record<string, string
   switch (kind) {
     case "send_whatsapp":
       return out(await sendWaMessageAction(p.chatId, p.text), "已发送，几秒内送达");
-    case "send_email":
-      return out(await sendMailAction({}, form(p, ["accountId", "to", "subject", "text"])), "邮件已发送");
+    case "send_email": {
+      const fd = form(p, ["accountId", "to", "subject", "text"]);
+      for (const id of ids(p.fileIds)) fd.append("fileIds", id);
+      return out(await sendMailAction({}, fd), "邮件已发送");
+    }
     case "create_quotation": {
       const r = await saveQuotationAction(
         {},
@@ -173,5 +177,25 @@ export async function runAiActionAction(kind: string, raw: Record<string, string
       return out(await deleteOpportunityAction(p.opportunityId), "商机已删除");
     case "delete_product":
       return out(await deleteProductAction(p.productId), "产品已删除");
+    case "update_file": {
+      const r = await updateFileAction(p.fileId, { name: p.name, category: p.category, note: p.note, customerId: p.customerId });
+      return out(r, "文件已更新", r.ok && p.customerId ? { href: `/customers/${p.customerId}`, hrefLabel: "打开客户" } : {});
+    }
+    case "delete_file":
+      return out(await deleteFileAction(p.fileId), "文件已删除");
+    case "save_attachment": {
+      const r = await saveAttachmentAction({ customerId: p.customerId, waMessageId: p.waMessageId, mailId: p.mailId, attId: p.attId, category: p.category });
+      return out(r, "已存到客户资料", r.ok ? { href: `/customers/${p.customerId}`, hrefLabel: "打开客户" } : {});
+    }
+    case "send_file_whatsapp": {
+      const list = ids(p.fileIds);
+      let sent = 0;
+      for (const [i, id] of list.entries()) {
+        const r = await sendCrmFileAction(p.chatId, id, i === 0 ? (p.caption ?? "") : "");
+        if (!r.ok) return { ok: false, message: sent ? `已发 ${sent} 个，第 ${i + 1} 个失败：${r.message}` : (r.message ?? "发送失败") };
+        sent++;
+      }
+      return { ok: true, message: list.length > 1 ? `${list.length} 个文件已排队发送` : "文件已排队发送，几秒内送达" };
+    }
   }
 }

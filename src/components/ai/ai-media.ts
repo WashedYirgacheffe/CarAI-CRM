@@ -5,9 +5,13 @@
  * 图片缩到长边 1280 转 JPEG（一张一两百 KB）；视频按时长均匀抽 6～8 帧，模型按帧理解过程。
  */
 
+import { uploadCrmFile } from "@/lib/upload-file";
+
 export type AiAttachment = {
   id: string;
-  kind: "image" | "video";
+  /** file = PDF、Excel、Word 等文档：先传到服务器抽出文字，发给 AI 的是 fileId */
+  kind: "image" | "video" | "file";
+  fileId?: string;
   name: string;
   /** 发给模型的画面（data URL） */
   frames: string[];
@@ -109,7 +113,7 @@ export async function videoAttachment(src: Blob | string, name = "视频"): Prom
   }
 }
 
-/** 选的、粘贴的、拖进来的文件：图片和视频收下，其他的忽略 */
+/** 选的、粘贴的、拖进来的文件：图片、视频在浏览器里处理，其他文件上传后给 AI 读文字 */
 export async function filesToAttachments(files: Iterable<File>): Promise<{ items: AiAttachment[]; skipped: number }> {
   const items: AiAttachment[] = [];
   let skipped = 0;
@@ -117,7 +121,10 @@ export async function filesToAttachments(files: Iterable<File>): Promise<{ items
     try {
       if (f.type.startsWith("image/")) items.push(await imageAttachment(f, f.name || "图片"));
       else if (f.type.startsWith("video/")) items.push(await videoAttachment(f, f.name || "视频"));
-      else skipped++;
+      else {
+        const r = await uploadCrmFile(f);
+        items.push({ id: uid(), kind: "file", name: r.name, fileId: r.id, frames: [], thumb: "" });
+      }
     } catch {
       skipped++;
     }

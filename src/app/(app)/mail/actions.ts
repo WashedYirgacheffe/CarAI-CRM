@@ -1,5 +1,6 @@
 "use server";
 
+import { fileForUser, readFileBuffer } from "@/server/files";
 import { syncCustomerTimes } from "@/server/pool";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -198,6 +199,15 @@ export async function sendMailAction(_p: ActionState, fd: FormData): Promise<Act
     total += f.size;
     if (total > MAX_ATTACHMENT_BYTES) return denied("附件合计不能超过 25MB");
     files.push({ filename: f.name, contentType: f.type || "application/octet-stream", content: Buffer.from(await f.arrayBuffer()) });
+  }
+
+  // 客户资料里的文件（PI、CO…）当附件发
+  for (const fid of new Set(fd.getAll("fileIds").filter((v): v is string => typeof v === "string" && !!v))) {
+    const found = await fileForUser(user, fid);
+    if (!found) return denied("附件文件不存在或没有权限");
+    total += found.file.size;
+    if (total > MAX_ATTACHMENT_BYTES) return denied("附件合计不能超过 25MB");
+    files.push({ filename: found.file.name, contentType: found.file.mime, content: await readFileBuffer(found.file.key) });
   }
 
   // 转发：带上原邮件的附件

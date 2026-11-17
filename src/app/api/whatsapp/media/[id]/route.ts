@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/server/auth";
 import { tenantDb } from "@/server/db";
 import { getCustomerForUser } from "@/server/customers";
 import { serveObject } from "@/server/storage";
+import { previewResponse } from "@/server/files";
 
 /** WhatsApp 图片 / 视频 / 语音 / 文件：账号本人，或能查看所关联客户的同事 */
 export async function GET(req: NextRequest, ctx: RouteContext<"/api/whatsapp/media/[id]">) {
@@ -16,6 +17,8 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/whatsapp/med
   if (!m?.mediaKey) return new Response("Not found", { status: 404 });
   const allowed = m.account.userId === user.id || (m.chat.customerId && (await getCustomerForUser(user, m.chat.customerId)));
   if (!allowed) return new Response("Forbidden", { status: 403 });
+  const preview = req.nextUrl.searchParams.get("preview");
+  if (preview) return previewResponse(preview, m.mediaKey, m.mediaName ?? "file", m.mediaMime ?? "application/octet-stream", req.nextUrl.searchParams.get("n"));
   const download = req.nextUrl.searchParams.has("download");
   return serveObject(m.mediaKey, {
     contentType: m.mediaMime ?? "application/octet-stream",

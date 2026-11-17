@@ -35,6 +35,11 @@ export const AI_ACTION_KINDS = [
   "move_opportunity",
   "delete_opportunity",
   "delete_product",
+  // 文件（客户资料、WhatsApp 文件、邮件附件）
+  "update_file",
+  "delete_file",
+  "send_file_whatsapp",
+  "save_attachment",
 ] as const;
 export type AiActionKind = (typeof AI_ACTION_KINDS)[number];
 export const isAiActionKind = (k: unknown): k is AiActionKind => typeof k === "string" && (AI_ACTION_KINDS as readonly string[]).includes(k);

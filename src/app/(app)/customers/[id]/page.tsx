@@ -48,7 +48,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
   const { customer, access } = found;
   const db = tenantDb(user.tenantId);
 
-  const [contacts, activities, opportunities, tasks, stages, options, members, quotations, orders] = await Promise.all([
+  const [contacts, activities, opportunities, tasks, stages, options, members, quotations, orders, files] = await Promise.all([
     db.contact.findMany({ where: { customerId: id }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] }),
     db.activity.findMany({
       where: { customerId: id },
@@ -69,6 +69,12 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
     scopeMembers(user),
     can(user, "quotation.view") ? db.quotation.findMany({ where: { customerId: id }, orderBy: { createdAt: "desc" }, take: 100 }) : null,
     can(user, "order.view") ? db.order.findMany({ where: { customerId: id }, orderBy: { orderDate: "desc" }, take: 100 }) : null,
+    db.crmFile.findMany({
+      where: { customerId: id },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      select: { id: true, name: true, mime: true, size: true, category: true, note: true, source: true, createdAt: true, createdBy: { select: { name: true } } },
+    }),
   ]);
 
   const canAi = can(user, "ai.use");
@@ -220,6 +226,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
           paid: o.paidAmount.toString(),
         })) ?? null
       }
+      files={files.map((f) => ({ ...f, createdAt: f.createdAt.toISOString(), createdBy: f.createdBy?.name ?? null }))}
       comms={{
         mailEnabled: mailAccounts.length > 0,
         waEnabled,

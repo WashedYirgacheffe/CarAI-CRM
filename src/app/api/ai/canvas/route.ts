@@ -27,15 +27,22 @@ export async function POST(request: Request) {
     threadId?: unknown;
   } | null;
   const attachments: Attachment[] = (Array.isArray(body?.attachments) ? body.attachments : [])
-    .filter((a): a is Attachment => !!a && (a.kind === "image" || a.kind === "video") && Array.isArray(a.frames))
+    .filter(
+      (a): a is Attachment =>
+        !!a && (((a.kind === "image" || a.kind === "video") && Array.isArray(a.frames)) || (a.kind === "file" && typeof a.fileId === "string")),
+    )
     .slice(0, 6)
-    .map((a) => ({
-      kind: a.kind,
-      name: String(a.name ?? ""),
-      frames: a.frames.filter((f) => typeof f === "string"),
-      times: Array.isArray(a.times) ? a.times.map(Number) : undefined,
-      duration: Number(a.duration) || undefined,
-    }));
+    .map((a) =>
+      a.kind === "file"
+        ? { kind: "file" as const, name: String(a.name ?? ""), frames: [], fileId: String(a.fileId).slice(0, 40) }
+        : {
+            kind: a.kind,
+            name: String(a.name ?? ""),
+            frames: a.frames.filter((f) => typeof f === "string"),
+            times: Array.isArray(a.times) ? a.times.map(Number) : undefined,
+            duration: Number(a.duration) || undefined,
+          },
+    );
   const sn = body?.snippet as Partial<PageSnippet> | undefined;
   const snippet: PageSnippet | undefined =
     sn && typeof sn.text === "string" && sn.text.trim()

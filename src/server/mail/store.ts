@@ -28,6 +28,8 @@ export async function saveAttachment(
   return meta;
 }
 
+export const attachmentKeyOf = (tenantId: string, id: string) => attachmentKey(tenantId, id);
+
 export function readAttachment(tenantId: string, id: string) {
   return getObject(attachmentKey(tenantId, id));
 }
