@@ -118,6 +118,114 @@ export async function extractText(
   }
 }
 
+// ── 扫描版 PDF：每页渲染成图片、裁掉白边，给 AI 看 ──
+
+/** 给模型的图片长边：再大模型也会缩，白占流量 */
+const PAGE_SIDE = 1568;
+
+export type PdfPageImage = { url: string; page: number };
+
+/**
+ * 把 PDF 的第 from 页起最多 max 页渲染成 JPEG（data URL）。先按约 2 倍清晰度渲染，
+ * 再把四周的白边裁掉（扫描件常有大片空白，裁掉后字更大、更好认），最后缩到长边 1568。
+ */
+export async function pdfPageImages(
+  buf: Buffer,
+  opts: { from?: number; max?: number; crop?: boolean; side?: number } = {},
+): Promise<{ pages: PdfPageImage[]; total: number }> {
+  const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
+  const canvas = await import("@napi-rs/canvas");
+  const pdf = await getDocumentProxy(new Uint8Array(buf));
+  const total = pdf.numPages;
+  const from = Math.min(Math.max(1, Math.floor(opts.from ?? 1)), total);
+  const to = Math.min(total, from + Math.max(1, opts.max ?? 4) - 1);
+  const pages: PdfPageImage[] = [];
+  for (let n = from; n <= to; n++) {
+    const page = await pdf.getPage(n);
+    const vp = page.getViewport({ scale: 1 });
+    // 按长边 2400 渲染（A4 约 2.8 倍），小票、名片这类小页面最多放大 4 倍
+    const scale = Math.min(4, 2400 / Math.max(vp.width, vp.height));
+    const png = await renderPageAsImage(pdf, n, {
+      canvasImport: () => import("@napi-rs/canvas"),
+      scale,
+    });
+    const img = await canvas.loadImage(Buffer.from(png));
+    const box =
+      opts.crop === false
+        ? { x: 0, y: 0, w: img.width, h: img.height }
+        : contentBox(img, canvas);
+    const k = Math.min(1, (opts.side ?? PAGE_SIDE) / Math.max(box.w, box.h));
+    const out = canvas.createCanvas(
+      Math.max(1, Math.round(box.w * k)),
+      Math.max(1, Math.round(box.h * k)),
+    );
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, out.width, out.height);
+    const jpg = await out.encode("jpeg", 82);
+    pages.push({
+      url: `data:image/jpeg;base64,${Buffer.from(jpg).toString("base64")}`,
+      page: n,
+    });
+  }
+  return { pages, total };
+}
+
+/** 找出页面上有内容的范围（四周近白色的行列裁掉，留一点边） */
+function contentBox(
+  img: import("@napi-rs/canvas").Image,
+  canvas: typeof import("@napi-rs/canvas"),
+) {
+  const W = img.width;
+  const H = img.height;
+  // 缩小到 1/4 来找边界，快很多
+  const s = 4;
+  const w = Math.max(1, Math.floor(W / s));
+  const h = Math.max(1, Math.floor(H / s));
+  const c = canvas.createCanvas(w, h);
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const ink = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    return d[i] < 225 || d[i + 1] < 225 || d[i + 2] < 225;
+  };
+  // 一行 / 一列里有几个深色点才算有内容，过滤扫描噪点
+  const minInk = 3;
+  const rowHas = (y: number) => {
+    let n = 0;
+    for (let x = 0; x < w; x++) if (ink(x, y) && ++n >= minInk) return true;
+    return false;
+  };
+  const colHas = (x: number, y0: number, y1: number) => {
+    let n = 0;
+    for (let y = y0; y <= y1; y++) if (ink(x, y) && ++n >= minInk) return true;
+    return false;
+  };
+  let top = 0;
+  while (top < h - 1 && !rowHas(top)) top++;
+  let bottom = h - 1;
+  while (bottom > top && !rowHas(bottom)) bottom--;
+  let left = 0;
+  while (left < w - 1 && !colHas(left, top, bottom)) left++;
+  let right = w - 1;
+  while (right > left && !colHas(right, top, bottom)) right--;
+  // 整页空白，或几乎没裁掉什么：用整页
+  if (bottom - top < 4 || right - left < 4) return { x: 0, y: 0, w: W, h: H };
+  const pad = 6;
+  const x = Math.max(0, (left - pad) * s);
+  const y = Math.max(0, (top - pad) * s);
+  return {
+    x,
+    y,
+    w: Math.min(W, (right + pad + 1) * s) - x,
+    h: Math.min(H, (bottom + pad + 1) * s) - y,
+  };
+}
+
 // ── 保存 / 读取 ──
 
 export async function saveFile(
@@ -245,8 +353,43 @@ export async function previewResponse(
   key: string,
   name: string,
   mime: string,
+  page?: string | null,
 ) {
   const buf = await getObject(key);
+  // 浏览器不能内嵌 PDF（桌面版、安卓）：?preview=pages 给页数，?preview=page&n=1 给一页的图片
+  if (mode === "pages" || mode === "page") {
+    if (fileKind(name, mime) !== "pdf")
+      return new Response("Not a PDF", { status: 400 });
+    try {
+      if (mode === "pages") {
+        const { getDocumentProxy } = await import("unpdf");
+        const pdf = await getDocumentProxy(new Uint8Array(buf));
+        return Response.json(
+          { total: pdf.numPages },
+          { headers: { "Cache-Control": "private, max-age=3600" } },
+        );
+      }
+      const { pages } = await pdfPageImages(buf, {
+        from: Number(page) || 1,
+        max: 1,
+        crop: false,
+        side: 1800,
+      });
+      if (!pages[0]) return new Response("Not found", { status: 404 });
+      return new Response(
+        new Uint8Array(Buffer.from(pages[0].url.split(",")[1], "base64")),
+        {
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Cache-Control": "private, max-age=86400",
+          },
+        },
+      );
+    } catch (e) {
+      console.error("[files] render page", name, e);
+      return new Response("Render failed", { status: 500 });
+    }
+  }
   if (mode === "json")
     return Response.json(await previewData(buf, name, mime), {
       headers: { "Cache-Control": "private, max-age=3600" },

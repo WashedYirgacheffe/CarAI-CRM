@@ -7,6 +7,7 @@ import {
   createGeneratedFile,
   extractText,
   fileForUser,
+  pdfPageImages,
   readFileBuffer,
   type BuildInput,
 } from "@/server/files";
@@ -32,6 +33,9 @@ const list = (v: unknown) =>
     .map((x) => String(x).trim())
     .filter(Boolean)
     .slice(0, 10);
+
+/** 一轮里最多给模型看几张图（扫描件页面 + 图片文件） */
+const IMAGE_MAX = 8;
 
 /** 一次 read_file 给模型的文字长度；更长的用 offset 往后翻 */
 const PAGE = 9000;
@@ -142,8 +146,41 @@ export async function readFileTool(
     };
   }
   const kind = fileKind(name, mime);
+  // 扫描版 PDF（没有文字），或要看版面 / 印章 / 签名：按页渲染成裁好白边的图片
+  if (kind === "pdf" && (!text || a.asImage === true || a.asImage === "true")) {
+    const room = IMAGE_MAX - images.length;
+    if (room <= 0) return { error: "这一轮看的图片太多了，先回答" };
+    try {
+      const { pages, total } = await pdfPageImages(await getBuf(), {
+        from: Number(a.page) || 1,
+        max: Math.min(4, room),
+      });
+      for (const p of pages)
+        images.push({
+          url: p.url,
+          note: `「${name}」第 ${p.page} / ${total} 页`,
+        });
+      const last = pages.at(-1)?.page ?? 0;
+      return {
+        ...header,
+        name,
+        ok: true,
+        scanned: !text,
+        pages: `第 ${pages[0]?.page}～${last} 页，共 ${total} 页`,
+        note: `页面图片会紧跟在工具结果后面给你，先认真读图上的文字、数字、印章${last < total ? `；后面还有，需要就用 page=${last + 1} 再读` : ""}`,
+      };
+    } catch (e) {
+      console.error("[canvas-files] render pdf", e);
+      return {
+        ...header,
+        name,
+        error: "PDF 页面渲染失败（可能加密或损坏），请用户把要看的页面截图发来",
+      };
+    }
+  }
   if (kind === "image") {
-    if (images.length >= 4) return { error: "这一轮看的图片太多了，先回答" };
+    if (images.length >= IMAGE_MAX)
+      return { error: "这一轮看的图片太多了，先回答" };
     const buf = await getBuf();
     if (buf.length > 4_000_000) return { error: "图片太大，看不了" };
     const m = /^image\/(jpeg|png|webp|gif)$/.test(mime) ? mime : "image/jpeg";
@@ -156,7 +193,7 @@ export async function readFileTool(
   if (!text) {
     const why =
       state === "empty"
-        ? "这是扫描件或图片版 PDF，没有可读的文字。请用户把要看的页面截图发给你。"
+        ? "这个文件没有可读的文字。请用户把要看的内容截图发给你。"
         : state === "failed"
           ? "文件解析失败（可能损坏或是旧版 .doc / 加密文件），请用户另存为 PDF、docx 或 xlsx 再发。"
           : "这种文件（压缩包、视频等）读不了内容。";

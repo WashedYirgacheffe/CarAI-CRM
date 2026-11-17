@@ -15,7 +15,14 @@ export async function GET(
   if (!found) return new Response("Not found", { status: 404 });
   const { file } = found;
   const preview = req.nextUrl.searchParams.get("preview");
-  if (preview) return previewResponse(preview, file.key, file.name, file.mime);
+  if (preview)
+    return previewResponse(
+      preview,
+      file.key,
+      file.name,
+      file.mime,
+      req.nextUrl.searchParams.get("n"),
+    );
   return serveObject(file.key, {
     contentType: file.mime,
     filename: file.name,

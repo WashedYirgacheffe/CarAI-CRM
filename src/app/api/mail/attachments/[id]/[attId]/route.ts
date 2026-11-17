@@ -17,6 +17,6 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/mail/attachm
   const att = asAttachments(m.attachments).find((a) => a.id === attId);
   if (!att) return new Response("Not found", { status: 404 });
   const preview = req.nextUrl.searchParams.get("preview");
-  if (preview) return previewResponse(preview, attachmentKeyOf(user.tenantId, att.id), att.filename, att.contentType);
+  if (preview) return previewResponse(preview, attachmentKeyOf(user.tenantId, att.id), att.filename, att.contentType, req.nextUrl.searchParams.get("n"));
   return serveAttachment(user.tenantId, att);
 }

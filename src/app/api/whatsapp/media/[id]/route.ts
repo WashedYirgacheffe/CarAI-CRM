@@ -18,7 +18,7 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/whatsapp/med
   const allowed = m.account.userId === user.id || (m.chat.customerId && (await getCustomerForUser(user, m.chat.customerId)));
   if (!allowed) return new Response("Forbidden", { status: 403 });
   const preview = req.nextUrl.searchParams.get("preview");
-  if (preview) return previewResponse(preview, m.mediaKey, m.mediaName ?? "file", m.mediaMime ?? "application/octet-stream");
+  if (preview) return previewResponse(preview, m.mediaKey, m.mediaName ?? "file", m.mediaMime ?? "application/octet-stream", req.nextUrl.searchParams.get("n"));
   const download = req.nextUrl.searchParams.has("download");
   return serveObject(m.mediaKey, {
     contentType: m.mediaMime ?? "application/octet-stream",

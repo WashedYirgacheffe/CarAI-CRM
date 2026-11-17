@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
 import { toast } from "sonner";
 import { Archive, Download, FileText, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -99,11 +104,7 @@ function PreviewBody({ file }: { file: PreviewFile }) {
       </DialogHeader>
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/30">
         {kind === "pdf" ? (
-          <iframe
-            title={file.name}
-            src={raw}
-            className="size-full border-0 bg-white"
-          />
+          <PdfView src={file.src} name={file.name} />
         ) : kind === "image" ? (
           <div className="flex size-full items-center justify-center overflow-auto p-2">
             {/* eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口 */}
@@ -126,6 +127,70 @@ function PreviewBody({ file }: { file: PreviewFile }) {
         )}
       </div>
     </>
+  );
+}
+
+/** 浏览器能内嵌 PDF 就用自带阅读器；桌面版（Electron）、安卓浏览器不能，就由服务器一页页渲染成图片 */
+const subscribeNoop = () => () => {};
+function PdfView({ src, name }: { src: string; name: string }) {
+  const native = useSyncExternalStore(
+    subscribeNoop,
+    () => navigator.pdfViewerEnabled !== false,
+    () => true,
+  );
+  if (native)
+    return (
+      <iframe
+        title={name}
+        src={withQuery(src, "preview=raw")}
+        className="size-full border-0 bg-white"
+      />
+    );
+  return <PdfPages src={src} name={name} />;
+}
+
+function PdfPages({ src, name }: { src: string; name: string }) {
+  const [total, setTotal] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch(withQuery(src, "preview=pages"))
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
+      )
+      .then((d: { total: number }) => alive && setTotal(d.total))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [src]);
+  if (failed) return <Empty text="PDF 打不开，请下载后查看" />;
+  if (total == null)
+    return (
+      <div className="flex size-full items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  return (
+    <div className="flex size-full flex-col items-center gap-3 overflow-auto bg-muted/50 p-3">
+      {Array.from({ length: Math.min(total, 100) }, (_, i) => (
+        // eslint-disable-next-line @next/next/no-img-element -- 走鉴权接口
+        <img
+          key={i}
+          src={withQuery(src, `preview=page&n=${i + 1}`)}
+          alt={`${name} 第 ${i + 1} 页`}
+          loading="lazy"
+          className="w-full max-w-3xl bg-white shadow-sm"
+          style={{ aspectRatio: "1 / 1.414" }}
+          onLoad={(e) => (e.currentTarget.style.aspectRatio = "auto")}
+        />
+      ))}
+      {total > 100 && (
+        <p className="text-xs text-muted-foreground">
+          只显示前 100 页，完整内容请下载
+        </p>
+      )}
+    </div>
   );
 }
 
