@@ -28,6 +28,14 @@ export default async function SharedQuotationPage({ params }: PageProps<"/s/q/[t
   const { token } = await params;
   const q = await load(token);
   if (!q) notFound();
+  // 折扣审批没通过的报价单不对外展示
+  if (q.approval === "PENDING" || q.approval === "REJECTED") {
+    return (
+      <main className="mx-auto max-w-md px-6 py-24 text-center text-sm text-muted-foreground">
+        This quotation is being updated. Please contact {q.owner?.name ?? "your sales representative"} for the latest version.
+      </main>
+    );
+  }
   const seller = await getSeller(q.tenantId);
 
   return (

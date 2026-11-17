@@ -7,6 +7,7 @@ import { can, requireUser } from "@/server/auth";
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
 import { CURRENCIES, STATUS_COLOR_NAMES } from "@/lib/crm";
 import { recyclePool } from "@/server/pool";
+import { audit } from "@/server/audit";
 
 async function guard() {
   const user = await requireUser();
@@ -47,6 +48,14 @@ export async function savePoolRulesAction(_p: ActionState, fd: FormData): Promis
     if (days !== seg.poolDays) await db.customerSegment.updateMany({ where: { id: seg.id }, data: { poolDays: days } });
   }
   await recyclePool(user.tenantId);
+  const r = parsed.data;
+  await audit(user, {
+    action: "update",
+    entity: "settings",
+    entityName: "公海规则",
+    summary: `修改了公海规则：${r.poolRecycleDays || "不"}自动回收${r.poolRecycleDays ? " 天" : ""}，每天最多领取 ${r.poolDailyClaimLimit || "不限"}，私海上限 ${r.privateCustomerLimit || "不限"}`,
+    detail: r,
+  });
   revalidatePath("/settings/pool-rules");
   revalidatePath("/customers/pool");
   return { ok: true, message: "公海规则已保存" };
@@ -261,4 +270,37 @@ export async function saveRatesAction(_p: ActionState, fd: FormData): Promise<Ac
   );
   revalidatePath("/settings/documents");
   return { ok: true, message: "汇率已保存，之后新开或保存的单据按新汇率折算" };
+}
+
+// ── 审批规则 ──
+
+const approvalRuleSchema = z.object({
+  approvalDiscountPct: z.coerce.number().int("请输入整数").min(0, "0-100").max(100, "0-100"),
+  approvalRelease: z.string().optional().transform((v) => v === "on"),
+  approvalDelete: z.string().optional().transform((v) => v === "on"),
+  approvalTransfer: z.string().optional().transform((v) => v === "on"),
+});
+
+export async function saveApprovalRulesAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await guard();
+  if (!user) return DENIED;
+  const parsed = approvalRuleSchema.safeParse(Object.fromEntries(fd));
+  if (!parsed.success) return fieldErrorsOf(parsed.error);
+  const r = parsed.data;
+  await prisma.tenant.update({ where: { id: user.tenantId }, data: r });
+  const on = [
+    r.approvalDiscountPct ? `折扣超过 ${r.approvalDiscountPct}%` : "",
+    r.approvalRelease ? "退公海" : "",
+    r.approvalDelete ? "删除客户" : "",
+    r.approvalTransfer ? "转移客户" : "",
+  ].filter(Boolean);
+  await audit(user, {
+    action: "update",
+    entity: "settings",
+    entityName: "审批规则",
+    summary: `修改了审批规则：${on.length ? on.join("、") + " 要审批" : "全部不需要审批"}`,
+    detail: r,
+  });
+  revalidatePath("/settings/approvals");
+  return { ok: true, message: "审批规则已保存" };
 }

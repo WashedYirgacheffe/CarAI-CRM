@@ -13,7 +13,10 @@ import {
   logActivity,
   type DuplicateHit,
 } from "@/server/customers";
-import { moveToPoolQuery, refreshPoolDue } from "@/server/pool";
+import { refreshPoolDue } from "@/server/pool";
+import { audit, diffFields } from "@/server/audit";
+import { customerNeedsApproval, submitCustomerApproval } from "@/server/approvals";
+import { deleteCustomers, releaseCustomers, transferCustomers } from "@/server/customer-ops";
 
 export type { DuplicateHit };
 import { fieldErrorsOf, type ActionState } from "@/lib/action";
@@ -142,10 +145,27 @@ export async function createCustomerAction(_p: ActionState, fd: FormData): Promi
     },
   });
   await logActivity({ tenantId: user.tenantId, customerId: customer.id, event: "created", content: "创建了客户", userId: user.id });
+  await audit(user, { action: "create", entity: "customer", entityId: customer.id, entityName: customer.name, summary: `新建了客户「${customer.name}」` });
   await refreshPoolDue(user.tenantId, [customer.id]);
   revalidateCustomers();
   return { ok: true, message: "客户已创建", id: customer.id };
 }
+
+const CUSTOMER_FIELD_LABELS: Record<string, string> = {
+  name: "名称",
+  country: "国家",
+  website: "网站",
+  address: "地址",
+  source: "来源",
+  customerType: "客户类型",
+  mainProducts: "主营产品",
+  annualVolume: "年采购额",
+  remark: "备注",
+  statusId: "状态",
+  groupId: "分组",
+  star: "星级",
+  tags: "标签",
+};
 
 export async function updateCustomerAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const user = await requireUser();
@@ -168,6 +188,17 @@ export async function updateCustomerAction(_p: ActionState, fd: FormData): Promi
       domain: extractDomain(data.website) ?? found.customer.domain,
     },
   });
+  const changed = diffFields(found.customer as unknown as Record<string, unknown>, data, CUSTOMER_FIELD_LABELS);
+  if (Object.keys(changed).length) {
+    await audit(user, {
+      action: "update",
+      entity: "customer",
+      entityId: id,
+      entityName: data.name,
+      summary: `修改了客户「${data.name}」的 ${Object.keys(changed).join("、")}`,
+      detail: changed,
+    });
+  }
   revalidateCustomers(id);
   return { ok: true, message: "已保存" };
 }
@@ -186,7 +217,13 @@ export async function deleteCustomerAction(id: string): Promise<ActionState> {
   if (!can(user, "customer.delete")) return denied();
   const found = await getCustomerForUser(user, id);
   if (!found || (!found.access.edit && !found.access.inPool)) return denied();
-  await tenantDb(user.tenantId).customer.deleteMany({ where: { id } });
+  const row = { id, name: found.customer.name };
+  if (await customerNeedsApproval(user, "customer_delete")) {
+    await submitCustomerApproval(user, "customer_delete", [row], {});
+    revalidatePath("/approvals");
+    return { ok: true, message: "删除客户需要审批，已提交，审批通过后自动删除" };
+  }
+  await deleteCustomers(user, [row]);
   revalidateCustomers();
   return { ok: true, message: "客户已删除" };
 }
@@ -214,23 +251,12 @@ export async function transferCustomersAction(ids: string[], toUserId: string): 
   const limit = await privateLimitReached(user, toUserId, rows.length);
   if (limit) return denied(`${target.name} 的私海客户会超过上限（${limit} 个）`);
 
-  const now = new Date();
-  await prisma.$transaction([
-    prisma.$executeRaw`
-      UPDATE "Customer" SET "prevOwnerId" = "ownerId", "ownerId" = ${toUserId}, "assignedAt" = ${now}, "updatedAt" = ${now}
-      WHERE "tenantId" = ${user.tenantId} AND "id" = ANY(${rows.map((r) => r.id)}) AND "ownerId" IS DISTINCT FROM ${toUserId}`,
-    prisma.activity.createMany({
-      data: rows.map((r) => ({
-        tenantId: user.tenantId,
-        customerId: r.id,
-        type: "SYSTEM" as const,
-        event: "transferred",
-        content: `负责人由 ${r.owner?.name ?? "—"} 转为 ${target.name}`,
-        userId: user.id,
-      })),
-    }),
-  ]);
-  await refreshPoolDue(user.tenantId, rows.map((r) => r.id));
+  if (await customerNeedsApproval(user, "customer_transfer")) {
+    await submitCustomerApproval(user, "customer_transfer", rows, { toUserId, toUserName: target.name });
+    revalidatePath("/approvals");
+    return { ok: true, message: `转移 ${rows.length} 个客户需要审批，已提交` };
+  }
+  await transferCustomers(user, rows, target);
   revalidateCustomers();
   return { ok: true, message: `已转移 ${rows.length} 个客户给 ${target.name}` };
 }
@@ -241,25 +267,12 @@ export async function releaseCustomersAction(ids: string[], reason: string): Pro
   const rows = await ownedIds(user, ids);
   if (!rows.length) return denied("没有可放入公海的客户");
   const why = reason.trim().slice(0, 200) || "手动放入公海";
-  const now = new Date();
-  await prisma.$transaction([
-    moveToPoolQuery(
-      user.tenantId,
-      rows.map((r) => r.id),
-      why,
-      now,
-    ),
-    prisma.activity.createMany({
-      data: rows.map((r) => ({
-        tenantId: user.tenantId,
-        customerId: r.id,
-        type: "SYSTEM" as const,
-        event: "released",
-        content: `放入公海：${why}`,
-        userId: user.id,
-      })),
-    }),
-  ]);
+  if (await customerNeedsApproval(user, "customer_release")) {
+    await submitCustomerApproval(user, "customer_release", rows, { reason: why });
+    revalidatePath("/approvals");
+    return { ok: true, message: `退回公海需要审批，已提交 ${rows.length} 个客户` };
+  }
+  await releaseCustomers(user, rows, why);
   revalidateCustomers();
   return { ok: true, message: `已放入公海 ${rows.length} 个客户` };
 }
@@ -291,6 +304,14 @@ async function takeFromPool(
   });
 }
 
+async function auditCustomers(user: CurrentUser, ids: string[], action: string, summary: (name: string) => string) {
+  const rows = await tenantDb(user.tenantId).customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  await audit(
+    user,
+    rows.map((r) => ({ action, entity: "customer", entityId: r.id, entityName: r.name, summary: summary(r.name) })),
+  );
+}
+
 export async function claimCustomersAction(ids: string[]): Promise<ActionState> {
   const user = await requireUser();
   if (!can(user, "pool.claim")) return denied();
@@ -306,6 +327,7 @@ export async function claimCustomersAction(ids: string[]): Promise<ActionState> 
   try {
     const n = await takeFromPool(user, ids, user.id, "claimed", "从公海领取了客户");
     await refreshPoolDue(user.tenantId, ids);
+    await auditCustomers(user, ids, "claim", (name) => `从公海领取了客户「${name}」`);
     revalidateCustomers();
     return { ok: true, message: `已领取 ${n} 个客户` };
   } catch (e) {
@@ -323,6 +345,7 @@ export async function assignPoolCustomersAction(ids: string[], toUserId: string)
   try {
     const n = await takeFromPool(user, ids, toUserId, "assigned", `把公海客户分配给 ${target.name}`);
     await refreshPoolDue(user.tenantId, ids);
+    await auditCustomers(user, ids, "assign", (name) => `把公海客户「${name}」分配给 ${target.name}`);
     revalidateCustomers();
     return { ok: true, message: `已分配 ${n} 个客户给 ${target.name}` };
   } catch (e) {
@@ -434,6 +457,13 @@ export async function saveContactAction(_p: ActionState, fd: FormData): Promise<
       });
     }
   });
+  await audit(user, {
+    action: id ? "update" : "create",
+    entity: "contact",
+    entityId: id ?? null,
+    entityName: data.name,
+    summary: `${id ? "修改" : "新增"}了客户「${found.customer.name}」的联系人 ${data.name}${data.email ? `（${data.email}）` : ""}`,
+  });
   revalidateCustomers(customerId);
   return { ok: true, message: id ? "联系人已更新" : "已添加联系人" };
 }
@@ -445,6 +475,13 @@ export async function deleteContactAction(id: string): Promise<ActionState> {
   const found = await getCustomerForUser(user, contact.customerId);
   if (!found?.access.edit) return denied();
   await tenantDb(user.tenantId).contact.deleteMany({ where: { id } });
+  await audit(user, {
+    action: "delete",
+    entity: "contact",
+    entityId: id,
+    entityName: contact.name,
+    summary: `删除了客户「${found.customer.name}」的联系人 ${contact.name}${contact.email ? `（${contact.email}）` : ""}`,
+  });
   revalidateCustomers(contact.customerId);
   return { ok: true, message: "联系人已删除" };
 }

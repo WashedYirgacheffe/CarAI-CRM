@@ -16,6 +16,7 @@ export const MODULE_COLORS: Record<string, AgentPresetColor> = {
   social: "violet",
   opportunities: "violet",
   trade: "teal",
+  approvals: "rose",
   reports: "indigo",
   settings: "sky",
 };

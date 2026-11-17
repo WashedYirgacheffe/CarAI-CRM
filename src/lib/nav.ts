@@ -9,7 +9,7 @@ export type NavLeaf = {
 };
 
 /** 图标栏数字提醒（/api/badges 返回） */
-export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "inbox" | "tasks";
+export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "inbox" | "tasks" | "approvals";
 
 export type NavGroup = { group?: string; items: NavLeaf[] };
 
@@ -84,11 +84,13 @@ export const NAV: NavModule[] = [
           { title: "产品", href: "/products", permission: "product.view" },
           { title: "报价单", href: "/quotations", permission: "quotation.view" },
           { title: "销售订单", href: "/orders", permission: "order.view" },
+          { title: "物流", href: "/shipments", permission: "order.view" },
           { title: "回款", href: "/payments", permission: "order.view" },
         ],
       },
     ],
   },
+  { key: "approvals", title: "审批", href: "/approvals", icon: "Stamp", badge: "approvals" },
   { key: "reports", title: "团队数据", href: "/reports", icon: "BarChart3", permission: "report.view" },
   { key: "settings", title: "设置", href: "/settings", icon: "Settings", menu: [] },
 ];
@@ -102,6 +104,7 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
       { title: "组织架构", href: "/settings/departments", permission: "settings.org" },
       { title: "成员管理", href: "/settings/members", permission: "settings.org" },
       { title: "角色权限", href: "/settings/roles", permission: "settings.role" },
+      { title: "操作日志", href: "/settings/audit", permission: "settings.audit" },
     ],
   },
   {
@@ -111,6 +114,7 @@ export const SETTINGS_NAV: { group: string; items: NavLeaf[] }[] = [
       { title: "客户分类", href: "/settings/fields", permission: "settings.business" },
       { title: "商机阶段", href: "/settings/stages", permission: "settings.business" },
       { title: "单据设置", href: "/settings/documents", permission: "settings.business" },
+      { title: "审批规则", href: "/settings/approvals", permission: "settings.business" },
       { title: "社媒运行", href: "/settings/matrix", permission: "matrix.manage" },
     ],
   },

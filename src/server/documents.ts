@@ -238,7 +238,9 @@ export async function getOrderForUser(user: CurrentUser, id: string) {
       customer: { select: { id: true, name: true } },
       opportunity: { select: { id: true, name: true } },
       quotation: { select: { id: true, no: true } },
-      payments: { orderBy: { receivedAt: "asc" } },
+      payments: { orderBy: { receivedAt: "asc" }, include: { file: { select: { id: true, name: true } } } },
+      plans: { orderBy: [{ dueDate: "asc" }, { sort: "asc" }] },
+      shipments: { orderBy: { createdAt: "asc" }, include: { events: { orderBy: { at: "asc" } } } },
     },
   });
   if (!o || !(await docInScope(user, o.ownerId))) return null;

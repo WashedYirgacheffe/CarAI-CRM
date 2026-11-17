@@ -12,6 +12,8 @@ import { dateInput, orderStatus, approvalStatus } from "@/lib/docs";
 import { OrderActions } from "./order-actions";
 import { QuickReminder } from "@/components/crm/tasks";
 import { PaymentsCard } from "./payments-card";
+import { ShipmentsCard } from "./shipments-card";
+import { tenantDb } from "@/server/db";
 
 export async function generateMetadata({ params }: PageProps<"/orders/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -27,6 +29,19 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
   const tz = user.timezone;
   const st = orderStatus(o.status);
   const canEdit = can(user, "order.edit");
+  const [members, files] = await Promise.all([
+    tenantDb(user.tenantId).user.findMany({ select: { id: true, name: true } }),
+    canEdit
+      ? tenantDb(user.tenantId).crmFile.findMany({
+          where: { customerId: o.customerId },
+          orderBy: { createdAt: "desc" },
+          take: 60,
+          select: { id: true, name: true },
+        })
+      : [],
+  ]);
+  const nameOf = new Map(members.map((m) => [m.id, m.name]));
+  const day = (d: Date | null) => (d ? toLocalInput(d, tz, false) : null);
 
   return (
     <>
@@ -90,15 +105,60 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
             total={o.total.toString()}
             paid={o.paidAmount.toString()}
             today={dateInput(tz)}
+            orderDate={toLocalInput(o.orderDate, tz, false)}
+            deliveryDate={o.deliveryDate ? toLocalInput(o.deliveryDate, tz, false) : null}
+            files={files}
+            plans={o.plans.map((p) => ({ id: p.id, label: p.label, amount: p.amount.toString(), dueDate: toLocalInput(p.dueDate, tz, false) }))}
             payments={o.payments.map((p) => ({
               id: p.id,
+              no: p.no,
               amount: p.amount.toString(),
+              fee: p.fee?.toString() ?? null,
+              payer: p.payer,
               receivedAt: toLocalInput(p.receivedAt, tz, false),
               method: p.method,
               remark: p.remark,
+              file: p.file,
             }))}
           />
         </div>
+
+        <ShipmentsCard
+          canEdit={canEdit}
+          today={dateInput(tz)}
+          order={{ id: o.id, no: o.no, buyer: o.buyerName, contact: o.buyerContact, port: o.port, seller: user.tenantName }}
+          shipments={o.shipments.map((s) => ({
+            id: s.id,
+            no: s.no,
+            status: s.status,
+            mode: s.mode,
+            forwarder: s.forwarder,
+            carrier: s.carrier,
+            bookingNo: s.bookingNo,
+            blNo: s.blNo,
+            containerNo: s.containerNo,
+            containerType: s.containerType,
+            sealNo: s.sealNo,
+            vessel: s.vessel,
+            trackingNo: s.trackingNo,
+            trackingUrl: s.trackingUrl,
+            portLoading: s.portLoading,
+            portDischarge: s.portDischarge,
+            packages: s.packages,
+            grossWeight: s.grossWeight?.toString() ?? null,
+            volume: s.volume?.toString() ?? null,
+            freight: s.freight?.toString() ?? null,
+            freightCcy: s.freightCcy,
+            cutoffAt: day(s.cutoffAt),
+            etd: day(s.etd),
+            eta: day(s.eta),
+            atd: day(s.atd),
+            ata: day(s.ata),
+            deliveredAt: day(s.deliveredAt),
+            remark: s.remark,
+            events: s.events.map((e) => ({ id: e.id, status: e.status, at: day(e.at)!, note: e.note, by: e.userId ? (nameOf.get(e.userId) ?? null) : null })),
+          }))}
+        />
 
         <ItemsCard items={viewItems(o.items)} money={moneyOf(o)} />
 

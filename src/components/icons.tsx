@@ -203,6 +203,7 @@ export {
   Share2,
   ShoppingCart,
   Sparkles,
+  Stamp,
   Star,
   StarOff,
   Tag,
