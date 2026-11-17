@@ -22,7 +22,7 @@ import { sendReplies, syncInbox, watchHome, watchSupported, watchTick, type Inbo
 
 loadEnv({ path: ".env.runner", quiet: true });
 
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 const CRM_URL = (process.env.CRM_URL || "http://localhost:3000").replace(/\/+$/, "");
 const TOKEN = process.env.MATRIX_RUNNER_TOKEN || "";
 const ROOT = process.env.MATRIX_PROFILE_DIR || path.join(os.homedir(), ".cheche-crm", "matrix");
@@ -353,6 +353,103 @@ async function socksBridge(p: Proxy): Promise<{ server: string; close: () => voi
 
 type Ctx = import("playwright-core").BrowserContext;
 
+const CJK_WINDOWS_PREFS = {
+  "font.name-list.sans-serif.zh-CN": "Microsoft YaHei",
+  "font.name-list.serif.zh-CN": "SimSun",
+  "font.name-list.monospace.zh-CN": "SimSun",
+  "font.name-list.sans-serif.zh-TW": "Microsoft JhengHei",
+  "font.name-list.serif.zh-TW": "Microsoft JhengHei",
+  "font.name-list.sans-serif.zh-HK": "Microsoft JhengHei",
+  "font.name-list.serif.zh-HK": "Microsoft JhengHei",
+  "font.name-list.sans-serif.ja": "Yu Gothic, MS Gothic",
+  "font.name-list.serif.ja": "Yu Gothic, MS Mincho",
+  "font.name-list.monospace.ja": "MS Gothic",
+  "font.name-list.sans-serif.ko": "Malgun Gothic",
+  "font.name-list.serif.ko": "Malgun Gothic",
+};
+
+/** 给人看的窗口：只留系统标题栏（关闭、最小化、缩放），不能开新标签、新窗口、开发者工具 */
+const LOCKED_WINDOW_PREFS = {
+  "toolkit.legacyUserProfileCustomizations.stylesheets": true,
+  // 用系统标题栏：标签栏藏起来以后红绿灯按钮还在
+  "browser.tabs.inTitlebar": 0,
+  // 页面里「新标签打开」的链接在当前页打开（再由域名限制拦外站）
+  "browser.link.open_newwindow": 1,
+  "browser.tabs.closeWindowWithLastTab": true,
+  "devtools.policy.disabled": true,
+  "sidebar.revamp": false,
+  "sidebar.verticalTabs": false,
+};
+
+const USER_CHROME = `/* 车车浏览器：隐藏标签栏、地址栏、书签栏、侧边栏和菜单按钮 */
+#TabsToolbar, #nav-bar, #PersonalToolbar, #toolbar-menubar, #sidebar-main, #sidebar-box, #sidebar-splitter,
+#sidebar-launcher-splitter, #urlbar-container, #tabbrowser-arrowscrollbox { visibility: collapse !important; }
+#titlebar { appearance: none !important; }
+`;
+
+function writeUserChrome(dir: string) {
+  const chrome = path.join(dir, "chrome");
+  fs.mkdirSync(chrome, { recursive: true });
+  fs.writeFileSync(path.join(chrome, "userChrome.css"), USER_CHROME);
+}
+
+/** 平台自己的域名之外，登录常用的第三方（谷歌、苹果账号等）也放行 */
+const AUTH_DOMAINS = ["google.com", "apple.com", "facebook.com", "microsoftonline.com", "live.com"];
+const PLATFORM_DOMAINS: Record<string, string[]> = {
+  x: ["x.com", "twitter.com"],
+  tiktok: ["tiktok.com", "tiktokv.com", "tiktokw.us", "tiktokv.us"],
+  youtube: ["youtube.com", "google.com"],
+  facebook: ["facebook.com", "fb.com", "messenger.com", "meta.com"],
+  instagram: ["instagram.com", "facebook.com", "meta.com"],
+  threads: ["threads.com", "threads.net", "instagram.com", "facebook.com", "meta.com"],
+  linkedin: ["linkedin.com"],
+  pinterest: ["pinterest.com"],
+  reddit: ["reddit.com", "redditinc.com"],
+  vk: ["vk.com", "vk.ru", "vkontakte.ru"],
+  line: ["line.me", "line-apps.com"],
+  whatsapp: ["whatsapp.com"],
+  telegram: ["telegram.org", "t.me"],
+};
+
+function allowedHost(platform: MatrixPlatformInfo, url: string) {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol === "about:" && u.pathname === "blank") return true;
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const own = [platform.homeUrl, platform.loginUrl].map((x) => new URL(x).hostname.split(".").slice(-2).join("."));
+  const domains = [...own, ...(PLATFORM_DOMAINS[platform.key] ?? []), ...AUTH_DOMAINS];
+  return domains.some((d) => u.hostname === d || u.hostname.endsWith(`.${d}`));
+}
+
+/**
+ * 人操作的窗口只能用来管这个账号：新开的标签和窗口直接关掉（登录弹窗这类由页面打开的除外），
+ * 跳到平台以外的网站就退回平台首页。
+ */
+function lockWindow(ctx: Ctx, main: Page, platform: MatrixPlatformInfo) {
+  const guard = (p: Page) => {
+    p.on("framenavigated", (f) => {
+      if (f !== p.mainFrame() || allowedHost(platform, f.url())) return;
+      log(`  拦下站外跳转：${f.url().slice(0, 120)}`);
+      if (p === main) void p.goto(platform.homeUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
+      else void p.close().catch(() => {});
+    });
+  };
+  guard(main);
+  ctx.on("page", async (p) => {
+    const opener = await p.opener().catch(() => null);
+    if (!opener) {
+      log("  关掉新开的标签或窗口");
+      await p.close().catch(() => {});
+      return;
+    }
+    guard(p);
+  });
+}
+
 async function launch(job: Job, headless: boolean): Promise<{ ctx: Ctx; fingerprint?: Record<string, unknown> }> {
   const { Camoufox, getRandomPreset } = await import("camoufox");
   const geo = await proxyGeo(job.proxy);
@@ -375,10 +472,24 @@ async function launch(job: Job, headless: boolean): Promise<{ ctx: Ctx; fingerpr
     bridge = await socksBridge(proxy);
     proxy = { server: bridge.server };
   }
+  if (!headless) writeUserChrome(dir);
   const ctx = await Camoufox({
     persistent_context: true,
     user_data_dir: dir,
     headless,
+    firefox_user_prefs: {
+      // Windows 身份在 Mac 上跑时，系统默认的中日韩回退字体（苹方等）不在指纹允许的字体里，中文会变成方块或空白。
+      // 回退改成内核自带的 Windows 字体，和真实 Windows 版 Firefox 的默认值一样
+      ...(targetOs === "windows" ? CJK_WINDOWS_PREFS : {}),
+      ...(headless
+        ? {}
+        : {
+            // 有界面时 Mac 版把字形交给独立的 GPU 进程画，那个进程里没有内核自带的字体，
+            // 按别的字体的字形去画，屏幕上中英文全乱（截图却是好的）。在主进程里画就对了
+            "layers.gpu-process.enabled": false,
+            ...LOCKED_WINDOW_PREFS,
+          }),
+    },
     os: targetOs,
     proxy,
     ...(preset ? { fingerprint_preset: preset } : {}),
@@ -643,6 +754,13 @@ async function runJobExclusive(job: Job, state: JobState, platform: MatrixPlatfo
     ctx.on("close", () => (closed = true));
     const page = ctx.pages()[0] ?? (await ctx.newPage());
     if (HEADLESS && !background) live = liveLoop(job, ctx, state, () => finished);
+    if (!HEADLESS && !background) {
+      lockWindow(ctx, page, platform);
+      // Mac 上关掉最后一个窗口浏览器不一定退出，窗口都没了就当关了
+      page.on("close", () => {
+        if (!launched.ctx.pages().length) closed = true;
+      });
+    }
 
     // 同步私信 / 发私信：先看还在不在登录
     if (job.kind === "inbox" || job.kind === "reply") {
