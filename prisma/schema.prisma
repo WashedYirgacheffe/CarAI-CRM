@@ -108,6 +108,7 @@ model Tenant {
   paymentPlans      PaymentPlan[]
   auditLogs         AuditLog[]
   approvals         ApprovalRequest[]
+  tradeDocs         TradeDoc[]
 }
 
 enum UserStatus {
@@ -162,6 +163,7 @@ model User {
   matrixDevices      MatrixDevice[]
   socialThreads      SocialThread[]  @relation("SocialThreadAssignee")
   files              CrmFile[]
+  tradeDocs          TradeDoc[]
 
   @@index([tenantId])
 }
@@ -1965,4 +1967,28 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([tenantId, entity, entityId])
   @@index([tenantId, userId, createdAt])
+}
+
+/// AI 单据工作台做出来的单据（PI / CI / PL / 托书 / 提单补料 / 产地证 / 装运通知 / 受益人证明 / 汇票 / 合同）。
+/// 内容整份存 JSON（字段见 src/lib/trade-docs/schema.ts），版式由代码按样本固定渲染。
+model TradeDoc {
+  id        String   @id @default(cuid())
+  tenantId  String
+  ownerId   String?
+  /// pi / ci / pl / sc / si / bl / co / sa / bc / bx
+  type      String
+  /// 单据号（发票号 / 合同号 / 提单号…），列表和搜索用
+  no        String?
+  /// 买方名称，列表用
+  buyer     String?
+  data      Json
+  /// AI 对话记录（只存给人看的部分）
+  chat      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner  User?  @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, ownerId, updatedAt])
 }

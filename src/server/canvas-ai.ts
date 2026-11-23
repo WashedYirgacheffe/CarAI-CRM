@@ -1401,7 +1401,7 @@ export async function runCanvasTurn(
         if (ev.type === "text") {
           text += ev.text;
           emit({ t: "text", text: ev.text });
-        } else calls = ev.calls;
+        } else if (ev.type === "tools") calls = ev.calls;
       }
       if (!calls.length) {
         reply = text;

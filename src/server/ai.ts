@@ -6,8 +6,9 @@ import "server-only";
  *   AI_API_KEY   密钥（只放服务器 .env，不进仓库）
  *   AI_MODEL     模型名，默认 deepseek-v4.1-flash-1017
  *
- * 一律关闭「思考」：这些都是摘要、写信、分类之类的活，不需要推理；开着思考时模型先想几百上千字，
+ * 默认关闭「思考」：这些都是摘要、写信、分类之类的活，不需要推理；开着思考时模型先想几百上千字，
  * 既慢（多 3～5 秒），又会把 max_tokens 用光导致「没有返回内容」。
+ * 只有需要严谨推理的活（AI 单据：核对 L/C 条款、算合计、判断缺什么）才传 thinking: "high"。
  */
 const BASE_URL = (process.env.AI_BASE_URL || "https://moonup.dev").replace(/\/+$/, "");
 const MODEL = process.env.AI_MODEL || "deepseek-v4.1-flash-1017";
@@ -28,10 +29,18 @@ export type ContentPart = { type: "text"; text: string } | { type: "image_url"; 
 export type ChatMessage =
   | { role: "user"; content: string | ContentPart[] }
   | { role: "system"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[]; reasoning_content?: string }
   | { role: "tool"; tool_call_id: string; content: string };
 export type ToolSpec = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
-type RawOptions = Omit<AiOptions, "messages"> & { messages: ChatMessage[]; tools?: ToolSpec[]; toolChoice?: "auto" | "none" };
+type RawOptions = Omit<AiOptions, "messages"> & {
+  messages: ChatMessage[];
+  tools?: ToolSpec[];
+  toolChoice?: "auto" | "none";
+  /** 打开深度思考（reasoning_effort: high） */
+  thinking?: "high";
+  /** 换模型（默认 AI_MODEL） */
+  model?: string;
+};
 
 /**
  * 这个网关会丢掉 system / developer 角色的消息（实测模型完全看不到），
@@ -66,9 +75,9 @@ async function request(opts: RawOptions, stream: boolean): Promise<Response> {
   const apiKey = process.env.AI_API_KEY;
   if (!apiKey) throw new AiError("还没有配置 AI（服务器 .env 中的 AI_API_KEY）");
   const body = JSON.stringify({
-    model: MODEL,
+    model: opts.model || MODEL,
     max_tokens: opts.maxTokens ?? 2000,
-    thinking: { type: "disabled" },
+    ...(opts.thinking ? { thinking: { type: "enabled" }, reasoning_effort: opts.thinking } : { thinking: { type: "disabled" } }),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(stream ? { stream: true } : {}),
     ...(opts.tools?.length ? { tools: opts.tools, ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}) } : {}),
@@ -143,7 +152,12 @@ export async function* aiStream(opts: AiOptions): AsyncGenerator<string> {
   }
 }
 
-export type ToolStreamEvent = { type: "text"; text: string } | { type: "tools"; calls: ToolCall[] };
+export type ToolStreamEvent =
+  | { type: "text"; text: string }
+  /** 思考过程（只在 thinking 打开时有） */
+  | { type: "reasoning"; text: string }
+  /** reasoning：本步完整的思考内容，带工具调用继续对话时要原样传回去 */
+  | { type: "tools"; calls: ToolCall[]; reasoning: string };
 
 /**
  * 流式 + 工具调用：文字片段边生成边吐出；结束时如果模型要调工具，最后吐一个 tools 事件。
@@ -155,7 +169,8 @@ export async function* aiToolStream(opts: RawOptions): AsyncGenerator<ToolStream
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   const calls: ToolCall[] = [];
   let buf = "";
-  type Delta = { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] };
+  let reasoning = "";
+  type Delta = { content?: string | null; reasoning_content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] };
   outer: for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -173,6 +188,10 @@ export async function* aiToolStream(opts: RawOptions): AsyncGenerator<ToolStream
       } catch {
         continue;
       }
+      if (delta?.reasoning_content) {
+        reasoning += delta.reasoning_content;
+        yield { type: "reasoning", text: delta.reasoning_content };
+      }
       if (delta?.content) yield { type: "text", text: delta.content };
       for (const tc of delta?.tool_calls ?? []) {
         const k = tc.index ?? calls.length;
@@ -185,7 +204,7 @@ export async function* aiToolStream(opts: RawOptions): AsyncGenerator<ToolStream
   }
   const done = calls.filter((c) => c && c.function.name);
   done.forEach((c, i) => (c.id ||= `call_${i}`));
-  if (done.length) yield { type: "tools", calls: done };
+  if (done.length) yield { type: "tools", calls: done, reasoning };
 }
 
 /** 让模型只输出 JSON，并解析出第一个 JSON 对象 */

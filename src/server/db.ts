@@ -69,6 +69,7 @@ const TENANT_MODELS = new Set<string>([
   "Workspace",
   "AiThread",
   "AiMemory",
+  "TradeDoc",
 ]);
 
 const WHERE_OPERATIONS = new Set<string>([
