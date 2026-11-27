@@ -181,9 +181,9 @@ export function WechatWorkspace({
   const [staging, setStaging] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
 
-  // 桌面端本地桥接状态
+  // 桌面端本地桥接状态（精确区分：新版桌面端≥0.2.6 / 旧版桌面端需升级 / 普通浏览器）
+  const [desktopApp, setDesktopApp] = useState<{ version: string; platform: string } | null>(null);
   const [desktopBridge, setDesktopBridge] = useState<DesktopWechatBridge | null>(null);
-  const [desktopPlatform, setDesktopPlatform] = useState<string | null>(null);
   const [bridgeStatus, setBridgeStatus] = useState<Awaited<ReturnType<DesktopWechatBridge["getStatus"]>> | null>(null);
   const [syncingNow, setSyncingNow] = useState(false);
 
@@ -218,10 +218,20 @@ export function WechatWorkspace({
   const msgEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const bridge = typeof window !== "undefined" ? window.chechedesktop?.wechat : undefined;
+    if (typeof window === "undefined") return;
+    const desk = window.chechedesktop;
+    const uaMatch = /CheCheCRMDesktop\/([^\s]+)/.exec(navigator.userAgent);
+    if (desk || uaMatch) {
+      const inferredPlatform =
+        desk?.platform || (navigator.userAgent.includes("Windows") ? "win32" : navigator.userAgent.includes("Mac") ? "darwin" : "desktop");
+      setDesktopApp({
+        version: desk?.version || uaMatch?.[1] || "",
+        platform: inferredPlatform,
+      });
+    }
+    const bridge = desk?.wechat;
     if (bridge) {
       setDesktopBridge(bridge);
-      setDesktopPlatform(window.chechedesktop?.platform || null);
       bridge
         .getStatus()
         .then((s) => {
@@ -407,8 +417,10 @@ export function WechatWorkspace({
   };
 
   const anchor = activeChat ? resolveWechatSearchKey(activeChat) : null;
+  const desktopPlatform = desktopApp?.platform ?? null;
   const isWin = desktopPlatform === "win32";
   const isMac = desktopPlatform === "darwin";
+  const isOutdatedDesktop = !!desktopApp && !desktopBridge;
 
   return (
     <div
@@ -447,7 +459,9 @@ export function WechatWorkspace({
                 ? bridgeStatus?.wechatRunning
                   ? `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端就绪 · ${bridgeStatus.syncSource === "chatlog" ? "只读同步已连" : "半自动上屏"}`
                   : `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端在线 · 等待打开本地微信`
-                : WX_SYNC_STATUS_LABEL[account.status] || "网页模式（建议用桌面版）"}
+                : isOutdatedDesktop
+                  ? `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端 v${desktopApp?.version || "旧版"} · 需升级至 v0.2.6`
+                  : WX_SYNC_STATUS_LABEL[account.status] || "网页模式（建议用桌面版）"}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -485,16 +499,30 @@ export function WechatWorkspace({
           </div>
         </header>
 
-        {/* 非桌面端提示条：引导下载 Windows 桌面版 */}
+        {/* 桌面端升级 / 下载提示条 */}
         {!desktopBridge && (
-          <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs">
-            <span className="text-muted-foreground">用桌面版可一键上屏到微信并自动只读同步</span>
+          <div
+            className={cn(
+              "mx-3 mb-2 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs",
+              isOutdatedDesktop
+                ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                : "border-emerald-500/20 bg-emerald-500/5 text-muted-foreground",
+            )}
+          >
+            <span className="leading-snug">
+              {isOutdatedDesktop
+                ? `当前桌面版 v${desktopApp?.version || "旧版"} 暂未含微信桥接，升级至 v0.2.6 即可启用`
+                : "用桌面版可一键上屏到微信并自动只读同步"}
+            </span>
             <Link
-              href="/api/desktop/download?arch=win"
-              className="inline-flex shrink-0 items-center gap-1 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+              href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 font-medium hover:underline",
+                isOutdatedDesktop ? "text-amber-700 dark:text-amber-200" : "text-emerald-700 dark:text-emerald-400",
+              )}
             >
               <Download className="size-3.5" />
-              Win版
+              {isOutdatedDesktop ? "下载新版" : "Win版"}
             </Link>
           </div>
         )}
@@ -903,26 +931,26 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 1：新建微信客户会话 ── */}
       <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>添加微信客户会话</DialogTitle>
             <DialogDescription>建议优先填写对方「微信号」或「微信精确备注名」，一键上屏时可精准定位防重名。</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="text-xs font-medium">微信号（推荐，唯一精准搜索锚点）</label>
-              <Input value={newWechatNo} onChange={(e) => setNewWechatNo(e.target.value)} placeholder="如：wxid_xxx 或 alex_auto2026" className="mt-1" />
+          <div className="space-y-3.5 py-1">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">微信号（推荐，唯一精准定位）</label>
+              <Input value={newWechatNo} onChange={(e) => setNewWechatNo(e.target.value)} placeholder="如：wxid_xxx 或 alex_auto2026" />
             </div>
-            <div>
-              <label className="text-xs font-medium">微信备注名</label>
-              <Input value={newRemark} onChange={(e) => setNewRemark(e.target.value)} placeholder="如：客户-迪拜Alex" className="mt-1" />
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">微信备注名</label>
+              <Input value={newRemark} onChange={(e) => setNewRemark(e.target.value)} placeholder="如：客户-迪拜Alex" />
             </div>
-            <div>
-              <label className="text-xs font-medium">微信昵称 / 群名</label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="对方微信昵称或群名称" className="mt-1" />
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">微信昵称 / 群名</label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="对方微信昵称或群名称" />
             </div>
-            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={newIsGroup} onChange={(e) => setNewIsGroup(e.target.checked)} className="size-3.5" />
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={newIsGroup} onChange={(e) => setNewIsGroup(e.target.checked)} className="size-3.5 accent-emerald-600" />
               这是一个微信客户群
             </label>
           </div>
@@ -935,26 +963,26 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 2：粘贴导入聊天记录 ── */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>粘贴导入微信聊天记录</DialogTitle>
             <DialogDescription>
               在 PC/Mac 微信里多选或复制聊天内容粘贴到下方，系统会自动拆分发言人、时间和内容并自动翻译外文。
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="space-y-3 py-1">
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
               rows={8}
               placeholder={"示例：\nAlex 2026-11-27 10:20:30\nHi, please send FOB price for BYD Song Plus.\n\n我 2026-11-27 10:22:10\nSure, sending you the latest quotation now."}
             />
-            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={pasteDefaultFromMe}
                 onChange={(e) => setPasteDefaultFromMe(e.target.checked)}
-                className="size-3.5"
+                className="size-3.5 accent-emerald-600"
               />
               若粘贴的是无头行纯文本，默认记为「我方发出」
             </label>
@@ -968,91 +996,150 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 3：微信本地同步与隐私设置 ── */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>个人微信同步与隐私设置</DialogTitle>
             <DialogDescription>
               零封号架构：桌面端仅本地只读同步白名单客户会话，私人聊天绝不上传；发送采用半自动一键上屏。
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2 text-sm">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium">我的微信昵称（导入时识别“我”）</label>
-                <Input value={myWxName} onChange={(e) => setMyWxName(e.target.value)} placeholder="如：王经理" className="mt-1" />
+
+          <div className="space-y-5 py-1 text-sm">
+            {/* 基本信息：严格单行标签，左右输入框水平对齐 */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">我的微信昵称</label>
+                <Input value={myWxName} onChange={(e) => setMyWxName(e.target.value)} placeholder="导入聊天记录时识别「我」" />
               </div>
-              <div>
-                <label className="text-xs font-medium">我的微信号（仅展示）</label>
-                <Input value={myWxNo} onChange={(e) => setMyWxNo(e.target.value)} placeholder="选填" className="mt-1" />
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">我的微信号</label>
+                <Input value={myWxNo} onChange={(e) => setMyWxNo(e.target.value)} placeholder="选填，仅用于工作台展示" />
               </div>
             </div>
 
+            {/* 同步隐私范围：桌面端 2 列并排卡片，紧凑美观 */}
             <div className="space-y-2">
-              <label className="text-xs font-medium">同步隐私范围</label>
-              {WX_SYNC_MODES.map((m) => (
-                <label
-                  key={m.value}
-                  className={cn(
-                    "flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors",
-                    syncMode === m.value ? "border-emerald-600 bg-emerald-500/5" : "border-border",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="wx-sync-mode"
-                    checked={syncMode === m.value}
-                    onChange={() => setSyncMode(m.value)}
-                    className="mt-0.5 accent-emerald-600"
-                  />
-                  <div>
-                    <p className="text-xs font-medium">{m.label}</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">{m.desc}</p>
-                  </div>
-                </label>
-              ))}
+              <label className="block text-xs font-medium text-foreground">同步隐私范围</label>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {WX_SYNC_MODES.map((m) => (
+                  <label
+                    key={m.value}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors",
+                      syncMode === m.value
+                        ? "border-emerald-600 bg-emerald-500/5 ring-1 ring-emerald-600/20"
+                        : "border-border hover:bg-muted/40",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="wx-sync-mode"
+                      checked={syncMode === m.value}
+                      onChange={() => setSyncMode(m.value)}
+                      className="mt-0.5 shrink-0 accent-emerald-600"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium leading-snug">{m.label}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{m.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
 
             {syncMode === "whitelist" && (
-              <div>
-                <label className="text-xs font-medium">白名单自动同步备注前缀</label>
-                <Input value={remarkPrefix} onChange={(e) => setRemarkPrefix(e.target.value)} placeholder="客户-" className="mt-1" />
-                <p className="mt-1 text-[11px] text-muted-foreground">微信里备注以该前缀开头的联系人会自动同步到 CRM。</p>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">白名单自动同步备注前缀</label>
+                <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                  <Input
+                    value={remarkPrefix}
+                    onChange={(e) => setRemarkPrefix(e.target.value)}
+                    placeholder="客户-"
+                    className="sm:max-w-44"
+                  />
+                  <p className="text-[11px] text-muted-foreground">微信里备注以该前缀开头的联系人会自动纳入同步。</p>
+                </div>
               </div>
             )}
 
-            <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
-              <p className="text-xs font-medium">本机只读数据源（Win / Mac 微信 4.0 兼容）</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                桌面端支持直连本机 <code>chatlog</code> HTTP 只读服务（默认 <code>http://127.0.0.1:5030</code>）自动拉取解密后的白名单增量消息并回执发送状态。未开启时仍可完整使用半自动一键上屏与粘贴归档。
+            {/* 本机只读数据源状态区 */}
+            <div className="rounded-xl border border-border/80 bg-muted/30 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-foreground">本机只读数据源（Win / Mac 微信 4.0 兼容）</p>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    desktopBridge
+                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                      : isOutdatedDesktop
+                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                        : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {desktopBridge
+                    ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.6"} 已连接`
+                    : isOutdatedDesktop
+                      ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "旧版"} 需升级`
+                      : "浏览器模式"}
+                </span>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                桌面端支持直连本机 <code className="rounded bg-muted px-1 py-0.5">chatlog</code> HTTP 只读服务（默认{" "}
+                <code className="rounded bg-muted px-1 py-0.5">http://127.0.0.1:5030</code>）自动拉取解密后的增量消息并回执发送状态；未开启时仍可完整使用半自动一键上屏与粘贴归档。
               </p>
+
               {desktopBridge ? (
-                <div className="mt-2.5 space-y-2">
-                  <Input
-                    value={chatlogUrl}
-                    onChange={(e) => setChatlogUrl(e.target.value)}
-                    placeholder="http://127.0.0.1:5030"
-                    className="h-8 text-xs"
-                  />
-                  <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="mt-3 space-y-2.5 border-t border-border/60 pt-3">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs text-muted-foreground">服务地址</span>
+                    <Input
+                      value={chatlogUrl}
+                      onChange={(e) => setChatlogUrl(e.target.value)}
+                      placeholder="http://127.0.0.1:5030"
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                     <input
                       type="checkbox"
                       checked={localAutoSync}
                       onChange={(e) => setLocalAutoSync(e.target.checked)}
                       className="size-3.5 accent-emerald-600"
                     />
-                    在桌面端后台每 20 秒自动增量拉取一次白名单新消息
+                    在桌面端后台每 20 秒自动增量拉取一次新消息
                   </label>
                   {bridgeStatus?.dataDir && (
                     <p className="truncate text-[11px] text-muted-foreground">检测到本机微信目录：{bridgeStatus.dataDir}</p>
                   )}
                 </div>
+              ) : isOutdatedDesktop ? (
+                <div className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
+                  <span className="leading-relaxed">
+                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.6+ 启用微信本地桥接。
+                  </span>
+                  <Link
+                    href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700"
+                  >
+                    <Download className="size-3" />
+                    下载 v0.2.6
+                  </Link>
+                </div>
               ) : (
-                <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
-                  当前在浏览器中访问。请打开车车 CRM 桌面版（Windows / Mac）以启用本机桥接。
-                </p>
+                <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/60 p-2.5 text-[11px] text-muted-foreground">
+                  <span>当前在浏览器中访问，下载安装车车 CRM 桌面版即可启用本机微信桥接。</span>
+                  <Link
+                    href="/api/desktop/download?arch=win"
+                    className="inline-flex shrink-0 items-center gap-1 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                  >
+                    <Download className="size-3" />
+                    下载 Win 版
+                  </Link>
+                </div>
               )}
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setSettingsOpen(false)}>取消</Button>
             <Button disabled={pending} onClick={handleSaveSettings}>保存设置</Button>
@@ -1062,23 +1149,23 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 4：编辑联系人搜索锚点 ── */}
       <Dialog open={editPeerOpen} onOpenChange={setEditPeerOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>编辑微信定位信息</DialogTitle>
             <DialogDescription>填写对方的微信号或精确备注名，可防止一键上屏搜索时重名串人。</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="text-xs font-medium">微信号（最高优先级）</label>
-              <Input value={editWechatNo} onChange={(e) => setEditWechatNo(e.target.value)} className="mt-1" />
+          <div className="space-y-3.5 py-1">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">微信号（最高优先级）</label>
+              <Input value={editWechatNo} onChange={(e) => setEditWechatNo(e.target.value)} />
             </div>
-            <div>
-              <label className="text-xs font-medium">微信备注名</label>
-              <Input value={editRemark} onChange={(e) => setEditRemark(e.target.value)} className="mt-1" />
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">微信备注名</label>
+              <Input value={editRemark} onChange={(e) => setEditRemark(e.target.value)} />
             </div>
-            <div>
-              <label className="text-xs font-medium">昵称 / 群名</label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="mt-1" />
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">昵称 / 群名</label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -1107,7 +1194,7 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 5：关联 CRM 客户 ── */}
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>关联 CRM 客户</DialogTitle>
             <DialogDescription>关联后，该微信会话的沟通记录将归属到客户档案下，且自动纳入白名单同步。</DialogDescription>
