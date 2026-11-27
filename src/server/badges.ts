@@ -18,7 +18,7 @@ import { pendingApprovalCount } from "@/server/approvals";
  */
 export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, number>> {
   const t = user.tenantId;
-  const [myLeads, poolLeads, mail, wa, tasks, todo, inbox, approvals] = await Promise.all([
+  const [myLeads, poolLeads, mail, wa, wx, tasks, todo, inbox, approvals] = await Promise.all([
     can(user, "lead.view") ? prisma.lead.count({ where: { tenantId: t, ownerId: user.id, status: "NEW" } }) : 0,
     can(user, "lead.view") && can(user, "lead.assign")
       ? prisma.lead.count({ where: { tenantId: t, ownerId: null, status: { in: [...LEAD_OPEN_STATUSES] } } })
@@ -27,6 +27,9 @@ export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, num
     can(user, "whatsapp.use")
       ? prisma.waChat.aggregate({ where: { tenantId: t, account: { userId: user.id } }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
       : 0,
+    can(user, "wechat.use") || can(user, "whatsapp.use")
+      ? prisma.wxChat.aggregate({ where: { tenantId: t, archived: false, account: { userId: user.id } }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
+      : 0,
     prisma.task.count({ where: { tenantId: t, ownerId: user.id, done: false, dueAt: { lte: new Date() } } }),
     countTodo(user),
     canUseInbox(user)
@@ -34,7 +37,7 @@ export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, num
       : 0,
     pendingApprovalCount(user),
   ]);
-  return { leads: myLeads + poolLeads, mail, whatsapp: wa, inbox, tasks, todo, approvals };
+  return { leads: myLeads + poolLeads, mail, whatsapp: wa, wechat: wx, inbox, tasks, todo, approvals };
 }
 
 export type DueReminder = {

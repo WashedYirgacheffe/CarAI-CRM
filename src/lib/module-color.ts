@@ -10,6 +10,7 @@ export const MODULE_COLORS: Record<string, AgentPresetColor> = {
   todo: "amber",
   mail: "indigo",
   whatsapp: "green",
+  wechat: "green",
   marketing: "rose",
   leads: "amber",
   customers: "sky",

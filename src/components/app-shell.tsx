@@ -478,6 +478,7 @@ const REMINDER_LABEL: Record<BadgeKey, string> = {
   leads: "待处理线索",
   mail: "未读邮件",
   whatsapp: "未读 WhatsApp 消息",
+  wechat: "未读微信消息",
   inbox: "未读社媒私信",
   tasks: "到期的跟进提醒",
   approvals: "待审批",
