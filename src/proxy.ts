@@ -7,7 +7,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // /b：销售 / 分公司对外的聚合主页（Link-in-Bio）
 // /api/matrix/runner：社媒矩阵运行器（用企业令牌鉴权，不走登录 Cookie）
 // /api/desktop：桌面版配对，接口自己校验登录，没登录返回 401（不跳登录页）
-const PUBLIC_PATHS = ["/login", "/register", "/api/t", "/s", "/b", "/api/matrix/runner", "/api/desktop"];
+// /api/wechat：桌面版微信本地桥接（支持设备令牌 Bearer md_... 或登录 Cookie，接口内严格鉴权）
+const PUBLIC_PATHS = ["/login", "/register", "/api/t", "/s", "/b", "/api/matrix/runner", "/api/desktop", "/api/wechat"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
