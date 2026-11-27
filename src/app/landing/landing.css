@@ -1,0 +1,196 @@
+/* 车车外贸 CRM 官网落地页动效与视觉纹理（基于 agentes 暖白纸面系统 + openbot.run 节奏） */
+
+@keyframes lp-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes lp-marquee-rev {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes lp-typing {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@keyframes lp-dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+@keyframes lp-sheen {
+  0% {
+    background-position: -120% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+
+@keyframes lp-pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+@keyframes lp-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes lp-lock-bob {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  40% {
+    transform: scale(1.08) rotate(-4deg);
+  }
+  65% {
+    transform: scale(0.98) rotate(3deg);
+  }
+}
+
+@keyframes lp-step-highlight {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 99, 209, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(0, 99, 209, 0.16);
+  }
+}
+
+.lp-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(0, 99, 209, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 99, 209, 0.055) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.lp-graph-paper {
+  background-image:
+    linear-gradient(to right, rgba(21, 21, 20, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(21, 21, 20, 0.055) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.lp-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: lp-marquee 26s linear infinite;
+}
+
+.lp-marquee-track-rev {
+  display: flex;
+  width: max-content;
+  animation: lp-marquee-rev 30s linear infinite;
+}
+
+.lp-marquee-wrap:hover .lp-marquee-track,
+.lp-marquee-wrap:hover .lp-marquee-track-rev {
+  animation-play-state: paused;
+}
+
+.lp-typing-dot {
+  animation: lp-typing 1.3s ease-in-out infinite;
+}
+.lp-typing-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.lp-typing-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+.lp-dash-line {
+  stroke-dasharray: 5 5;
+  animation: lp-dash-flow 1.4s linear infinite;
+}
+
+.lp-lock-anim {
+  animation: lp-lock-bob 3.6s ease-in-out infinite;
+}
+
+.lp-float {
+  animation: lp-float 4.2s ease-in-out infinite;
+}
+
+.lp-metallic-text {
+  background-image: linear-gradient(
+    115deg,
+    #151514 0%,
+    #353532 24%,
+    #0063d1 46%,
+    #6aa8ff 52%,
+    #242422 68%,
+    #151514 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lp-sheen 6.5s ease-in-out infinite;
+}
+
+.lp-bento-card {
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(21, 21, 20, 0.04),
+    0 10px 30px -14px rgba(21, 21, 20, 0.1),
+    0 0 0 1px rgba(21, 21, 20, 0.075);
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.lp-bento-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 2px 4px rgba(21, 21, 20, 0.05),
+    0 20px 44px -18px rgba(0, 99, 209, 0.14),
+    0 0 0 1px rgba(0, 99, 209, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-marquee-track,
+  .lp-marquee-track-rev,
+  .lp-typing-dot,
+  .lp-dash-line,
+  .lp-lock-anim,
+  .lp-float,
+  .lp-metallic-text {
+    animation: none !important;
+  }
+}
