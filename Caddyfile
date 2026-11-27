@@ -20,3 +20,15 @@
 		header_up X-Real-IP {client_ip}
 	}
 }
+
+{$LANDING_DOMAIN:caraicrm.com} {
+	encode zstd gzip
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {client_ip}
+	}
+}
+
+www.{$LANDING_DOMAIN:caraicrm.com} {
+	redir https://{$LANDING_DOMAIN:caraicrm.com}{uri} permanent
+}
