@@ -8,10 +8,19 @@ import { NextResponse, type NextRequest } from "next/server";
 // /api/matrix/runner：社媒矩阵运行器（用企业令牌鉴权，不走登录 Cookie）
 // /api/desktop：桌面版配对，接口自己校验登录，没登录返回 401（不跳登录页）
 // /api/wechat：桌面版微信本地桥接（支持设备令牌 Bearer md_... 或登录 Cookie，接口内严格鉴权）
-const PUBLIC_PATHS = ["/login", "/register", "/api/t", "/s", "/b", "/api/matrix/runner", "/api/desktop", "/api/wechat"];
+// /landing：官网落地页（caraicrm.com 根域名首页重写到此路由）
+const PUBLIC_PATHS = ["/login", "/register", "/landing", "/api/t", "/s", "/b", "/api/matrix/runner", "/api/desktop", "/api/wechat"];
+
+const LANDING_HOSTS = new Set(["caraicrm.com", "www.caraicrm.com"]);
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(":")[0].toLowerCase();
+
+  if (LANDING_HOSTS.has(host) && pathname === "/") {
+    return NextResponse.rewrite(new URL("/landing", request.url));
+  }
+
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
