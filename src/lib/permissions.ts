@@ -83,6 +83,11 @@ export const PERMISSION_GROUPS = [
     items: [{ key: "whatsapp.use", label: "使用 WhatsApp" }],
   },
   {
+    key: "wechat",
+    label: "微信",
+    items: [{ key: "wechat.use", label: "使用个人微信（本地只读同步与半自动发送）" }],
+  },
+  {
     key: "matrix",
     label: "社媒矩阵",
     items: [
@@ -185,6 +190,7 @@ export const SYSTEM_ROLES: {
       "product.view",
       "mail.use",
       "whatsapp.use",
+      "wechat.use",
       "matrix.use",
       "ai.use",
     ],

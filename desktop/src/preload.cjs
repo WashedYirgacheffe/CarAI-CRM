@@ -8,4 +8,11 @@ contextBridge.exposeInMainWorld("chechedesktop", {
   platform: process.platform,
   /** 运行器状态：{ paired, state, detail, device } */
   status: () => ipcRenderer.invoke("desktop:status"),
+  /** 个人微信本地桥接（零封号：只读增量同步 + 半自动一键上屏） */
+  wechat: {
+    getStatus: () => ipcRenderer.invoke("wechat:status"),
+    stageSend: (opts) => ipcRenderer.invoke("wechat:stage-send", opts),
+    saveConfig: (cfg) => ipcRenderer.invoke("wechat:save-config", cfg),
+    syncNow: () => ipcRenderer.invoke("wechat:sync-now"),
+  },
 });

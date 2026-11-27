@@ -7,6 +7,7 @@ import path from "node:path";
 import { clearToken, loadDevice, saveDevice } from "./store.js";
 import { ensureBrowser, killHelpers, Runner, runnerLogPath, setBrowserState } from "./runner.js";
 import { startUpdater } from "./updater.js";
+import { WechatBridge } from "./wechat/bridge.js";
 
 const CRM_URL = (process.env.CRM_URL || "https://crm.caraicrm.com").replace(/\/+$/, "");
 const ORIGIN = new URL(CRM_URL).origin;
@@ -74,6 +75,11 @@ const runner = new Runner({
   },
 });
 
+const wechatBridge = new WechatBridge({
+  crmUrl: CRM_URL,
+  onChange: () => refreshTray(),
+});
+
 function refreshTray() {
   if (!tray) return;
   const line = status.detail || STATE_TEXT[status.state] || status.state;
@@ -133,6 +139,7 @@ function prepareBrowser() {
 function startRunner(token) {
   void prepareBrowser();
   runner.start(token, status.device);
+  wechatBridge.start(token);
 }
 
 /** 用主窗口的登录会话换设备令牌（服务器同时给这个会话写上 cc_device Cookie） */
@@ -193,6 +200,7 @@ function onNavigate(url) {
     if (pairedThisSession) {
       pairedThisSession = false;
       runner.stop();
+      wechatBridge.stop();
       clearToken();
     }
     return;
@@ -269,12 +277,17 @@ app.on("activate", showWindow);
 app.on("before-quit", () => {
   quitting = true;
   runner.stop();
+  wechatBridge.stop();
   killHelpers();
 });
 // 窗口都关了也不退出：留在菜单栏
 app.on("window-all-closed", () => {});
 
 ipcMain.handle("desktop:status", () => ({ paired: !!loadDevice().token, state: status.state, detail: status.detail, device: status.device }));
+ipcMain.handle("wechat:status", () => wechatBridge.getStatus());
+ipcMain.handle("wechat:stage-send", (_e, opts) => wechatBridge.stageSend(opts || {}));
+ipcMain.handle("wechat:save-config", (_e, cfg) => wechatBridge.saveConfig(cfg || {}));
+ipcMain.handle("wechat:sync-now", () => wechatBridge.syncNow({ silent: false }));
 
 app.whenReady().then(() => {
   status.device = deviceName();

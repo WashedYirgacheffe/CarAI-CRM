@@ -79,6 +79,9 @@ model Tenant {
   waAccounts        WaAccount[]
   waChats           WaChat[]
   waMessages        WaMessage[]
+  wxAccounts        WxAccount[]
+  wxChats           WxChat[]
+  wxMessages        WxMessage[]
   aiInsights        AiInsight[]
   segments          CustomerSegment[]
   suggestionIgnores SuggestionIgnore[]
@@ -155,6 +158,7 @@ model User {
   ownedOrders        Order[]         @relation("OrderOwner")
   mailAccounts       MailAccount[]
   waAccounts         WaAccount[]
+  wxAccounts         WxAccount[]
   workspaces         Workspace[]
   aiThreads          AiThread[]
   aiMemories         AiMemory[]
@@ -321,6 +325,7 @@ model Customer {
   orders        Order[]
   mailMessages  MailMessage[]
   waChats       WaChat[]
+  wxChats       WxChat[]
   aiMemories    AiMemory[]
   aiResearches  AiResearch[]
   shareVisits   ShareVisit[]
@@ -377,6 +382,7 @@ model Contact {
   email      String?
   phone      String?
   whatsapp   String?
+  wechat     String?
   isPrimary  Boolean  @default(false)
   remark     String?
   createdAt  DateTime @default(now())
@@ -386,6 +392,7 @@ model Contact {
   customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
   mailMessages MailMessage[]
   waChats      WaChat[]
+  wxChats      WxChat[]
 
   @@index([tenantId, email])
   @@index([customerId])
@@ -1137,6 +1144,135 @@ model WaMessage {
   chat    WaChat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, waId])
+  @@index([chatId, timestamp])
+  @@index([accountId, status])
+}
+
+// ───────────────────────── 个人微信（桌面端本地只读同步 + 半自动一键上屏） ─────────────────────────
+
+enum WxSyncStatus {
+  DISCONNECTED // 未连接桌面端或未配置
+  READY        // 桌面端在线（可使用半自动上屏与热键归档）
+  SYNCING      // 正在进行本地只读增量同步
+  ERROR        // 本地同步异常（仍可使用半自动上屏）
+}
+
+enum WxMsgStatus {
+  STAGED      // 已上屏到微信输入框，待业务员按回车发送
+  SENT        // 已发出（自动回执或手动确认）
+  UNCONFIRMED // 上屏后超时未检测到发出
+  RECEIVED    // 收到对方消息
+  FAILED      // 上屏失败
+}
+
+/// 业务员个人微信本地桥接账号（零封号：只读同步 + 半自动上屏，不存微信密码或登录凭据）
+model WxAccount {
+  id           String       @id @default(cuid())
+  tenantId     String
+  userId       String
+  /// 微信 wxid（由本地同步上报，可选）
+  wxid         String?
+  /// 微信号（用于展示）
+  wechatNo     String?
+  /// 微信昵称
+  name         String?
+  /// 绑定的桌面设备 id（MatrixDevice.id）
+  deviceId     String?
+  /// 桌面端操作系统：win32 / darwin
+  platform     String?
+  /// 同步范围：whitelist = 仅同步白名单/已关联客户；all = 全部同步
+  syncMode     String       @default("whitelist")
+  /// 白名单备注前缀（例如「客户-」），微信备注以此开头的会话自动纳入同步
+  remarkPrefix String       @default("客户-")
+  status       WxSyncStatus @default(DISCONNECTED)
+  lastError    String?
+  lastSyncAt   DateTime?
+  syncMessages Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chats    WxChat[]
+  messages WxMessage[]
+
+  @@unique([userId])
+  @@index([tenantId])
+}
+
+/// 微信会话（单聊 / 群聊）
+model WxChat {
+  id            String    @id @default(cuid())
+  tenantId      String
+  accountId     String
+  /// 会话唯一键：微信 wxid / xxx@chatroom / manual:<id>
+  wxKey         String
+  /// 对方微信号（半自动上屏最高优先级精准搜索锚点）
+  wechatNo      String?
+  /// 微信备注名（次优先级精准搜索锚点）
+  remark        String?
+  /// 微信昵称或群名
+  name          String?
+  isGroup       Boolean   @default(false)
+  /// 白名单开关：是否在桌面端自动同步该会话消息
+  syncEnabled   Boolean   @default(true)
+  customerId    String?
+  contactId     String?
+  lastMessageAt DateTime?
+  lastText      String?
+  unread        Int       @default(0)
+  lastFromMe    Boolean   @default(false)
+  pinnedAt      DateTime?
+  archived      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account  WxAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contact  Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  messages WxMessage[]
+
+  @@unique([accountId, wxKey])
+  @@index([tenantId, customerId])
+  @@index([accountId, lastMessageAt])
+}
+
+/// 微信消息记录
+model WxMessage {
+  id          String      @id @default(cuid())
+  tenantId    String
+  accountId   String
+  chatId      String
+  /// 微信本地消息 id（去重用；半自动上屏草稿初始为空，回执匹配后回填）
+  wxMsgId     String?
+  fromMe      Boolean
+  /// 群聊发言人名称
+  senderName  String?
+  /// text / image / video / audio / document / other
+  type        String      @default("text")
+  body        String      @default("")
+  /// 外文消息自动翻译成中文
+  translation String?
+  mediaKey    String?
+  mediaMime   String?
+  mediaName   String?
+  mediaSize   Int?
+  status      WxMsgStatus
+  error       String?
+  sentById    String?
+  /// 触发上屏时间
+  stagedAt    DateTime?
+  /// 确认已发出时间（本地同步回执或人工确认）
+  confirmedAt DateTime?
+  timestamp   DateTime
+  createdAt   DateTime    @default(now())
+
+  tenant  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account WxAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  chat    WxChat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, wxMsgId])
   @@index([chatId, timestamp])
   @@index([accountId, status])
 }

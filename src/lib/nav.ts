@@ -9,7 +9,7 @@ export type NavLeaf = {
 };
 
 /** 图标栏数字提醒（/api/badges 返回） */
-export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "inbox" | "tasks" | "approvals";
+export type BadgeKey = "todo" | "leads" | "mail" | "whatsapp" | "wechat" | "inbox" | "tasks" | "approvals";
 
 export type NavGroup = { group?: string; items: NavLeaf[] };
 
@@ -35,6 +35,7 @@ export const NAV: NavModule[] = [
   { key: "mail", title: "邮件", href: "/mail", icon: "Mail", permission: "mail.use", badge: "mail" },
   { key: "inbox", title: "收件箱", href: "/inbox", icon: "MessagesSquare", anyPermission: ["matrix.use", "matrix.manage"], badge: "inbox" },
   { key: "whatsapp", title: "沟通", href: "/whatsapp", icon: "MessageCircle", permission: "whatsapp.use", badge: "whatsapp" },
+  { key: "wechat", title: "微信", href: "/wechat", icon: "MessagesSquare", anyPermission: ["wechat.use", "whatsapp.use"], badge: "wechat" },
   { key: "marketing", title: "营销", href: "/marketing", icon: "Send", permission: "mail.use" },
   { key: "leads", title: "线索", href: "/leads", icon: "Inbox", permission: "lead.view", badge: "leads" },
   {
