@@ -29,8 +29,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { resolveWechatSearchKey, wechatDisplayName, WX_MSG_STATUS_LABEL, WX_SYNC_MODES, WX_SYNC_STATUS_LABEL } from "@/lib/wechat";
+import { parsePastedWechatLog, resolveWechatSearchKey, wechatDisplayName, WX_MSG_STATUS_LABEL, WX_SYNC_MODES, WX_SYNC_STATUS_LABEL, type ParsedWechatLine } from "@/lib/wechat";
 import {
+  clearWechatMessagesAction,
   confirmWechatMessageAction,
   createWechatChatAction,
   draftWechatReplyAction,
@@ -47,8 +48,14 @@ type DesktopWechatBridge = {
     platform: string;
     wechatInstalled: boolean;
     wechatRunning: boolean;
+    wxVersion?: number | null;
+    wxid?: string | null;
     dataDir: string | null;
-    syncSource: "chatlog" | "none";
+    dbRoot?: string | null;
+    decryptedDir?: string;
+    hasDbKey?: boolean;
+    keyCount?: number;
+    syncSource: "native-db" | "chatlog" | "none";
     chatlogUrl: string;
     lastSyncAt: string | null;
     lastError: string | null;
@@ -60,8 +67,9 @@ type DesktopWechatBridge = {
     hint?: string;
     error?: string;
   }>;
-  saveConfig: (cfg: { chatlogUrl?: string; autoSync?: boolean; dataDir?: string }) => Promise<{ ok: boolean }>;
-  syncNow: () => Promise<{ ok: boolean; inserted?: number; confirmed?: number; error?: string }>;
+  saveConfig: (cfg: { dbKey?: string; decryptedDir?: string; chatlogUrl?: string; autoSync?: boolean; dataDir?: string }) => Promise<{ ok: boolean; error?: string }>;
+  extractKey?: () => Promise<{ ok: boolean; matchedCount?: number; totalCount?: number; inserted?: number; error?: string; code?: string }>;
+  syncNow: () => Promise<{ ok: boolean; threads?: number; inserted?: number; confirmed?: number; error?: string }>;
 };
 
 declare global {
@@ -197,14 +205,19 @@ export function WechatWorkspace({
   const [importOpen, setImportOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteDefaultFromMe, setPasteDefaultFromMe] = useState(false);
+  const [pastePreview, setPastePreview] = useState<ParsedWechatLine[]>([]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncMode, setSyncMode] = useState<"whitelist" | "all">(account.syncMode);
   const [remarkPrefix, setRemarkPrefix] = useState(account.remarkPrefix);
   const [myWxName, setMyWxName] = useState(account.name || "");
   const [myWxNo, setMyWxNo] = useState(account.wechatNo || "");
+  const [dbKeyInput, setDbKeyInput] = useState("");
+  const [decryptedDir, setDecryptedDir] = useState("");
   const [chatlogUrl, setChatlogUrl] = useState("http://127.0.0.1:5030");
   const [localAutoSync, setLocalAutoSync] = useState(true);
+  const [extractingKey, setExtractingKey] = useState(false);
+  const [extractHint, setExtractHint] = useState<string | null>(null);
 
   const [editPeerOpen, setEditPeerOpen] = useState(false);
   const [editWechatNo, setEditWechatNo] = useState("");
@@ -237,11 +250,26 @@ export function WechatWorkspace({
         .then((s) => {
           setBridgeStatus(s);
           if (s.chatlogUrl) setChatlogUrl(s.chatlogUrl);
+          if (s.decryptedDir) setDecryptedDir(s.decryptedDir);
           setLocalAutoSync(s.autoSync);
         })
         .catch(() => null);
     }
   }, []);
+
+  useEffect(() => {
+    if (!pasteText.trim()) {
+      setPastePreview([]);
+      return;
+    }
+    setPastePreview(
+      parsePastedWechatLog(pasteText, {
+        myName: account.name,
+        peerName: activeChat?.remark || activeChat?.name || null,
+        defaultFromMe: pasteDefaultFromMe,
+      }),
+    );
+  }, [pasteText, pasteDefaultFromMe, account.name, activeChat?.remark, activeChat?.name]);
 
   useEffect(() => {
     msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -317,15 +345,40 @@ export function WechatWorkspace({
     try {
       const res = await desktopBridge.syncNow();
       if (res.ok) {
-        toast.success(`同步完成：新增 ${res.inserted ?? 0} 条，自动确认发出 ${res.confirmed ?? 0} 条`);
+        toast.success(`同步完成：${res.threads ?? 0} 个会话，新增 ${res.inserted ?? 0} 条，自动确认发出 ${res.confirmed ?? 0} 条`);
         const s = await desktopBridge.getStatus().catch(() => null);
         if (s) setBridgeStatus(s);
         router.refresh();
       } else {
-        toast.error(res.error || "本地同步未就绪，请检查微信本地同步设置");
+        toast.error(res.error || "本地同步未就绪，请先在设置里配置微信密钥");
       }
     } finally {
       setSyncingNow(false);
+    }
+  };
+
+  const handleExtractKey = async () => {
+    if (!desktopBridge?.extractKey) {
+      toast.info("请升级到车车桌面版 v0.2.7+ 以使用一键提取本机微信密钥功能");
+      return;
+    }
+    setExtractingKey(true);
+    setExtractHint(null);
+    try {
+      const res = await desktopBridge.extractKey();
+      const s = await desktopBridge.getStatus().catch(() => null);
+      if (s) setBridgeStatus(s);
+      if (res.ok) {
+        const msg = `成功提取 ${res.matchedCount ?? 1} 个微信数据库密钥，已自动同步 ${res.inserted ?? 0} 条历史记录！`;
+        setExtractHint(msg);
+        toast.success(msg);
+        router.refresh();
+      } else {
+        setExtractHint(res.error || "自动扫描未命中");
+        toast.error(res.error || "自动扫描未命中，可手动填入 64 位密钥或已解密目录");
+      }
+    } finally {
+      setExtractingKey(false);
     }
   };
 
@@ -371,12 +424,11 @@ export function WechatWorkspace({
   };
 
   const handleImportPaste = () => {
-    if (!activeChat || !pasteText.trim()) return;
+    if (!activeChat || !pastePreview.length) return;
     startTransition(async () => {
       const res = await importPastedWechatLogAction({
         chatId: activeChat.id,
-        rawText: pasteText,
-        defaultFromMe: pasteDefaultFromMe,
+        items: pastePreview,
       });
       if ("error" in res && res.error) {
         toast.error(res.error);
@@ -384,6 +436,7 @@ export function WechatWorkspace({
       }
       setImportOpen(false);
       setPasteText("");
+      setPastePreview([]);
       toast.success(`已归档 ${"inserted" in res ? res.inserted : 0} 条聊天记录`);
       router.refresh();
     });
@@ -391,17 +444,29 @@ export function WechatWorkspace({
 
   const handleSaveSettings = () => {
     startTransition(async () => {
+      if (desktopBridge) {
+        const localRes = await desktopBridge
+          .saveConfig({
+            ...(dbKeyInput.trim() ? { dbKey: dbKeyInput.trim() } : {}),
+            decryptedDir: decryptedDir.trim(),
+            chatlogUrl: chatlogUrl.trim(),
+            autoSync: localAutoSync,
+          })
+          .catch(() => ({ ok: false, error: "保存本机配置失败" }));
+        if (!localRes.ok) {
+          toast.error(localRes.error || "本机密钥校验失败");
+          return;
+        }
+        setDbKeyInput("");
+        const s = await desktopBridge.getStatus().catch(() => null);
+        if (s) setBridgeStatus(s);
+      }
       const res = await updateWechatSettingsAction({
         syncMode,
         remarkPrefix,
         name: myWxName,
         wechatNo: myWxNo,
       });
-      if (desktopBridge) {
-        await desktopBridge.saveConfig({ chatlogUrl: chatlogUrl.trim(), autoSync: localAutoSync }).catch(() => null);
-        const s = await desktopBridge.getStatus().catch(() => null);
-        if (s) setBridgeStatus(s);
-      }
       if ("ok" in res) {
         setSettingsOpen(false);
         toast.success("微信同步设置已保存");
@@ -457,10 +522,10 @@ export function WechatWorkspace({
             <p className="truncate text-xs text-muted-foreground">
               {desktopBridge
                 ? bridgeStatus?.wechatRunning
-                  ? `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端就绪 · ${bridgeStatus.syncSource === "chatlog" ? "只读同步已连" : "半自动上屏"}`
+                  ? `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端就绪 · ${bridgeStatus.syncSource === "native-db" ? "内置全自动只读同步" : bridgeStatus.syncSource === "chatlog" ? "只读服务已连" : "半自动上屏"}`
                   : `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端在线 · 等待打开本地微信`
                 : isOutdatedDesktop
-                  ? `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端 v${desktopApp?.version || "旧版"} · 需升级至 v0.2.6`
+                  ? `${isWin ? "Win" : isMac ? "Mac" : "桌面"}端 v${desktopApp?.version || "旧版"} · 需升级至 v0.2.7`
                   : WX_SYNC_STATUS_LABEL[account.status] || "网页模式（建议用桌面版）"}
             </p>
           </div>
@@ -701,6 +766,11 @@ export function WechatWorkspace({
                       <strong className="font-normal text-foreground">{anchor?.key || "未设置"}</strong>
                       {anchor?.label ? `（${anchor.label}）` : ""}
                     </span>
+                    {anchor?.ignoredRawWxid && (
+                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                        已跳过无法搜索的原始 wxid_
+                      </span>
+                    )}
                     {activeChat.customer ? (
                       <Link
                         href={`/customers/${activeChat.customer.id}`}
@@ -723,6 +793,23 @@ export function WechatWorkspace({
                   <FileText className="mr-1.5 size-3.5" />
                   粘贴导入记录
                 </Button>
+                {activeChat.messages.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      if (!window.confirm("确定清空当前会话在 CRM 里的聊天记录吗？（不会影响你本地微信）")) return;
+                      startTransition(async () => {
+                        await clearWechatMessagesAction(activeChat.id);
+                        toast.success("已清空当前会话记录");
+                        router.refresh();
+                      });
+                    }}
+                  >
+                    清空记录
+                  </Button>
+                )}
                 {activeChat.customer && (
                   <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={openLinkDialog}>
                     更换客户
@@ -894,9 +981,10 @@ export function WechatWorkspace({
                 className="resize-none text-sm"
               />
 
-              <div className="mt-2 flex items-center justify-between gap-2">
+              {/* 右侧留出 md:pr-16 避开右下角全局 AI 悬浮球 */}
+              <div className="mt-2 flex items-center justify-between gap-2 md:pr-16">
                 <p className="text-[11px] text-muted-foreground">
-                  安全机制：绝不自动按最终回车键，防止串人误发与触发风控。
+                  安全机制：自动点击右侧输入框防粘贴进搜索框，且绝不自动按最终回车键。
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -961,21 +1049,21 @@ export function WechatWorkspace({
         </DialogContent>
       </Dialog>
 
-      {/* ── 弹窗 2：粘贴导入聊天记录 ── */}
+      {/* ── 弹窗 2：粘贴导入聊天记录（支持微信 4.0/3.9 全格式 + 实时解析预览） ── */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>粘贴导入微信聊天记录</DialogTitle>
             <DialogDescription>
-              在 PC/Mac 微信里多选或复制聊天内容粘贴到下方，系统会自动拆分发言人、时间和内容并自动翻译外文。
+              直接粘贴从微信 4.0 / 3.9 复制出来的聊天记录，系统会自动拆分日期、发言人、时间与正文；点击下方预览标签可随时切换「对方 / 我方」。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-1">
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              rows={8}
-              placeholder={"示例：\nAlex 2026-11-27 10:20:30\nHi, please send FOB price for BYD Song Plus.\n\n我 2026-11-27 10:22:10\nSure, sending you the latest quotation now."}
+              rows={6}
+              placeholder={"支持直接粘贴微信 4.0 复制的原文：\n2026年11月25日\n车车\n02:59\n[文件] 工业云平台使用说明书-外部版.pdf"}
             />
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
               <input
@@ -984,12 +1072,49 @@ export function WechatWorkspace({
                 onChange={(e) => setPasteDefaultFromMe(e.target.checked)}
                 className="size-3.5 accent-emerald-600"
               />
-              若粘贴的是无头行纯文本，默认记为「我方发出」
+              若未识别出发言人（或双方同名），默认记为「我方发出」
             </label>
+
+            {pastePreview.length > 0 && (
+              <div className="rounded-xl border border-border/80 bg-muted/25 p-3">
+                <div className="mb-2 flex items-center justify-between text-xs">
+                  <span className="font-medium text-foreground">解析预览（共识别 {pastePreview.length} 条）</span>
+                  <span className="text-[11px] text-muted-foreground">点击左侧身份标签可切换「我方 / 对方」</span>
+                </div>
+                <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                  {pastePreview.map((item, idx) => (
+                    <div key={idx} className="flex items-start gap-2 rounded-lg bg-card p-2 text-xs ring-1 ring-border/60">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPastePreview((prev) =>
+                            prev.map((row, i) => (i === idx ? { ...row, fromMe: !row.fromMe } : row)),
+                          )
+                        }
+                        className={cn(
+                          "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                          item.fromMe ? "bg-emerald-600 text-white" : "bg-muted text-foreground",
+                        )}
+                      >
+                        {item.fromMe ? "我方" : item.senderName || "对方"}
+                      </button>
+                      <p className="min-w-0 flex-1 whitespace-pre-wrap break-all text-foreground/90">{item.text}</p>
+                      {item.at && (
+                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                          {new Date(item.at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportOpen(false)}>取消</Button>
-            <Button disabled={pending || !pasteText.trim()} onClick={handleImportPaste}>解析并归档</Button>
+            <Button disabled={pending || pastePreview.length === 0} onClick={handleImportPaste}>
+              确认归档 ({pastePreview.length} 条)
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1062,43 +1187,99 @@ export function WechatWorkspace({
               </div>
             )}
 
-            {/* 本机只读数据源状态区 */}
+            {/* 本机全自动只读读取引擎状态区 */}
             <div className="rounded-xl border border-border/80 bg-muted/30 p-3.5">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-foreground">本机只读数据源（Win / Mac 微信 4.0 兼容）</p>
+                <p className="text-xs font-medium text-foreground">本机全自动只读引擎（内置 SQLCipher 3/4 解密）</p>
                 <span
                   className={cn(
                     "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
                     desktopBridge
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                      ? bridgeStatus?.syncSource !== "none"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : "bg-sky-500/15 text-sky-700 dark:text-sky-300"
                       : isOutdatedDesktop
                         ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
                         : "bg-muted text-muted-foreground",
                   )}
                 >
                   {desktopBridge
-                    ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.6"} 已连接`
+                    ? bridgeStatus?.hasDbKey
+                      ? `已配置 ${bridgeStatus.keyCount || 1} 把密钥 · 自动读取`
+                      : bridgeStatus?.syncSource === "chatlog"
+                        ? "本地只读服务已连"
+                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.7"} 待配密钥`
                     : isOutdatedDesktop
                       ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "旧版"} 需升级`
                       : "浏览器模式"}
                 </span>
               </div>
               <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                桌面端支持直连本机 <code className="rounded bg-muted px-1 py-0.5">chatlog</code> HTTP 只读服务（默认{" "}
-                <code className="rounded bg-muted px-1 py-0.5">http://127.0.0.1:5030</code>）自动拉取解密后的增量消息并回执发送状态；未开启时仍可完整使用半自动一键上屏与粘贴归档。
+                桌面版已内置纯本地只读解密引擎（绝不改微信原文件）。配置一次 64 位数据库密钥（或指定 WeFlow 已解密目录）后，即可自动同步本机所有符合隐私范围的历史对话与实时消息，并在发出后自动回执。
               </p>
 
               {desktopBridge ? (
                 <div className="mt-3 space-y-2.5 border-t border-border/60 pt-3">
+                  {isWin && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] text-muted-foreground">
+                        检测到：{bridgeStatus?.wxVersion ? `微信 ${bridgeStatus.wxVersion}.x` : "本地微信"}
+                        {bridgeStatus?.wxid ? ` (${bridgeStatus.wxid})` : ""}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={extractingKey}
+                        onClick={handleExtractKey}
+                      >
+                        {extractingKey ? <LoaderCircle className="mr-1 size-3.5" /> : <RefreshCcw className="mr-1 size-3.5" />}
+                        一键扫描本机微信密钥
+                      </Button>
+                    </div>
+                  )}
+
+                  {extractHint && (
+                    <p className="rounded-lg bg-background/80 p-2 text-[11px] leading-relaxed text-muted-foreground ring-1 ring-border/60">
+                      {extractHint}
+                    </p>
+                  )}
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] text-muted-foreground">
+                      手动填入 64 位数据库密钥（Hex，仅加密存在本机钥匙串，绝不上云）
+                    </label>
+                    <Input
+                      value={dbKeyInput}
+                      onChange={(e) => setDbKeyInput(e.target.value)}
+                      placeholder={bridgeStatus?.hasDbKey ? "已加密保存本机密钥（如需更换请粘贴新的 64 位 Hex）" : "粘贴 64 位十六进制密钥（可用 WeFlow 等工具一次性提取）"}
+                      className="h-8 font-mono text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] text-muted-foreground">
+                      或指定已解密明文 DB 目录（选填，例如 WeFlow 解密输出目录，免填密钥）
+                    </label>
+                    <Input
+                      value={decryptedDir}
+                      onChange={(e) => setDecryptedDir(e.target.value)}
+                      placeholder="例如：C:\Users\你的用户名\WeFlow\decrypted"
+                      className="h-8 font-mono text-xs"
+                    />
+                  </div>
+
                   <div className="flex items-center gap-2">
-                    <span className="shrink-0 text-xs text-muted-foreground">服务地址</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">兼容只读 HTTP</span>
                     <Input
                       value={chatlogUrl}
                       onChange={(e) => setChatlogUrl(e.target.value)}
                       placeholder="http://127.0.0.1:5030"
-                      className="h-8 text-xs"
+                      className="h-8 font-mono text-xs"
                     />
                   </div>
+
                   <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                     <input
                       type="checkbox"
@@ -1106,23 +1287,23 @@ export function WechatWorkspace({
                       onChange={(e) => setLocalAutoSync(e.target.checked)}
                       className="size-3.5 accent-emerald-600"
                     />
-                    在桌面端后台每 20 秒自动增量拉取一次新消息
+                    在桌面端后台每 20 秒自动增量读取一次新消息并更新发送回执
                   </label>
                   {bridgeStatus?.dataDir && (
-                    <p className="truncate text-[11px] text-muted-foreground">检测到本机微信目录：{bridgeStatus.dataDir}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">本机微信目录：{bridgeStatus.dataDir}</p>
                   )}
                 </div>
               ) : isOutdatedDesktop ? (
                 <div className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
                   <span className="leading-relaxed">
-                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.6+ 启用微信本地桥接。
+                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.7+ 启用微信本地桥接。
                   </span>
                   <Link
                     href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700"
                   >
                     <Download className="size-3" />
-                    下载 v0.2.6
+                    下载 v0.2.7
                   </Link>
                 </div>
               ) : (

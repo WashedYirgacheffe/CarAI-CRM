@@ -156,7 +156,12 @@ export async function confirmWechatMessageAction(messageId: string, status: "SEN
   return { ok: true };
 }
 
-export async function importPastedWechatLogAction(input: { chatId: string; rawText: string; defaultFromMe?: boolean }) {
+export async function importPastedWechatLogAction(input: {
+  chatId: string;
+  rawText?: string;
+  defaultFromMe?: boolean;
+  items?: { fromMe: boolean; senderName?: string; text: string; at?: number }[];
+}) {
   const user = await requireWechatUser();
   const account = await ensureWxAccount(user.tenantId, user.id);
   const chat = await prisma.wxChat.findFirst({
@@ -164,10 +169,14 @@ export async function importPastedWechatLogAction(input: { chatId: string; rawTe
   });
   if (!chat) return { error: "会话不存在" };
 
-  const lines = parsePastedWechatLog(input.rawText, {
-    myName: account.name,
-    defaultFromMe: input.defaultFromMe ?? false,
-  });
+  const lines =
+    input.items && input.items.length > 0
+      ? input.items.filter((i) => i.text.trim())
+      : parsePastedWechatLog(input.rawText || "", {
+          myName: account.name,
+          peerName: chat.remark || chat.name,
+          defaultFromMe: input.defaultFromMe ?? false,
+        });
   if (!lines.length) return { error: "未识别到有效聊天内容" };
 
   const res = await ingestWechatSync(user.tenantId, user.id, {
@@ -191,6 +200,24 @@ export async function importPastedWechatLogAction(input: { chatId: string; rawTe
 
   revalidatePath("/wechat");
   return { ok: true, count: lines.length, inserted: res.inserted, confirmed: res.confirmed };
+}
+
+export async function clearWechatMessagesAction(chatId: string) {
+  const user = await requireWechatUser();
+  const account = await ensureWxAccount(user.tenantId, user.id);
+  const chat = await prisma.wxChat.findFirst({
+    where: { id: chatId, accountId: account.id, tenantId: user.tenantId },
+  });
+  if (!chat) return { error: "会话不存在" };
+
+  await prisma.wxMessage.deleteMany({ where: { chatId: chat.id, tenantId: user.tenantId } });
+  await prisma.wxChat.update({
+    where: { id: chat.id },
+    data: { lastText: null, unread: 0 },
+  });
+
+  revalidatePath("/wechat");
+  return { ok: true };
 }
 
 export async function updateWechatSettingsAction(input: {

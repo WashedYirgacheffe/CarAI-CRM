@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("chechedesktop", {
     getStatus: () => ipcRenderer.invoke("wechat:status"),
     stageSend: (opts) => ipcRenderer.invoke("wechat:stage-send", opts),
     saveConfig: (cfg) => ipcRenderer.invoke("wechat:save-config", cfg),
+    extractKey: () => ipcRenderer.invoke("wechat:extract-key"),
     syncNow: () => ipcRenderer.invoke("wechat:sync-now"),
   },
 });
