@@ -1,4 +1,26 @@
-/* 车车外贸 CRM 官网落地页动效与视觉纹理（基于 agentes 暖白纸面系统 + openbot.run 节奏） */
+/* 车车外贸 CRM 官网落地页样式（基于 agentes 纸面系统与 3 级正文字号纪律） */
+
+.lp-root {
+  --lp-h2: clamp(2rem, 3.8vw, 3.125rem);
+  --lp-body: 1rem;
+  --lp-sm: 0.875rem;
+}
+
+.lp-h2 {
+  font-size: var(--lp-h2);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.lp-body {
+  font-size: var(--lp-body);
+  line-height: 1.65;
+}
+
+.lp-sm {
+  font-size: var(--lp-sm);
+  line-height: 1.55;
+}
 
 @keyframes lp-marquee {
   from {
@@ -18,19 +40,6 @@
   }
 }
 
-@keyframes lp-typing {
-  0%,
-  80%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.35;
-  }
-  40% {
-    transform: translateY(-3px);
-    opacity: 1;
-  }
-}
-
 @keyframes lp-dash-flow {
   to {
     stroke-dashoffset: -24;
@@ -46,78 +55,37 @@
   }
 }
 
-@keyframes lp-pulse-ring {
-  0% {
-    transform: scale(0.95);
-    opacity: 0.8;
-  }
-  70% {
-    transform: scale(1.18);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1.18);
-    opacity: 0;
-  }
-}
-
-@keyframes lp-float {
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-@keyframes lp-lock-bob {
-  0%,
-  100% {
-    transform: scale(1) rotate(0deg);
-  }
-  40% {
-    transform: scale(1.08) rotate(-4deg);
-  }
-  65% {
-    transform: scale(0.98) rotate(3deg);
-  }
-}
-
-@keyframes lp-step-highlight {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(0, 99, 209, 0);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(0, 99, 209, 0.16);
-  }
-}
-
 .lp-grid-bg {
   background-image:
-    linear-gradient(to right, rgba(0, 99, 209, 0.055) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 99, 209, 0.055) 1px, transparent 1px);
-  background-size: 48px 48px;
+    linear-gradient(to right, rgba(0, 99, 209, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 99, 209, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
 }
 
 .lp-graph-paper {
   background-image:
-    linear-gradient(to right, rgba(21, 21, 20, 0.055) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(21, 21, 20, 0.055) 1px, transparent 1px);
-  background-size: 28px 28px;
+    linear-gradient(to right, rgba(21, 21, 20, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(21, 21, 20, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.lp-graph-paper-dark {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 .lp-marquee-track {
   display: flex;
   width: max-content;
-  animation: lp-marquee 26s linear infinite;
+  animation: lp-marquee 28s linear infinite;
 }
 
 .lp-marquee-track-rev {
   display: flex;
   width: max-content;
-  animation: lp-marquee-rev 30s linear infinite;
+  animation: lp-marquee-rev 32s linear infinite;
 }
 
 .lp-marquee-wrap:hover .lp-marquee-track,
@@ -125,27 +93,9 @@
   animation-play-state: paused;
 }
 
-.lp-typing-dot {
-  animation: lp-typing 1.3s ease-in-out infinite;
-}
-.lp-typing-dot:nth-child(2) {
-  animation-delay: 0.18s;
-}
-.lp-typing-dot:nth-child(3) {
-  animation-delay: 0.36s;
-}
-
 .lp-dash-line {
   stroke-dasharray: 5 5;
   animation: lp-dash-flow 1.4s linear infinite;
-}
-
-.lp-lock-anim {
-  animation: lp-lock-bob 3.6s ease-in-out infinite;
-}
-
-.lp-float {
-  animation: lp-float 4.2s ease-in-out infinite;
 }
 
 .lp-metallic-text {
@@ -162,20 +112,22 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: lp-sheen 6.5s ease-in-out infinite;
+  animation: lp-sheen 7s ease-in-out infinite;
 }
 
-.lp-bento-card {
+.lp-surface-panel {
   border-radius: 28px;
   background: #ffffff;
   box-shadow:
     0 1px 2px rgba(21, 21, 20, 0.04),
-    0 10px 30px -14px rgba(21, 21, 20, 0.1),
+    0 12px 32px -16px rgba(21, 21, 20, 0.09),
     0 0 0 1px rgba(21, 21, 20, 0.075);
-  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.lp-bento-card:hover {
+.lp-surface-panel:hover {
   transform: translateY(-2px);
   box-shadow:
     0 2px 4px rgba(21, 21, 20, 0.05),
@@ -186,11 +138,14 @@
 @media (prefers-reduced-motion: reduce) {
   .lp-marquee-track,
   .lp-marquee-track-rev,
-  .lp-typing-dot,
   .lp-dash-line,
-  .lp-lock-anim,
-  .lp-float,
   .lp-metallic-text {
     animation: none !important;
+  }
+  .lp-surface-panel {
+    transition: none !important;
+  }
+  .lp-surface-panel:hover {
+    transform: none !important;
   }
 }

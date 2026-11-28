@@ -57,21 +57,27 @@ export function AppWindowPreview() {
             <span className="size-2.5 rounded-full bg-[#ff5f57]" />
             <span className="size-2.5 rounded-full bg-[#febc2e]" />
             <span className="size-2.5 rounded-full bg-[#28c840]" />
-            <span className="ml-2 rounded-md bg-white px-2.5 py-0.5 font-mono text-[11px] text-[#5c5c58] shadow-2xs ring-1 ring-black/[0.06]">
-              车车 CRM 桌面版 v0.2.6 · {activeItem.path}
+            <span className="ml-2 text-xs font-medium text-[#5c5c58] tabular-nums">
+              车车 CRM 桌面版 · {activeItem.path}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-1">
+          <div
+            role="tablist"
+            aria-label="切换预览模块"
+            className="inline-flex max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-black/[0.05] p-1"
+          >
             {RAIL_MODULES.map((m) => (
               <button
                 key={m.key}
                 type="button"
+                role="tab"
+                aria-selected={screen === m.key}
                 onClick={() => setScreen(m.key)}
                 className={cn(
-                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition-all",
+                  "shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors duration-150 sm:px-3",
                   screen === m.key
-                    ? "bg-[#151514] text-white shadow-xs"
-                    : "text-[#5c5c58] hover:bg-black/[0.05] hover:text-[#151514]",
+                    ? "bg-white text-[#151514] shadow-2xs"
+                    : "text-[#5c5c58] hover:text-[#151514]",
                 )}
               >
                 {m.title}
@@ -126,7 +132,7 @@ export function AppWindowPreview() {
                   type="button"
                   onClick={() => setScreen(m.key)}
                   className={cn(
-                    "relative z-10 flex w-full flex-col items-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-all",
+                    "relative z-10 flex w-full flex-col items-center gap-1 rounded-xl py-2 text-[11px] font-medium transition-colors duration-150",
                     on
                       ? "bg-white text-[#151514] shadow-[0_2px_8px_-2px_rgba(21,21,20,0.12),0_0_0_1px_rgba(21,21,20,0.06)]"
                       : "text-[#5c5c58] hover:bg-black/[0.04] hover:text-[#151514]",
@@ -229,7 +235,7 @@ function DashboardMock() {
         ].map((k) => (
           <div key={k.label} className="surface p-3.5">
             <p className="text-[11px] text-[#6f6f6a]">{k.label}</p>
-            <p className="mt-1 font-dot text-2xl font-bold tracking-tight text-[#151514] tabular-nums">{k.value}</p>
+            <p className="mt-1 font-brand text-2xl font-bold tracking-tight text-[#151514] tabular-nums">{k.value}</p>
             <p className={cn("mt-0.5 text-[11px] font-medium", k.color)}>{k.delta}</p>
           </div>
         ))}
@@ -247,7 +253,7 @@ function DashboardMock() {
               <div key={b.m} className="flex flex-1 flex-col items-center gap-1.5">
                 <span className="font-mono text-[10px] text-[#6f6f6a]">{b.val}</span>
                 <div
-                  className={cn("w-full rounded-t-lg transition-all", b.peak ? "bg-[#0063d1]" : "bar-stripes")}
+                  className={cn("w-full rounded-t-lg transition-colors duration-150", b.peak ? "bg-[#0063d1]" : "bar-stripes")}
                   style={{ height: `${b.h}%` }}
                 />
                 <span className="text-[10px] text-[#6f6f6a]">{b.m}</span>
@@ -518,7 +524,7 @@ function MatrixMock() {
           <p className="text-sm font-semibold text-[#151514]">海外社媒矩阵 · 车车浏览器独立指纹环境</p>
           <p className="text-xs text-[#6f6f6a]">TikTok / Instagram / Facebook / LinkedIn / X 多账号本机常驻监听私信，防关联、统一汇总进收件箱</p>
         </div>
-        <span className="rounded-full bg-[#dcf7e6] px-3 py-1 font-mono text-[11px] font-medium text-[#12804a]">5 ACCOUNTS LIVE</span>
+        <span className="text-xs font-medium text-[#12804a] tabular-nums">5 个账号监听中</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         {[
