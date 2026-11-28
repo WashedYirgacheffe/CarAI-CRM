@@ -157,6 +157,7 @@ export class WechatBridge {
       wechatInstalled: det.wechatInstalled,
       wechatRunning: det.wechatRunning,
       wxVersion: det.wxVersion ?? null,
+      wxVersionString: det.wxVersionString ?? null,
       wxid: det.wxid ?? null,
       dataDir: cfg.dataDir || det.dataDir,
       dbRoot: det.dbRoot ?? null,
@@ -188,6 +189,8 @@ export class WechatBridge {
       const synced = await this.syncNow({ silent: true });
       return {
         ok: true,
+        method: res.method,
+        wxVersionString: res.wxVersionString,
         matchedCount: res.matchedCount,
         totalCount: res.totalCount,
         inserted: synced.ok ? synced.inserted : 0,
