@@ -49,6 +49,7 @@ type DesktopWechatBridge = {
     wechatInstalled: boolean;
     wechatRunning: boolean;
     wxVersion?: number | null;
+    wxVersionString?: string | null;
     wxid?: string | null;
     dataDir: string | null;
     dbRoot?: string | null;
@@ -68,7 +69,7 @@ type DesktopWechatBridge = {
     error?: string;
   }>;
   saveConfig: (cfg: { dbKey?: string; decryptedDir?: string; chatlogUrl?: string; autoSync?: boolean; dataDir?: string }) => Promise<{ ok: boolean; error?: string }>;
-  extractKey?: () => Promise<{ ok: boolean; matchedCount?: number; totalCount?: number; inserted?: number; error?: string; code?: string }>;
+  extractKey?: () => Promise<{ ok: boolean; method?: string; wxVersionString?: string | null; matchedCount?: number; totalCount?: number; inserted?: number; error?: string; code?: string }>;
   syncNow: () => Promise<{ ok: boolean; threads?: number; inserted?: number; confirmed?: number; error?: string }>;
 };
 
@@ -359,7 +360,7 @@ export function WechatWorkspace({
 
   const handleExtractKey = async () => {
     if (!desktopBridge?.extractKey) {
-      toast.info("请升级到车车桌面版 v0.2.7+ 以使用一键提取本机微信密钥功能");
+      toast.info("请升级到车车桌面版 v0.2.8+ 以使用一键提取本机微信密钥功能");
       return;
     }
     setExtractingKey(true);
@@ -369,7 +370,7 @@ export function WechatWorkspace({
       const s = await desktopBridge.getStatus().catch(() => null);
       if (s) setBridgeStatus(s);
       if (res.ok) {
-        const msg = `成功提取 ${res.matchedCount ?? 1} 个微信数据库密钥，已自动同步 ${res.inserted ?? 0} 条历史记录！`;
+        const msg = `成功通过纯只读引擎（${res.method || "codec-ctx"}）提取 ${res.matchedCount ?? 1}/${res.totalCount ?? res.matchedCount ?? 1} 个微信数据库密钥，已自动同步 ${res.inserted ?? 0} 条历史记录！`;
         setExtractHint(msg);
         toast.success(msg);
         router.refresh();
@@ -1208,14 +1209,14 @@ export function WechatWorkspace({
                       ? `已配置 ${bridgeStatus.keyCount || 1} 把密钥 · 自动读取`
                       : bridgeStatus?.syncSource === "chatlog"
                         ? "本地只读服务已连"
-                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.7"} 待配密钥`
+                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.8"} 待配密钥`
                     : isOutdatedDesktop
                       ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "旧版"} 需升级`
                       : "浏览器模式"}
                 </span>
               </div>
               <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                桌面版已内置纯本地只读解密引擎（绝不改微信原文件）。配置一次 64 位数据库密钥（或指定 WeFlow 已解密目录）后，即可自动同步本机所有符合隐私范围的历史对话与实时消息，并在发出后自动回执。
+                桌面版已内置三引擎纯只读解密（兼容微信 4.2 / 4.1 / 4.0，零 DLL 注入、支持 WAL 实时新消息合并）。点一次「一键扫描本机微信密钥」即可长期自动同步全部符合隐私范围的历史对话与实时消息。
               </p>
 
               {desktopBridge ? (
@@ -1223,7 +1224,7 @@ export function WechatWorkspace({
                   {isWin && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[11px] text-muted-foreground">
-                        检测到：{bridgeStatus?.wxVersion ? `微信 ${bridgeStatus.wxVersion}.x` : "本地微信"}
+                        检测到：{bridgeStatus?.wxVersionString ? `微信 ${bridgeStatus.wxVersionString}` : bridgeStatus?.wxVersion ? `微信 ${bridgeStatus.wxVersion}.x` : "本地微信"}
                         {bridgeStatus?.wxid ? ` (${bridgeStatus.wxid})` : ""}
                       </span>
                       <Button
@@ -1296,14 +1297,14 @@ export function WechatWorkspace({
               ) : isOutdatedDesktop ? (
                 <div className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
                   <span className="leading-relaxed">
-                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.7+ 启用微信本地桥接。
+                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.8+ 启用微信本地桥接。
                   </span>
                   <Link
                     href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700"
                   >
                     <Download className="size-3" />
-                    下载 v0.2.7
+                    下载 v0.2.8
                   </Link>
                 </div>
               ) : (

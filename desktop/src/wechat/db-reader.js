@@ -1,4 +1,5 @@
-// 纯 Node.js 微信 3.x / 4.x 本地只读 SQLCipher 解密与全量历史消息读取引擎（零原生编译依赖、零修改微信原文件）
+// 纯 Node.js 微信 3.x / 4.x 本地只读 SQLCipher 解密与全量历史消息读取引擎
+// 特性：零原生编译依赖、零修改微信原文件、支持 SQLCipher 4 -wal 实时帧合并、stat 缓存避免重复全量解密
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,12 +9,42 @@ const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "ascii");
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 const PAGE_SIZE = 4096;
 
+// 内存级解密缓存：同一数据库主文件 + WAL 文件均未变化时直接复用已解密临时库
+const decryptCache = new Map();
+
+function verifyPageHmac(pageBuf, pgno, macKey, hmacAlg, reserveSize, hmacLen) {
+  if (!pageBuf || pageBuf.length < PAGE_SIZE) return false;
+  const dataStart = pgno === 1 ? 16 : 0;
+  const encryptedEnd = PAGE_SIZE - reserveSize + 16; // 含 16B IV
+  const expectedMac = pageBuf.subarray(encryptedEnd, encryptedEnd + hmacLen);
+  const hmac = crypto.createHmac(hmacAlg, macKey);
+  hmac.update(pageBuf.subarray(dataStart, encryptedEnd));
+  const pageNo = Buffer.allocUnsafe(4);
+  pageNo.writeUInt32LE(pgno, 0);
+  hmac.update(pageNo);
+  const actual = hmac.digest();
+  return actual.equals(expectedMac);
+}
+
+/**
+ * 极速校验 32 字节 SQLCipher 4 Raw Encryption Key 与数据库第 1 页的 HMAC-SHA512（仅 2 次 PBKDF2，< 0.2ms）
+ */
+export function verifyRawEncKey(encKeyBuf, page1) {
+  if (!encKeyBuf || encKeyBuf.length !== 32 || !page1 || page1.length < PAGE_SIZE) return false;
+  if (page1.subarray(0, 16).equals(SQLITE_HEADER)) return false;
+  const salt = page1.subarray(0, 16);
+  const macSalt = Buffer.allocUnsafe(16);
+  for (let i = 0; i < 16; i++) macSalt[i] = salt[i] ^ 0x3a;
+  const macKey = crypto.pbkdf2Sync(encKeyBuf, macSalt, 2, 32, "sha512");
+  return verifyPageHmac(page1, 1, macKey, "sha512", 80, 64);
+}
+
 /**
  * 验证某个 64 位 Hex Key 能否解密给定的微信数据库文件第 1 页，并自动识别加密规格：
- * - v4-raw:   SQLCipher 4 Raw Key（微信 4.x 内存直接缓存的 32B enc_key，reserve=80, HMAC-SHA512）
- * - v4-kdf:   SQLCipher 4 Passphrase Key（PBKDF2-HMAC-SHA512, 256000 次, reserve=80）
+ * - v4-raw:    SQLCipher 4 Raw Key（微信 4.0 / 4.1+ 内存提取的 32B enc_key，reserve=80, HMAC-SHA512）
+ * - v4-kdf:    SQLCipher 4 Passphrase Key（PBKDF2-HMAC-SHA512, 256000 次, reserve=80）
+ * - v3-kdf:    SQLCipher 3（微信 3.x：PBKDF2-HMAC-SHA1, 64000 次, reserve=48）
  * - v4-sha256: SQLCipher 4 变体（PBKDF2-HMAC-SHA256, 256000 次, reserve=48）
- * - v3-kdf:   SQLCipher 3（微信 3.x：PBKDF2-HMAC-SHA1, 64000 次, reserve=48）
  */
 export function detectCipherSpec(dbPath, hexKey) {
   const cleanHex = String(hexKey || "").trim().replace(/^x'|'$/gi, "").replace(/^0x/i, "");
@@ -29,43 +60,30 @@ export function detectCipherSpec(dbPath, hexKey) {
     fs.closeSync(fd);
   }
 
-  // 如果文件本身已是明文 SQLite
   if (page1.subarray(0, 16).equals(SQLITE_HEADER)) {
     return { mode: "plain" };
   }
 
   const salt = page1.subarray(0, 16);
-  const macSalt = Buffer.alloc(16);
+  const macSalt = Buffer.allocUnsafe(16);
   for (let i = 0; i < 16; i++) macSalt[i] = salt[i] ^ 0x3a;
-
-  const verifyHmac = (macKey, hmacAlg, reserveSize, hmacLen) => {
-    const encryptedEnd = PAGE_SIZE - reserveSize + 16; // 含 16B IV
-    const expectedMac = page1.subarray(encryptedEnd, encryptedEnd + hmacLen);
-    const hmac = crypto.createHmac(hmacAlg, macKey);
-    hmac.update(page1.subarray(16, encryptedEnd));
-    const pageNo = Buffer.alloc(4);
-    pageNo.writeUInt32LE(1, 0);
-    hmac.update(pageNo);
-    const actual = hmac.digest();
-    return actual.equals(expectedMac);
-  };
 
   // 1) 微信 4.x Raw Key（最快：只需 2 次 HMAC 迭代派生 macKey）
   try {
     const macKey = crypto.pbkdf2Sync(keyBuf, macSalt, 2, 32, "sha512");
-    if (verifyHmac(macKey, "sha512", 80, 64)) {
-      return { mode: "cipher", encKey: keyBuf, reserve: 80, hmacAlg: "sha512", version: 4 };
+    if (verifyPageHmac(page1, 1, macKey, "sha512", 80, 64)) {
+      return { mode: "cipher", encKey: keyBuf, macKey, reserve: 80, hmacAlg: "sha512", hmacLen: 64, version: 4 };
     }
   } catch {
     /* continue */
   }
 
-  // 2) 微信 4.x SQLCipher 4 (PBKDF2-SHA512 256000)
+  // 2) 微信 4.x SQLCipher 4 Passphrase (PBKDF2-SHA512 256000)
   try {
     const encKey = crypto.pbkdf2Sync(keyBuf, salt, 256000, 32, "sha512");
     const macKey = crypto.pbkdf2Sync(encKey, macSalt, 2, 32, "sha512");
-    if (verifyHmac(macKey, "sha512", 80, 64)) {
-      return { mode: "cipher", encKey, reserve: 80, hmacAlg: "sha512", version: 4 };
+    if (verifyPageHmac(page1, 1, macKey, "sha512", 80, 64)) {
+      return { mode: "cipher", encKey, macKey, reserve: 80, hmacAlg: "sha512", hmacLen: 64, version: 4 };
     }
   } catch {
     /* continue */
@@ -75,8 +93,8 @@ export function detectCipherSpec(dbPath, hexKey) {
   try {
     const encKey = crypto.pbkdf2Sync(keyBuf, salt, 64000, 32, "sha1");
     const macKey = crypto.pbkdf2Sync(encKey, macSalt, 2, 32, "sha1");
-    if (verifyHmac(macKey, "sha1", 48, 20)) {
-      return { mode: "cipher", encKey, reserve: 48, hmacAlg: "sha1", version: 3 };
+    if (verifyPageHmac(page1, 1, macKey, "sha1", 48, 20)) {
+      return { mode: "cipher", encKey, macKey, reserve: 48, hmacAlg: "sha1", hmacLen: 20, version: 3 };
     }
   } catch {
     /* continue */
@@ -86,8 +104,8 @@ export function detectCipherSpec(dbPath, hexKey) {
   try {
     const encKey = crypto.pbkdf2Sync(keyBuf, salt, 256000, 32, "sha256");
     const macKey = crypto.pbkdf2Sync(encKey, macSalt, 2, 32, "sha256");
-    if (verifyHmac(macKey, "sha256", 48, 32)) {
-      return { mode: "cipher", encKey, reserve: 48, hmacAlg: "sha256", version: 4 };
+    if (verifyPageHmac(page1, 1, macKey, "sha256", 48, 32)) {
+      return { mode: "cipher", encKey, macKey, reserve: 48, hmacAlg: "sha256", hmacLen: 32, version: 4 };
     }
   } catch {
     /* continue */
@@ -96,9 +114,96 @@ export function detectCipherSpec(dbPath, hexKey) {
   return null;
 }
 
-/** 只读解密单个 SQLCipher 数据库文件到目标临时路径（不修改原文件） */
+function decryptSinglePage(pageBuf, pgno, encKey, reserve) {
+  const dataStart = pgno === 1 ? 16 : 0;
+  const dataEnd = PAGE_SIZE - reserve;
+  const iv = pageBuf.subarray(dataEnd, dataEnd + 16);
+  const cipherData = pageBuf.subarray(dataStart, dataEnd);
+  const decipher = crypto.createDecipheriv("aes-256-cbc", encKey, iv);
+  decipher.setAutoPadding(false);
+  const decrypted = Buffer.concat([decipher.update(cipherData), decipher.final()]);
+  const out = Buffer.alloc(PAGE_SIZE);
+  if (pgno === 1) {
+    SQLITE_HEADER.copy(out, 0);
+    decrypted.copy(out, 16);
+  } else {
+    decrypted.copy(out, 0);
+  }
+  return out;
+}
+
+/**
+ * 读取并合并 SQLCipher -wal 文件中通过 HMAC 校验的最新提交帧（支持实时读取微信刚收发、尚未 checkpoint 的新消息）
+ */
+function applyEncryptedWal(walPath, pagesMap, baseTotalPages, spec) {
+  if (!fs.existsSync(walPath)) return baseTotalPages;
+  let wal;
+  try {
+    wal = fs.readFileSync(walPath);
+  } catch {
+    return baseTotalPages;
+  }
+  if (wal.length < 32 + 24 + PAGE_SIZE) return baseTotalPages;
+
+  const magic = wal.readUInt32BE(0);
+  if (magic !== 0x377f0682 && magic !== 0x377f0683) return baseTotalPages;
+  const walPageSize = wal.readUInt32BE(8);
+  if (walPageSize !== PAGE_SIZE) return baseTotalPages;
+
+  const hdrSalt1 = wal.readUInt32BE(16);
+  const hdrSalt2 = wal.readUInt32BE(20);
+  const frameSize = 24 + PAGE_SIZE;
+
+  // 逐个事务收集帧，仅在遇到 dbSize > 0（事务提交标记）且全部帧通过 HMAC 校验时原子应用
+  let txPending = [];
+  let maxPages = baseTotalPages;
+
+  for (let off = 32; off + frameSize <= wal.length; off += frameSize) {
+    const pgno = wal.readUInt32BE(off);
+    const dbSize = wal.readUInt32BE(off + 4);
+    const salt1 = wal.readUInt32BE(off + 8);
+    const salt2 = wal.readUInt32BE(off + 12);
+    if (salt1 !== hdrSalt1 || salt2 !== hdrSalt2 || pgno === 0) break;
+
+    const framePage = wal.subarray(off + 24, off + 24 + PAGE_SIZE);
+    if (!verifyPageHmac(framePage, pgno, spec.macKey, spec.hmacAlg, spec.reserve, spec.hmacLen)) {
+      // 碰到半写入/未完整刷盘的帧即停止，保护主库一致性
+      break;
+    }
+
+    txPending.push({ pgno, framePage });
+    if (dbSize > 0) {
+      for (const item of txPending) {
+        pagesMap.set(item.pgno, decryptSinglePage(item.framePage, item.pgno, spec.encKey, spec.reserve));
+        if (item.pgno > maxPages) maxPages = item.pgno;
+      }
+      if (dbSize > maxPages) maxPages = dbSize;
+      txPending = [];
+    }
+  }
+  return maxPages;
+}
+
+/** 只读解密单个 SQLCipher 数据库文件（自动合并最新 -wal 帧，并通过 stat 缓存跳过无变化文件） */
 export function decryptDatabaseFile(srcPath, destPath, hexKey) {
   if (!fs.existsSync(srcPath)) return false;
+
+  const walPath = `${srcPath}-wal`;
+  let stat;
+  let walStat = null;
+  try {
+    stat = fs.statSync(srcPath);
+    if (fs.existsSync(walPath)) walStat = fs.statSync(walPath);
+  } catch {
+    return false;
+  }
+
+  const cacheSig = `${stat.mtimeMs}:${stat.size}:${walStat ? `${walStat.mtimeMs}:${walStat.size}` : "0"}:${hexKey}`;
+  const cached = decryptCache.get(srcPath);
+  if (cached && cached.sig === cacheSig && cached.destPath === destPath && fs.existsSync(destPath)) {
+    return true;
+  }
+
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
 
   const raw = fs.readFileSync(srcPath);
@@ -106,6 +211,7 @@ export function decryptDatabaseFile(srcPath, destPath, hexKey) {
 
   if (raw.subarray(0, 16).equals(SQLITE_HEADER)) {
     fs.writeFileSync(destPath, raw);
+    decryptCache.set(srcPath, { sig: cacheSig, destPath });
     return true;
   }
 
@@ -113,31 +219,31 @@ export function decryptDatabaseFile(srcPath, destPath, hexKey) {
   if (!spec || spec.mode !== "cipher") return false;
 
   const { encKey, reserve } = spec;
-  const totalPages = Math.floor(raw.length / PAGE_SIZE);
-  const out = Buffer.alloc(totalPages * PAGE_SIZE);
+  const baseTotalPages = Math.floor(raw.length / PAGE_SIZE);
+  const walOverrides = new Map();
+  const finalTotalPages = applyEncryptedWal(walPath, walOverrides, baseTotalPages, spec);
 
-  for (let p = 0; p < totalPages; p++) {
+  const out = Buffer.alloc(finalTotalPages * PAGE_SIZE);
+  for (let p = 0; p < finalTotalPages; p++) {
+    const pgno = p + 1;
     const offset = p * PAGE_SIZE;
-    const page = raw.subarray(offset, offset + PAGE_SIZE);
-    const dataStart = p === 0 ? 16 : 0;
-    const dataEnd = PAGE_SIZE - reserve;
-    const iv = page.subarray(dataEnd, dataEnd + 16);
-    const cipherData = page.subarray(dataStart, dataEnd);
-
-    const decipher = crypto.createDecipheriv("aes-256-cbc", encKey, iv);
-    decipher.setAutoPadding(false);
-    const decrypted = Buffer.concat([decipher.update(cipherData), decipher.final()]);
-
-    if (p === 0) {
-      SQLITE_HEADER.copy(out, offset);
-      decrypted.copy(out, offset + 16);
-    } else {
-      decrypted.copy(out, offset);
+    const walPage = walOverrides.get(pgno);
+    if (walPage) {
+      walPage.copy(out, offset);
+      continue;
     }
-    // 尾部保留 0 填充（标准 SQLite 页尾）
+    if (p < baseTotalPages) {
+      const page = raw.subarray(offset, offset + PAGE_SIZE);
+      const dec = decryptSinglePage(page, pgno, encKey, reserve);
+      dec.copy(out, offset);
+    }
   }
 
-  fs.writeFileSync(destPath, out);
+  // 写临时文件后原子替换，避免并发读到半写文件
+  const tmpPath = `${destPath}.tmp`;
+  fs.writeFileSync(tmpPath, out);
+  fs.renameSync(tmpPath, destPath);
+  decryptCache.set(srcPath, { sig: cacheSig, destPath });
   return true;
 }
 
@@ -175,10 +281,21 @@ function md5Hex(str) {
   return crypto.createHash("md5").update(String(str)).digest("hex");
 }
 
+/** 规范化微信 4.x 账号目录名（如 wxid_xxx_a1b2 -> wxid_xxx，但不误伤无后缀的 wxid_xxx） */
+export function normalizeMyWxid(rawDirName) {
+  const s = String(rawDirName || "").trim();
+  if (!s) return "";
+  // 仅当末尾是 _ + 4位十六进制哈希，且去掉后缀后仍不是裸 "wxid" 时才剥离
+  const m = /^(.+)_[0-9a-f]{4}$/i.exec(s);
+  if (m && m[1].toLowerCase() !== "wxid") {
+    return m[1];
+  }
+  return s;
+}
+
 function shouldKeepSession(s, remoteCfg) {
   const wxKey = s.wxKey;
   if (!wxKey || /^(gh_|weixin|filehelper$|fmessage|medianote|floatbottle|newsapp|qmessage|qqmail|tmessage|weibo|brandsessionholder)/i.test(wxKey)) {
-    // 文件传输助手仅在显式加入白名单时保留，否则过滤系统号/公众号
     if (wxKey !== "filehelper") return false;
   }
   if (remoteCfg.syncMode === "all") return true;
@@ -221,7 +338,8 @@ export async function readLocalWechatHistory({
     const norm = relPath.replace(/\\/g, "/").toLowerCase();
     if (keyMap && typeof keyMap === "object") {
       for (const [k, v] of Object.entries(keyMap)) {
-        if (k.replace(/\\/g, "/").toLowerCase().endsWith(norm) || norm.endsWith(k.replace(/\\/g, "/").toLowerCase())) {
+        const kn = k.replace(/\\/g, "/").toLowerCase();
+        if (kn === norm || kn.endsWith(`/${norm}`) || norm.endsWith(`/${kn}`)) {
           return v;
         }
       }
@@ -242,7 +360,6 @@ export async function readLocalWechatHistory({
         const key = getKeyFor(rel);
         const dest = path.join(workDir, rel);
         if (!key) {
-          // 检测是否明文
           const head = Buffer.alloc(16);
           const fd = fs.openSync(src, "r");
           fs.readSync(fd, head, 0, 16, 0);
@@ -260,7 +377,6 @@ export async function readLocalWechatHistory({
     return null;
   };
 
-  // 自动判断 v4 还是 v3
   const isV4 = wxVersion === 4 || fs.existsSync(path.join(usePlainDir ? workDir : dbRoot, "contact", "contact.db"));
 
   if (isV4) {
@@ -274,7 +390,7 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
   const sessionPath = prepareDb(["session/session.db", "session.db"]);
 
   if (!contactPath && !sessionPath) {
-    throw new Error("未能解密微信 4.x 数据库，请先获取或填写有效的 64 位数据库密钥（或指定已解密目录）");
+    throw new Error("未能解密微信 4.x 数据库，请先点击「一键扫描本机微信密钥」或填写有效的 64 位数据库密钥");
   }
 
   // 1) 加载联系人字典
@@ -336,7 +452,6 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
     }
   }
 
-  // 若 session.db 为空则退回到联系人表
   if (sessions.length === 0) {
     for (const [wxKey, c] of contacts.entries()) {
       const item = { wxKey, wechatNo: c.wechatNo, remark: c.remark, name: c.name, isGroup: wxKey.endsWith("@chatroom") };
@@ -362,7 +477,7 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
   }
 
   const threadMessages = new Map();
-  const cleanMyWxid = myWxid ? myWxid.replace(/_[a-z0-9]{4,}$/i, "") : "";
+  const cleanMyWxid = normalizeMyWxid(myWxid);
 
   for (const rel of msgRelFiles) {
     const decPath = prepareDb([rel]);
@@ -370,11 +485,15 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
     const db = new DatabaseSync(decPath, { open: true, readOnly: true });
     try {
       const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
-      // 加载 Name2Id 映射（用于区分我方发送还是对方发送）
       const idToUser = new Map();
-      if (tables.includes("Name2Id")) {
-        for (const row of db.prepare("SELECT rowid, user_name FROM Name2Id").all()) {
-          idToUser.set(Number(row.rowid), String(row.user_name || ""));
+      const name2IdTbl = tables.find((t) => /^name2id$/i.test(t));
+      if (name2IdTbl) {
+        const nCols = db.prepare(`PRAGMA table_info("${name2IdTbl}")`).all().map((c) => c.name);
+        const colName = nCols.find((c) => /^(user_name|username)$/i.test(c)) || nCols[0];
+        if (colName) {
+          for (const row of db.prepare(`SELECT rowid, "${colName}" AS u FROM "${name2IdTbl}"`).all()) {
+            idToUser.set(Number(row.rowid), String(row.u || ""));
+          }
         }
       }
 
@@ -398,10 +517,21 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
 
         const list = threadMessages.get(s.wxKey) || [];
         for (const r of rows) {
-          const decoded = decodeContent(r.body);
+          let decoded = decodeContent(r.body);
+          let senderUser = idToUser.get(Number(r.sid)) || "";
+
+          // 群聊文本首行常见 "wxid_xxx:\n实际内容" 前缀，剥离并还原真实发送者
+          if (s.isGroup) {
+            const grpPrefix = /^([a-zA-Z0-9_-]{3,64}):\n([\s\S]+)$/.exec(decoded);
+            if (grpPrefix) {
+              if (!senderUser) senderUser = grpPrefix[1];
+              decoded = grpPrefix[2].trim();
+            }
+          }
+
           const formatted = formatMsgByType(r.ltype, decoded);
           if (!formatted || !formatted.text) continue;
-          const senderUser = idToUser.get(Number(r.sid)) || "";
+
           let fromMe = false;
           if (cleanMyWxid && senderUser) {
             fromMe = senderUser.toLowerCase() === cleanMyWxid.toLowerCase();
@@ -468,7 +598,7 @@ function readV3Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, maxSessio
       if (/^MSG\d+\.db$/i.test(f)) msgFiles.push(`Multi/${f}`);
     }
   }
-  msgFiles.sort().reverse(); // 最新的 MSG 分片优先
+  msgFiles.sort().reverse();
 
   const byTalker = new Map();
   for (const rel of msgFiles.slice(0, 4)) {

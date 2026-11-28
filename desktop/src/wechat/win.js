@@ -63,16 +63,31 @@ export async function detectWechat() {
 
   let processName = null;
   let pid = null;
+  let pids = [];
+  let wxVersionString = null;
   try {
     const out = await runPowerShell(`
-      $p = Get-Process -Name Weixin -ErrorAction SilentlyContinue | Select-Object -First 1
-      if (-not $p) { $p = Get-Process -Name WeChat -ErrorAction SilentlyContinue | Select-Object -First 1 }
-      if ($p) { Write-Output "$($p.ProcessName)|$($p.Id)" }
+      $ps = @(Get-Process -Name Weixin -ErrorAction SilentlyContinue | Sort-Object WorkingSet64 -Descending)
+      if ($ps.Count -eq 0) { $ps = @(Get-Process -Name WeChat -ErrorAction SilentlyContinue | Sort-Object WorkingSet64 -Descending) }
+      foreach ($p in $ps) {
+        $ver = ''
+        try { $ver = $p.MainModule.FileVersionInfo.ProductVersion } catch {}
+        Write-Output "$($p.ProcessName)|$($p.Id)|$ver"
+      }
     `);
-    if (out && out.includes("|")) {
-      const [name, id] = out.split("|");
-      processName = name.trim();
-      pid = Number(id) || null;
+    for (const line of out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) {
+      if (!line.includes("|")) continue;
+      const [name, id, ver] = line.split("|");
+      const numId = Number(id);
+      if (!numId) continue;
+      if (!processName) {
+        processName = name.trim();
+        pid = numId;
+      }
+      if (!wxVersionString && ver && ver.trim()) {
+        wxVersionString = ver.trim();
+      }
+      if (!pids.includes(numId)) pids.push(numId);
     }
   } catch {
     /* 忽略 */
@@ -80,10 +95,31 @@ export async function detectWechat() {
 
   const versionHint = processName === "Weixin" ? 4 : processName === "WeChat" ? 3 : null;
 
-  // 读取注册表自定义路径
+  // 读取微信 4.x 本地 ini 配置与注册表自定义路径
   const roots = [];
   if (fs.existsSync(v4Default)) roots.push(v4Default);
   if (fs.existsSync(v3Default)) roots.push(v3Default);
+  try {
+    const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+    const xwxConfigDir = path.join(appData, "Tencent", "xwechat", "config");
+    if (fs.existsSync(xwxConfigDir)) {
+      for (const f of fs.readdirSync(xwxConfigDir)) {
+        if (!f.toLowerCase().endsWith(".ini")) continue;
+        try {
+          const content = fs.readFileSync(path.join(xwxConfigDir, f), "utf8").trim().replace(/\0/g, "");
+          if (content && fs.existsSync(content)) {
+            const sub = path.join(content, "xwechat_files");
+            if (fs.existsSync(sub) && !roots.includes(sub)) roots.push(sub);
+            if (!roots.includes(content)) roots.push(content);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
   try {
     const regOut = await runPowerShell(`
       $paths = @()
@@ -118,7 +154,9 @@ export async function detectWechat() {
     wechatRunning,
     processName,
     pid,
+    pids,
     wxVersion: active?.wxVersion || versionHint || null,
+    wxVersionString,
     wxid: active?.wxid || null,
     dataDir,
     dbRoot: active?.dbRoot || null,
