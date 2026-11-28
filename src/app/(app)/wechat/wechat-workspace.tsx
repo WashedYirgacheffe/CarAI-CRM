@@ -360,7 +360,7 @@ export function WechatWorkspace({
 
   const handleExtractKey = async () => {
     if (!desktopBridge?.extractKey) {
-      toast.info("请升级到车车桌面版 v0.2.8+ 以使用一键提取本机微信密钥功能");
+      toast.info("请升级到车车桌面版 v0.2.9+ 以使用一键提取本机微信密钥功能");
       return;
     }
     setExtractingKey(true);
@@ -1209,7 +1209,7 @@ export function WechatWorkspace({
                       ? `已配置 ${bridgeStatus.keyCount || 1} 把密钥 · 自动读取`
                       : bridgeStatus?.syncSource === "chatlog"
                         ? "本地只读服务已连"
-                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.8"} 待配密钥`
+                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.9"} 待配密钥`
                     : isOutdatedDesktop
                       ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "旧版"} 需升级`
                       : "浏览器模式"}
@@ -1297,14 +1297,14 @@ export function WechatWorkspace({
               ) : isOutdatedDesktop ? (
                 <div className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
                   <span className="leading-relaxed">
-                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.8+ 启用微信本地桥接。
+                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.9+ 启用微信本地桥接。
                   </span>
                   <Link
                     href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700"
                   >
                     <Download className="size-3" />
-                    下载 v0.2.8
+                    下载 v0.2.9
                   </Link>
                 </div>
               ) : (

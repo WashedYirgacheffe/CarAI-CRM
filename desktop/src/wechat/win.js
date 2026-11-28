@@ -8,18 +8,24 @@ import { clipboard } from "electron";
 
 const execFileAsync = promisify(execFile);
 
-export function encodePowerShell(script) {
-  return Buffer.from(script, "utf16le").toString("base64");
-}
-
 export async function runPowerShell(script, timeoutMs = 15000) {
-  const encoded = encodePowerShell(script);
-  const { stdout } = await execFileAsync(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
-    { timeout: timeoutMs, windowsHide: true, maxBuffer: 10 * 1024 * 1024 },
-  );
-  return stdout.trim();
+  // 写入临时 .ps1（UTF-8 BOM）执行，彻底避免 Windows 32767 字符命令行长度上限（spawn ENAMETOOLONG）
+  const tmpFile = path.join(os.tmpdir(), `cheche-wx-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ps1`);
+  fs.writeFileSync(tmpFile, `\uFEFF${script}`, "utf8");
+  try {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", tmpFile],
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 20 * 1024 * 1024 },
+    );
+    return stdout.trim();
+  } finally {
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function isRawWxid(v) {
