@@ -287,6 +287,7 @@ ipcMain.handle("desktop:status", () => ({ paired: !!loadDevice().token, state: s
 ipcMain.handle("wechat:status", () => wechatBridge.getStatus());
 ipcMain.handle("wechat:stage-send", (_e, opts) => wechatBridge.stageSend(opts || {}));
 ipcMain.handle("wechat:save-config", (_e, cfg) => wechatBridge.saveConfig(cfg || {}));
+ipcMain.handle("wechat:extract-key", () => wechatBridge.extractKey());
 ipcMain.handle("wechat:sync-now", () => wechatBridge.syncNow({ silent: false }));
 
 app.whenReady().then(() => {
