@@ -111,6 +111,7 @@ export const WechatIngestPayload = z.object({
         avatarUrl: z.string().max(1000).optional(),
         isGroup: z.boolean().optional(),
         muted: z.boolean().optional(),
+        pinned: z.boolean().optional(),
         wxUnread: z.number().int().min(0).max(99999).optional(),
         messages: z
           .array(
@@ -179,6 +180,7 @@ export async function ingestWechatSync(
           avatarUrl: t.avatarUrl?.trim() || null,
           isGroup: t.isGroup ?? t.wxKey.endsWith("@chatroom"),
           muted: t.muted ?? false,
+          pinnedAt: t.pinned ? now : null,
           unread: t.muted ? 0 : Math.min(t.wxUnread ?? 0, 99),
           customerId: matched?.customerId ?? null,
           contactId: matched?.contactId ?? null,
@@ -191,6 +193,7 @@ export async function ingestWechatSync(
       if (t.name?.trim() && t.name.trim() !== chat.name) updates.name = t.name.trim();
       if (t.avatarUrl?.trim() && t.avatarUrl.trim() !== chat.avatarUrl) updates.avatarUrl = t.avatarUrl.trim();
       if (t.muted === true && !chat.muted) updates.muted = true;
+      if (t.pinned === true && !chat.pinnedAt) updates.pinnedAt = now;
       if (!chat.customerId) {
         const matched = await matchWechatCustomer(tenantId, {
           wechatNo: t.wechatNo ?? chat.wechatNo,
@@ -281,17 +284,25 @@ export async function ingestWechatSync(
         });
         if (existing) {
           const looksRawXml = existing.body.includes("<appmsg") || existing.body.includes("<?xml") || existing.body.includes("<type>57</type>");
+          const incomingForwardOrMedia =
+            !!m.mediaMeta &&
+            (!existing.mediaMeta ||
+              (m.mediaMeta as Record<string, unknown>).kind === "forward" ||
+              (m.mediaMeta as Record<string, unknown>).kind === "video" ||
+              (m.mediaMeta as Record<string, unknown>).kind === "link" ||
+              (m.mediaMeta as Record<string, unknown>).kind === "card");
           const needsEnrich =
             looksRawXml ||
             (!!m.quoteText && !existing.quoteText) ||
             (!!m.senderAvatar && !existing.senderAvatar) ||
-            (!!m.mediaMeta && !existing.mediaMeta);
+            incomingForwardOrMedia;
           if (needsEnrich) {
             await prisma.wxMessage
               .update({
                 where: { id: existing.id },
                 data: {
                   ...(looksRawXml ? { body, type: msgType, translation: null } : {}),
+                  ...(incomingForwardOrMedia && existing.body.startsWith("[") ? { body, type: msgType } : {}),
                   ...(m.quoteSender ? { quoteSender: m.quoteSender.trim() } : {}),
                   ...(m.quoteText ? { quoteText: m.quoteText.trim() } : {}),
                   ...(m.senderAvatar ? { senderAvatar: m.senderAvatar.trim() } : {}),

@@ -246,18 +246,97 @@ function xmlAttr(xml, attr) {
   return m ? decodeXmlEntities(m[1]) : "";
 }
 
-function extractImageMd5(content, packedInfo) {
-  const m1 = /\bmd5=["']([0-9a-f]{32})["']/i.exec(content || "");
-  if (m1) return m1[1].toLowerCase();
-  const m2 = /<md5>([0-9a-f]{32})<\/md5>/i.exec(content || "");
-  if (m2) return m2[1].toLowerCase();
+function extractImageMd5s(content, packedInfo) {
+  const md5 =
+    /\bmd5=["']([0-9a-f]{32})["']/i.exec(content || "")?.[1]?.toLowerCase() ||
+    /<md5>([0-9a-f]{32})<\/md5>/i.exec(content || "")?.[1]?.toLowerCase() ||
+    null;
+  const thumbMd5 =
+    /\bcdnthumbmd5=["']([0-9a-f]{32})["']/i.exec(content || "")?.[1]?.toLowerCase() ||
+    null;
+  let packedMd5 = null;
   if (packedInfo) {
     const buf = Buffer.isBuffer(packedInfo) ? packedInfo : Buffer.from(packedInfo);
     const ascii = buf.toString("latin1");
     const m3 = /([0-9a-f]{32})/i.exec(ascii);
-    if (m3) return m3[1].toLowerCase();
+    if (m3) packedMd5 = m3[1].toLowerCase();
   }
-  return null;
+  return { md5: md5 || packedMd5 || thumbMd5, thumbMd5: thumbMd5 || packedMd5 };
+}
+
+function extractVideoMeta(content, packedInfo, month) {
+  const md5 =
+    /\bmd5=["']([0-9a-f]{32})["']/i.exec(content || "")?.[1]?.toLowerCase() ||
+    null;
+  const rawMd5 =
+    /\brawmd5=["']([0-9a-f]{32})["']/i.exec(content || "")?.[1]?.toLowerCase() ||
+    null;
+  const thumbMd5 =
+    /\bcdnthumbmd5=["']([0-9a-f]{32})["']/i.exec(content || "")?.[1]?.toLowerCase() ||
+    null;
+  const duration = Number(/\bplaylength=["'](\d+)["']/i.exec(content || "")?.[1] || 0) || undefined;
+  let packedMd5 = null;
+  if (packedInfo) {
+    const buf = Buffer.isBuffer(packedInfo) ? packedInfo : Buffer.from(packedInfo);
+    const ascii = buf.toString("latin1");
+    const m = /([0-9a-f]{32})/i.exec(ascii);
+    if (m) packedMd5 = m[1].toLowerCase();
+  }
+  return {
+    kind: "video",
+    md5: md5 || packedMd5 || rawMd5 || thumbMd5 || undefined,
+    rawMd5: rawMd5 || undefined,
+    thumbMd5: thumbMd5 || undefined,
+    duration,
+    month,
+  };
+}
+
+/** 解析微信合并转发聊天记录（subtype=19）中的 <recorditem> 明细列表 */
+function parseForwardedRecordItems(appXml) {
+  const rawRecord = xmlTag(appXml, "recorditem");
+  if (!rawRecord) return [];
+  const items = [];
+  const itemRe = /<dataitem\b([^>]*)>([\s\S]*?)<\/dataitem>/gi;
+  let m;
+  while ((m = itemRe.exec(rawRecord)) !== null && items.length < 60) {
+    const attrs = m[1] || "";
+    const inner = m[2] || "";
+    const dtype = Number(/\bdatatype=["'](\d+)["']/i.exec(attrs)?.[1] || 1);
+    const sender = xmlTag(inner, "sourcename") || "成员";
+    const time = xmlTag(inner, "sourcetime") || "";
+    const desc = xmlTag(inner, "datadesc");
+    const title = xmlTag(inner, "datatitle");
+    const md5 = xmlTag(inner, "fullmd5") || xmlTag(inner, "thumbfullmd5") || undefined;
+
+    let kind = "text";
+    let text = desc || title;
+    if (dtype === 2) {
+      kind = "image";
+      text = "[图片]";
+    } else if (dtype === 4) {
+      kind = "video";
+      text = "[视频]";
+    } else if (dtype === 8) {
+      kind = "file";
+      text = title ? `[文件] ${title}` : "[文件]";
+    } else if (dtype === 17) {
+      kind = "forward";
+      text = title ? `[聊天记录] ${title}` : "[聊天记录]";
+    } else if (!text) {
+      text = "[富媒体]";
+    }
+
+    items.push({
+      sender: sender.slice(0, 80),
+      time: time.slice(0, 40),
+      kind,
+      text: text.slice(0, 500),
+      ...(md5 ? { md5 } : {}),
+      ...(dtype === 8 && title ? { filename: title.slice(0, 200) } : {}),
+    });
+  }
+  return items;
 }
 
 function formatMonth(tsSec) {
@@ -306,15 +385,21 @@ export function parseWechatMessage(localType, content, { packedInfo, chatMd5, cr
     return { type: "text", text: content };
   }
   if (baseType === 3) {
-    const md5 = extractImageMd5(content, packedInfo);
+    const { md5, thumbMd5 } = extractImageMd5s(content, packedInfo);
     return {
       type: "image",
       text: "[图片]",
-      mediaMeta: md5 ? { kind: "image", md5, chatMd5, month } : { kind: "image", chatMd5, month },
+      mediaMeta: { kind: "image", ...(md5 ? { md5 } : {}), ...(thumbMd5 ? { thumbMd5 } : {}), chatMd5, month },
     };
   }
   if (baseType === 34) return { type: "audio", text: "[语音]" };
-  if (baseType === 43) return { type: "video", text: "[视频]" };
+  if (baseType === 43) {
+    return {
+      type: "video",
+      text: "[视频]",
+      mediaMeta: extractVideoMeta(content, packedInfo, month),
+    };
+  }
   if (baseType === 47 || baseType === 11000) return { type: "image", text: "[表情]" };
   if (baseType === 48) {
     const label = xmlAttr(content, "label") || xmlAttr(content, "poiname");
@@ -372,32 +457,61 @@ export function parseWechatMessage(localType, content, { packedInfo, chatMd5, cr
       return { type: "other", text: fee ? `[微信转账] ${fee}` : "[微信转账]" };
     }
 
-    // 4) 合并转发聊天记录（subtype=19）
-    if (effectiveSub === 19) {
-      const title = xmlTag(appXml, "title");
-      return { type: "other", text: title ? `[聊天记录] ${title}` : "[合并转发的聊天记录]" };
+    // 4) 合并转发聊天记录（subtype=19）：解析为结构化卡片 + 弹窗明细，不再显示成一坨文字
+    if (effectiveSub === 19 || appXml.includes("<recorditem")) {
+      const title = xmlTag(appXml, "title") || "聊天记录";
+      const desc = xmlTag(appXml, "des").slice(0, 400);
+      const items = parseForwardedRecordItems(appXml);
+      return {
+        type: "other",
+        text: `[聊天记录] ${title}`,
+        mediaMeta: {
+          kind: "forward",
+          title: title.slice(0, 160),
+          desc,
+          count: items.length,
+          items,
+          chatMd5,
+          month,
+        },
+      };
     }
 
     // 5) 小程序（33 / 36）
     if (effectiveSub === 33 || effectiveSub === 36) {
-      const title = xmlTag(appXml, "title") || xmlTag(appXml, "sourcedisplayname");
-      return { type: "other", text: title ? `[小程序] ${title}` : "[小程序]" };
+      const title = xmlTag(appXml, "title") || "小程序";
+      const source = xmlTag(appXml, "sourcedisplayname");
+      return {
+        type: "other",
+        text: `[小程序] ${title}`,
+        mediaMeta: { kind: "card", badge: source || "小程序", title: title.slice(0, 160), desc: xmlTag(appXml, "des").slice(0, 200) },
+      };
     }
 
     // 6) 视频号（51）
     if (effectiveSub === 51) {
       const nick = xmlTag(appXml, "nickname");
       const desc = xmlTag(appXml, "desc");
-      return { type: "other", text: `[视频号] ${[nick, desc].filter(Boolean).join(" · ") || "视频动态"}` };
+      const title = [nick, desc].filter(Boolean).join(" · ") || "视频动态";
+      return {
+        type: "other",
+        text: `[视频号] ${title}`,
+        mediaMeta: { kind: "card", badge: "视频号", title: (nick || "视频号").slice(0, 120), desc: desc.slice(0, 200) },
+      };
     }
 
-    // 7) 普通链接卡片 / 其他 appmsg
+    // 7) 链接卡片（subtype=5 或带 url）
     const title = xmlTag(appXml, "title");
+    const desc = xmlTag(appXml, "des").slice(0, 200);
     const url = xmlTag(appXml, "url");
+    const source = xmlTag(appXml, "sourcedisplayname");
     if (title) {
       return {
         type: "other",
-        text: url ? `[链接] ${title}\n${url}` : `[卡片] ${title}`,
+        text: `[链接] ${title}`,
+        mediaMeta: url
+          ? { kind: "link", title: title.slice(0, 160), desc, url: url.slice(0, 1000), source }
+          : { kind: "card", badge: source || "卡片", title: title.slice(0, 160), desc },
       };
     }
     return { type: "other", text: "[富媒体消息]" };
@@ -623,6 +737,8 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
               (colMuted && colMuted.toLowerCase() === "is_notify" ? mtCol === 0 : mtCol === 1) ||
               (isGroup && c.chatRoomNotify === 0) ||
               (c.flag & 0x200) !== 0;
+            // 微信 4.x 置顶判定：contact.flag bit 11 (1<<11 = 0x800) 或 SessionTable.sort_timestamp 高位偏移
+            const pinned = (c.flag & 0x800) !== 0 || Number(row.ts || 0) > 4_000_000_000;
 
             const item = {
               wxKey,
@@ -632,6 +748,7 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
               avatarUrl: c.avatarUrl,
               isGroup,
               muted,
+              pinned,
               wxUnread: Math.max(0, Number(row.uc || 0)),
             };
             if (shouldKeepSession(item, remoteCfg)) sessions.push(item);
@@ -654,6 +771,7 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
         avatarUrl: c.avatarUrl,
         isGroup,
         muted: (isGroup && c.chatRoomNotify === 0) || (c.flag & 0x200) !== 0,
+        pinned: (c.flag & 0x800) !== 0,
         wxUnread: 0,
       };
       if (shouldKeepSession(item, remoteCfg)) sessions.push(item);
@@ -783,6 +901,7 @@ function readV4Databases({ DatabaseSync, prepareDb, dbRoot, remoteCfg, myWxid, m
       avatarUrl: s.avatarUrl || undefined,
       isGroup: s.isGroup,
       muted: s.muted,
+      pinned: !!s.pinned,
       wxUnread: s.wxUnread,
       messages: (threadMessages.get(s.wxKey) || []).slice(-maxMessagesPerSession),
     }))

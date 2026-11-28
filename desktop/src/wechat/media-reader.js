@@ -1,8 +1,10 @@
 // 微信 4.x 本地媒体只读解密与文件定位引擎（纯 Node.js，零上传，保护业务员与客户隐私）
 // 支持：
-// 1) 图片加载：纯明文 JPG/PNG/GIF/WebP、单字节 XOR .dat、微信 4.x V1/V2 (.dat AES-128-ECB + XOR)
-// 2) 文件打开：按 <accountDir>/msg/file/<YYYY-MM>/<原文件名> 精准/跨月检索，交由系统默认程序打开
-// 3) 本地头像兜底：从解密后的 head_image/head_image.db 读取群聊九宫格或联系人本地头像 BLOB
+// 1) 图片加载：明文 JPG/PNG/GIF/WebP、单字节 XOR .dat、微信 4.x V1（单字节账号 XOR）、
+//    微信 4.x V2（AES-128-ECB + 单字节账号 XOR，兼容 ASCII + UTF-16LE 内存密钥扫描）
+// 2) 视频加载：读取 msg/video/<YYYY-MM>/<md5>.jpg 封面图并调用系统播放器打开 .mp4
+// 3) 文件打开：检索 msg/file/<YYYY-MM>/<原文件名> 交由系统默认软件打开
+// 4) 本地头像兜底：从解密后的 head_image/head_image.db 读取头像 BLOB
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
@@ -28,12 +30,10 @@ function detectImageMime(buf) {
 
 function stripImageFooter(plain) {
   if (!plain || plain.length < 16) return plain;
-  // JPEG EOI FF D9
   if (plain[0] === 0xff && plain[1] === 0xd8) {
     const end = plain.lastIndexOf(Buffer.from([0xff, 0xd9]));
     if (end > 0 && plain.length - (end + 2) <= 48) return plain.subarray(0, end + 2);
   }
-  // PNG IEND
   if (plain[0] === 0x89 && plain[1] === 0x50) {
     const iend = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
     const end = plain.lastIndexOf(iend);
@@ -42,14 +42,83 @@ function stripImageFooter(plain) {
   return plain;
 }
 
-/** 尝试用单字节 XOR 解密老格式或无 AES 头 .dat 图片 */
+/**
+ * 统计推算当前微信账号的全局单字节图片 XOR 密钥：
+ * 收集 msg/attach 目录下最多 16 个 *_t.dat 缩略图尾部 2 字节，按 JPEG EOI (FF D9) 众数投票得出精准 xorKey。
+ */
+export function detectAccountXorKey(accountDir) {
+  if (!accountDir) return null;
+  const attachRoot = path.join(accountDir, "msg", "attach");
+  if (!fs.existsSync(attachRoot)) return null;
+
+  const thumbs = [];
+  try {
+    const chats = fs.readdirSync(attachRoot, { withFileTypes: true }).filter((d) => d.isDirectory());
+    for (const c of chats) {
+      if (thumbs.length >= 24) break;
+      const chatPath = path.join(attachRoot, c.name);
+      const months = fs
+        .readdirSync(chatPath, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort()
+        .reverse();
+      for (const m of months) {
+        if (thumbs.length >= 24) break;
+        const imgDir = path.join(chatPath, m, "Img");
+        if (!fs.existsSync(imgDir)) continue;
+        for (const f of fs.readdirSync(imgDir)) {
+          if (f.toLowerCase().endsWith("_t.dat")) {
+            thumbs.push(path.join(imgDir, f));
+            if (thumbs.length >= 24) break;
+          }
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const votes = new Map();
+  for (const p of thumbs) {
+    try {
+      const stat = fs.statSync(p);
+      if (stat.size < 32) continue;
+      const fd = fs.openSync(p, "r");
+      const tailLen = Math.min(stat.size, 36);
+      const tail = Buffer.alloc(tailLen);
+      fs.readSync(fd, tail, 0, tailLen, stat.size - tailLen);
+      fs.closeSync(fd);
+      // 优先检查最后 2 字节（标准 JPEG EOI），兼顾带短页脚的容器
+      const x = tail[tailLen - 2];
+      const y = tail[tailLen - 1];
+      const k = x ^ 0xff;
+      if ((y ^ k) === 0xd9) {
+        votes.set(k, (votes.get(k) || 0) + 1);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let bestKey = null;
+  let bestCount = 0;
+  for (const [k, cnt] of votes.entries()) {
+    if (cnt > bestCount) {
+      bestCount = cnt;
+      bestKey = k;
+    }
+  }
+  return bestKey;
+}
+
 function tryDecodeSingleXor(buf) {
   if (!buf || buf.length < 16) return null;
   const sigs = [
-    [0xff, 0xd8, 0xff], // JPEG
-    [0x89, 0x50, 0x4e, 0x47], // PNG
-    [0x47, 0x49, 0x46, 0x38], // GIF
-    [0x52, 0x49, 0x46, 0x46], // WebP
+    [0xff, 0xd8, 0xff],
+    [0x89, 0x50, 0x4e, 0x47],
+    [0x47, 0x49, 0x46, 0x38],
+    [0x52, 0x49, 0x46, 0x46],
   ];
   for (const sig of sigs) {
     const k = buf[0] ^ sig[0];
@@ -70,7 +139,9 @@ function tryDecodeSingleXor(buf) {
   return null;
 }
 
-/** 解密微信 4.x V2 .dat 图片（结构：6B magic + 4B aesSize + 4B xorSize + 1B pad + aesCipher + rawMid + xorTail） */
+/**
+ * 解密微信 4.x V1 / V2 / 老版单字节 XOR .dat 图片
+ */
 export function decodeWechatDatBuffer(raw, imgAesKey = null, imgXorKey = null) {
   if (!raw || raw.length < 16) return null;
 
@@ -78,11 +149,11 @@ export function decodeWechatDatBuffer(raw, imgAesKey = null, imgXorKey = null) {
   const plainInfo = detectImageMime(raw);
   if (plainInfo) return { buf: stripImageFooter(raw), ...plainInfo };
 
-  // 2) 微信 4.x V2 容器
+  // 2) 微信 4.x V2 容器：[6B magic][4B aesSize LE][4B xorSize LE][1B pad][aesCipher][rawMid][xorTail]
   if (raw.length > 32 && raw.subarray(0, 6).equals(V2_MAGIC)) {
     const aesSize = raw.readUInt32LE(6);
     const xorSize = raw.readUInt32LE(10);
-    const headerLen = 15; // 6B magic + 4B aesSize + 4B xorSize + 1B pad
+    const headerLen = 15;
     const alignedAes = aesSize > 0 ? (aesSize % 16 === 0 ? aesSize + 16 : aesSize + (16 - (aesSize % 16))) : 0;
 
     if (headerLen + alignedAes > raw.length) return null;
@@ -97,11 +168,17 @@ export function decodeWechatDatBuffer(raw, imgAesKey = null, imgXorKey = null) {
         dec.setAutoPadding(true);
         headPlain = Buffer.concat([dec.update(raw.subarray(headerLen, headerLen + alignedAes)), dec.final()]);
       } catch {
-        // 无 padding 兜底
         try {
           const dec = crypto.createDecipheriv("aes-128-ecb", Buffer.from(imgAesKey, "ascii"), null);
           dec.setAutoPadding(false);
-          headPlain = Buffer.concat([dec.update(raw.subarray(headerLen, headerLen + alignedAes)), dec.final()]).subarray(0, aesSize);
+          const pt = Buffer.concat([dec.update(raw.subarray(headerLen, headerLen + alignedAes)), dec.final()]);
+          // 手动剥离 PKCS7 padding
+          const pad = pt[pt.length - 1];
+          if (pad >= 1 && pad <= 16 && pt.subarray(pt.length - pad).every((b) => b === pad)) {
+            headPlain = pt.subarray(0, pt.length - pad);
+          } else {
+            headPlain = pt.subarray(0, aesSize);
+          }
         } catch {
           return { needAesKey: true, probeBlock: raw.subarray(headerLen, headerLen + 16) };
         }
@@ -117,9 +194,16 @@ export function decodeWechatDatBuffer(raw, imgAesKey = null, imgXorKey = null) {
     if (tailLen > 0) {
       let xk = typeof imgXorKey === "number" ? imgXorKey & 0xff : null;
       if (xk == null) {
-        // JPEG 末尾多为 FF D9；PNG 末尾多为 60 82
         if (headPlain.length >= 2 && headPlain[0] === 0xff && headPlain[1] === 0xd8) {
-          xk = tailEnc[tailEnc.length - 1] ^ 0xd9;
+          // 兼容尾部带短页脚的容器：倒序寻找连续 2 字节满足 FF D9
+          for (let off = 0; off <= Math.min(32, tailEnc.length - 2); off++) {
+            const k = tailEnc[tailEnc.length - 2 - off] ^ 0xff;
+            if ((tailEnc[tailEnc.length - 1 - off] ^ k) === 0xd9) {
+              xk = k;
+              break;
+            }
+          }
+          if (xk == null) xk = tailEnc[tailEnc.length - 1] ^ 0xd9;
         } else if (headPlain.length >= 2 && headPlain[0] === 0x89 && headPlain[1] === 0x50) {
           xk = tailEnc[tailEnc.length - 1] ^ 0x82;
         } else {
@@ -136,59 +220,65 @@ export function decodeWechatDatBuffer(raw, imgAesKey = null, imgXorKey = null) {
     return { needAesKey: true, probeBlock: raw.subarray(headerLen, headerLen + 16) };
   }
 
-  // 3) 微信 4.x V1 容器（6B sig + 16B xor key）
+  // 3) 微信 4.x V1 容器（6B sig + 16B header + 单字节 XOR 正文，自动验证单字节 XOR）
   if (raw.length > 26 && raw.subarray(0, 6).equals(V1_MAGIC)) {
-    const key = raw.subarray(6, 22);
     const payload = raw.subarray(22);
-    const out = Buffer.allocUnsafe(payload.length);
-    for (let i = 0; i < payload.length; i++) out[i] = payload[i] ^ key[i % key.length];
-    const info = detectImageMime(out);
-    if (info) return { buf: stripImageFooter(out), ...info };
+    // 先试单字节账号 XOR（微信 4.x V1 实际格式）
+    if (typeof imgXorKey === "number") {
+      const k = imgXorKey & 0xff;
+      const out = Buffer.allocUnsafe(payload.length);
+      for (let i = 0; i < payload.length; i++) out[i] = payload[i] ^ k;
+      const info = detectImageMime(out);
+      if (info) return { buf: stripImageFooter(out), ...info };
+    }
+    const autoXor = tryDecodeSingleXor(payload);
+    if (autoXor) return autoXor;
   }
 
   // 4) 单字节 XOR .dat
   return tryDecodeSingleXor(raw);
 }
 
-/** 在 <accountDir>/msg/attach/<chatMd5>/ 中定位某张图片的本地 .dat / .jpg 文件（优先缩略图以外的高清图，其次缩略图） */
-export function findLocalImagePath(accountDir, { md5, chatMd5, month }) {
-  if (!accountDir || !md5) return null;
+/** 定位某张图片的本地 .dat / .jpg 文件（同时返回全部候选，支持原图未下载时自动降级到缩略图 _t.dat） */
+export function findLocalImageCandidates(accountDir, { md5, thumbMd5, chatMd5, month }) {
+  if (!accountDir) return [];
   const attachRoot = path.join(accountDir, "msg", "attach");
-  if (!fs.existsSync(attachRoot)) return null;
+  if (!fs.existsSync(attachRoot)) return [];
 
-  const cleanMd5 = String(md5).toLowerCase();
-  const tryDir = (imgDir) => {
-    if (!fs.existsSync(imgDir)) return null;
-    // 优先标准图，其次缩略图，其次任意含 md5 的文件
-    const preferred = [
-      `${cleanMd5}.jpg`,
-      `${cleanMd5}.png`,
-      `${cleanMd5}.dat`,
-      `${cleanMd5}_h.dat`,
-      `${cleanMd5}_t.dat`,
-    ];
-    for (const name of preferred) {
-      const p = path.join(imgDir, name);
-      if (fs.existsSync(p)) return p;
+  const md5s = Array.from(new Set([md5, thumbMd5].filter(Boolean).map((s) => String(s).toLowerCase())));
+  if (md5s.length === 0) return [];
+
+  const found = [];
+  const addIfExists = (p) => {
+    if (fs.existsSync(p) && !found.includes(p)) found.push(p);
+  };
+
+  const scanImgDir = (imgDir) => {
+    if (!fs.existsSync(imgDir)) return;
+    for (const m of md5s) {
+      addIfExists(path.join(imgDir, `${m}.jpg`));
+      addIfExists(path.join(imgDir, `${m}.png`));
+      addIfExists(path.join(imgDir, `${m}.dat`));
+      addIfExists(path.join(imgDir, `${m}_h.dat`));
+      addIfExists(path.join(imgDir, `${m}_t.dat`));
     }
+    if (found.length > 0) return;
     try {
       const entries = fs.readdirSync(imgDir);
-      const hit =
-        entries.find((e) => e.toLowerCase().startsWith(cleanMd5) && !e.toLowerCase().includes("_t.")) ||
-        entries.find((e) => e.toLowerCase().includes(cleanMd5));
-      if (hit) return path.join(imgDir, hit);
+      for (const m of md5s) {
+        for (const e of entries) {
+          if (e.toLowerCase().includes(m)) addIfExists(path.join(imgDir, e));
+        }
+      }
     } catch {
       /* ignore */
     }
-    return null;
   };
 
   const searchChatDir = (chatDir) => {
-    if (!fs.existsSync(chatDir)) return null;
-    if (month) {
-      const direct = tryDir(path.join(chatDir, month, "Img"));
-      if (direct) return direct;
-    }
+    if (!fs.existsSync(chatDir)) return;
+    if (month) scanImgDir(path.join(chatDir, month, "Img"));
+    if (found.length > 0) return;
     try {
       const months = fs
         .readdirSync(chatDir, { withFileTypes: true })
@@ -198,31 +288,96 @@ export function findLocalImagePath(accountDir, { md5, chatMd5, month }) {
         .reverse();
       for (const m of months) {
         if (m === month) continue;
-        const found = tryDir(path.join(chatDir, m, "Img"));
-        if (found) return found;
+        scanImgDir(path.join(chatDir, m, "Img"));
+        if (found.length > 0) return;
       }
     } catch {
       /* ignore */
     }
-    return null;
   };
 
-  if (chatMd5) {
-    const hit = searchChatDir(path.join(attachRoot, chatMd5));
-    if (hit) return hit;
-  }
+  if (chatMd5) searchChatDir(path.join(attachRoot, chatMd5));
+  if (found.length > 0) return found;
 
-  // 兜底：若 chatMd5 缺失，扫描最近的会话目录（上限 40 个）
   try {
-    const dirs = fs.readdirSync(attachRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).slice(0, 40);
+    const dirs = fs.readdirSync(attachRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).slice(0, 60);
     for (const d of dirs) {
-      const hit = searchChatDir(path.join(attachRoot, d.name));
-      if (hit) return hit;
+      searchChatDir(path.join(attachRoot, d.name));
+      if (found.length > 0) return found;
     }
   } catch {
     /* ignore */
   }
-  return null;
+  return found;
+}
+
+/** 定位本地微信视频的封面图 (.jpg) 与视频文件 (.mp4) */
+export function findLocalVideoMedia(accountDir, { md5, rawMd5, thumbMd5, month }) {
+  if (!accountDir) return { thumbPath: null, videoPath: null };
+  const videoRoot = path.join(accountDir, "msg", "video");
+  if (!fs.existsSync(videoRoot)) return { thumbPath: null, videoPath: null };
+
+  const keys = Array.from(new Set([md5, rawMd5, thumbMd5].filter(Boolean).map((s) => String(s).toLowerCase())));
+  if (keys.length === 0) return { thumbPath: null, videoPath: null };
+
+  let thumbPath = null;
+  let videoPath = null;
+
+  const checkDir = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const k of keys) {
+      if (!videoPath) {
+        const mp4 = path.join(dir, `${k}.mp4`);
+        if (fs.existsSync(mp4)) videoPath = mp4;
+      }
+      if (!thumbPath) {
+        for (const cand of [`${k}.jpg`, `${k}_thumb.jpg`, `${k}.png`]) {
+          const tp = path.join(dir, cand);
+          if (fs.existsSync(tp)) {
+            thumbPath = tp;
+            break;
+          }
+        }
+      }
+    }
+    if (!thumbPath || !videoPath) {
+      try {
+        const entries = fs.readdirSync(dir);
+        for (const k of keys) {
+          if (!videoPath) {
+            const hit = entries.find((e) => e.toLowerCase().includes(k) && e.toLowerCase().endsWith(".mp4"));
+            if (hit) videoPath = path.join(dir, hit);
+          }
+          if (!thumbPath) {
+            const hit = entries.find((e) => e.toLowerCase().includes(k) && /\.(jpg|jpeg|png)$/i.test(e));
+            if (hit) thumbPath = path.join(dir, hit);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  if (month) checkDir(path.join(videoRoot, month));
+  if (!thumbPath || !videoPath) {
+    try {
+      const months = fs
+        .readdirSync(videoRoot, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort()
+        .reverse();
+      for (const m of months) {
+        if (m === month) continue;
+        checkDir(path.join(videoRoot, m));
+        if (thumbPath && videoPath) break;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return { thumbPath, videoPath };
 }
 
 /** 在 <accountDir>/msg/file/ 中定位微信本地已下载的文件 */
@@ -242,7 +397,6 @@ export function findLocalFilePath(accountDir, { filename, month }) {
     if (fs.existsSync(exact)) return exact;
     try {
       const entries = fs.readdirSync(dir);
-      // 精确忽略大小写，或微信重名追加的 "xxx(1).pdf"
       const hit =
         entries.find((e) => e.toLowerCase() === targetLower) ||
         entries.find((e) => {
@@ -280,7 +434,8 @@ export function findLocalFilePath(accountDir, { filename, month }) {
 }
 
 /**
- * 纯只读扫描 Weixin.exe 内存提取 16 字节图片 AES-128-ECB 密钥（仅在碰到 V2 加密图且未缓存密钥时触发一次）
+ * 纯只读扫描 Weixin.exe 内存提取 16 字节图片 AES-128-ECB 密钥
+ * 同时支持 ASCII ([a-zA-Z0-9]{16|32}) 与 Qt UTF-16LE ((?:[a-zA-Z0-9]\0){16|32}) 两种内存形态
  */
 export async function scanWechatImageAesKey({ pids, probeBlock }) {
   if (process.platform !== "win32" || !pids?.length || !probeBlock || probeBlock.length !== 16) {
@@ -299,7 +454,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
-public class WxImgKeyScanner {
+public class WxImgKeyScannerV2 {
   [StructLayout(LayoutKind.Sequential)]
   public struct MBI {
     public IntPtr BaseAddress;
@@ -320,8 +475,8 @@ public class WxImgKeyScanner {
   [DllImport("kernel32.dll")]
   public static extern bool CloseHandle(IntPtr h);
 
-  static bool IsHexOrAlnum(byte b) {
-    return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f');
+  static bool IsAlnum(byte b) {
+    return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z');
   }
 
   static byte[] FromHex(string s) {
@@ -338,6 +493,19 @@ public class WxImgKeyScanner {
     if (pt[0] == 0x52 && pt[1] == 0x49 && pt[2] == 0x46 && pt[3] == 0x46) return true;
     if (pt[0] == 'w' && pt[1] == 'x' && pt[2] == 'g' && pt[3] == 'f') return true;
     return false;
+  }
+
+  static bool TryCandidate(RijndaelManaged aes, byte[] probe, byte[] outBuf, HashSet<string> tried, string cand) {
+    if (cand.Length != 16 || !tried.Add(cand)) return false;
+    try {
+      aes.Key = Encoding.ASCII.GetBytes(cand);
+      using (var dec = aes.CreateDecryptor()) {
+        dec.TransformBlock(probe, 0, 16, outBuf, 0);
+      }
+      return LooksLikeImage(outBuf);
+    } catch {
+      return false;
+    }
   }
 
   public static string Scan(string pidsCsv, string probeHex) {
@@ -359,37 +527,47 @@ public class WxImgKeyScanner {
         long addr = 0;
         uint mbiSize = (uint)Marshal.SizeOf(typeof(MBI));
         byte[] chunk = new byte[2 * 1024 * 1024];
-        while (addr < 0x7FFFFFFFFFFFL && sw.Elapsed.TotalSeconds < 25.0) {
+        while (addr < 0x7FFFFFFFFFFFL && sw.Elapsed.TotalSeconds < 28.0) {
           MBI mbi;
           if (VirtualQueryEx(h, (IntPtr)addr, out mbi, mbiSize) == IntPtr.Zero) break;
           long sz = mbi.RegionSize.ToInt64();
           uint p = mbi.Protect & 0xFF;
-          bool rw = mbi.State == 0x1000 && mbi.Type == 0x20000 && (mbi.Protect & 0x100) == 0 && (p == 0x04 || p == 0x08 || p == 0x40);
-          if (rw && sz > 0 && sz < 256L * 1024 * 1024) {
-            for (long off = 0; off < sz && sw.Elapsed.TotalSeconds < 25.0; off += chunk.Length) {
+          bool readable = mbi.State == 0x1000 && (mbi.Protect & 0x100) == 0 && ((p & 0xE6) != 0);
+          if (readable && sz > 0 && sz < 128L * 1024 * 1024) {
+            for (long off = 0; off < sz && sw.Elapsed.TotalSeconds < 28.0; off += chunk.Length) {
               int toRead = (int)Math.Min((long)chunk.Length, sz - off);
               IntPtr read;
               if (!ReadProcessMemory(h, (IntPtr)(mbi.BaseAddress.ToInt64() + off), chunk, toRead, out read)) continue;
               int len = (int)read.ToInt64();
+
+              // 1) ASCII 16 / 32 位字母数字串（如 MD5 摘要前 16 位）
               int i = 0;
               while (i <= len - 16) {
-                if (!IsHexOrAlnum(chunk[i])) { i++; continue; }
+                if (!IsAlnum(chunk[i])) { i++; continue; }
                 int k = i;
-                while (k < len && IsHexOrAlnum(chunk[k])) k++;
+                while (k < len && IsAlnum(chunk[k])) k++;
                 int run = k - i;
                 if (run == 16 || run == 32) {
                   string cand = Encoding.ASCII.GetString(chunk, i, 16);
-                  if (tried.Add(cand)) {
-                    try {
-                      aes.Key = Encoding.ASCII.GetBytes(cand);
-                      using (var dec = aes.CreateDecryptor()) {
-                        dec.TransformBlock(probe, 0, 16, outBuf, 0);
-                      }
-                      if (LooksLikeImage(outBuf)) return cand;
-                    } catch {}
-                  }
+                  if (TryCandidate(aes, probe, outBuf, tried, cand)) return cand;
                 }
                 i = k + 1;
+              }
+
+              // 2) UTF-16LE (Qt QString) 16 / 32 位字母数字串
+              int u = 0;
+              while (u <= len - 32) {
+                if (!IsAlnum(chunk[u]) || chunk[u + 1] != 0) { u += 2; continue; }
+                int k = u;
+                while (k + 1 < len && IsAlnum(chunk[k]) && chunk[k + 1] == 0) k += 2;
+                int chars = (k - u) / 2;
+                if (chars == 16 || chars == 32) {
+                  char[] cs = new char[16];
+                  for (int c = 0; c < 16; c++) cs[c] = (char)chunk[u + c * 2];
+                  string cand = new string(cs);
+                  if (TryCandidate(aes, probe, outBuf, tried, cand)) return cand;
+                }
+                u = k + 2;
               }
             }
           }
@@ -405,7 +583,7 @@ public class WxImgKeyScanner {
   }
 }
 "@
-Write-Output ([WxImgKeyScanner]::Scan('${pidCsv}', '${probeHex}'))
+Write-Output ([WxImgKeyScannerV2]::Scan('${pidCsv}', '${probeHex}'))
 `;
 
   const tmpFile = path.join(os.tmpdir(), `cheche-wximg-${process.pid}-${Date.now()}.ps1`);
@@ -414,10 +592,10 @@ Write-Output ([WxImgKeyScanner]::Scan('${pidCsv}', '${probeHex}'))
     const { stdout } = await execFileAsync(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", tmpFile],
-      { timeout: 32000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+      { timeout: 35000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
     );
     const key = stdout.trim();
-    return /^[0-9a-f]{16}$/i.test(key) ? key : null;
+    return /^[0-9a-zA-Z]{16}$/.test(key) ? key : null;
   } catch {
     return null;
   } finally {
@@ -429,7 +607,6 @@ Write-Output ([WxImgKeyScanner]::Scan('${pidCsv}', '${probeHex}'))
   }
 }
 
-/** 从解密后的 head_image.db 读取指定 username 的本地头像 BLOB（用于群聊九宫格或无 CDN URL 的联系人） */
 export async function readLocalHeadImageDataUrl(headImageDbPath, wxKey) {
   if (!headImageDbPath || !wxKey || !fs.existsSync(headImageDbPath)) return null;
   try {

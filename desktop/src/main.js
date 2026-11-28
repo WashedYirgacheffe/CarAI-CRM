@@ -78,6 +78,11 @@ const runner = new Runner({
 const wechatBridge = new WechatBridge({
   crmUrl: CRM_URL,
   onChange: () => refreshTray(),
+  onSynced: (info) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("wechat:synced", info);
+    }
+  },
 });
 
 function refreshTray() {

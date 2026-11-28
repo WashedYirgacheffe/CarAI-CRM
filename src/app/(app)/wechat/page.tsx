@@ -28,13 +28,15 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
         archived: f === "archived",
         ...(f === "unread"
           ? { unread: { gt: 0 }, muted: false }
-          : f === "customer"
-            ? { customerId: { not: null } }
-            : f === "unlinked"
-              ? { customerId: null }
-              : f === "group"
-                ? { isGroup: true }
-                : {}),
+          : f === "dm"
+            ? { isGroup: false }
+            : f === "group"
+              ? { isGroup: true }
+              : f === "customer"
+                ? { customerId: { not: null } }
+                : f === "unlinked"
+                  ? { customerId: null }
+                  : {}),
         ...(q
           ? {
               OR: [

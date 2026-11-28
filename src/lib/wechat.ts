@@ -1,23 +1,23 @@
 // 微信前后端共用常量、状态文案、精准搜索锚点与全格式粘贴聊天记录解析器
 
 export const WX_SYNC_STATUS_LABEL: Record<string, string> = {
-  DISCONNECTED: "未连接桌面端",
-  READY: "桌面端已就绪",
-  SYNCING: "本地只读全自动同步中",
-  ERROR: "同步异常（仍可半自动上屏）",
+  DISCONNECTED: "未连接桌面版",
+  READY: "桌面版已连接",
+  SYNCING: "同步中",
+  ERROR: "同步异常",
 };
 
 export const WX_MSG_STATUS_LABEL: Record<string, string> = {
-  STAGED: "已上屏，待在微信按回车发送",
+  STAGED: "待发送",
   SENT: "已发送",
-  UNCONFIRMED: "超时未确认发出",
+  UNCONFIRMED: "未确认发出",
   RECEIVED: "已收到",
-  FAILED: "上屏失败",
+  FAILED: "发送失败",
 };
 
 export const WX_SYNC_MODES = [
-  { value: "whitelist", label: "白名单模式（推荐，保护私人聊天）", desc: "仅同步备注带指定前缀、已在 CRM 关联或手动开启同步的客户会话" },
-  { value: "all", label: "全量模式（读取全部本机对话）", desc: "同步该微信账号下所有近期对话与历史记录（适合公司工作号）" },
+  { value: "whitelist", label: "仅同步客户会话（推荐）", desc: "仅同步带备注前缀或已关联 CRM 客户的微信会话，私聊不同步" },
+  { value: "all", label: "同步全部会话", desc: "同步当前微信账号下的所有近期会话（适合纯工作微信号）" },
 ] as const;
 
 /** 判断是否为微信内部原始 wxid（微信 PC 搜索框无法搜到原始 wxid_xxx！） */
@@ -40,17 +40,17 @@ export function resolveWechatSearchKey(chat: { wechatNo?: string | null; remark?
   const wechatNo = chat.wechatNo?.trim();
   const ignoredRawWxid = isRawWxid(wechatNo);
   if (wechatNo && !ignoredRawWxid) {
-    return { key: wechatNo, kind: "wechatNo", label: "自定义微信号（精准）" };
+    return { key: wechatNo, kind: "wechatNo", label: "微信号" };
   }
   const remark = chat.remark?.trim();
   if (remark) {
-    return { key: remark, kind: "remark", label: "微信备注名（精准）", ignoredRawWxid };
+    return { key: remark, kind: "remark", label: "备注名", ignoredRawWxid };
   }
   const name = chat.name?.trim();
   if (name) {
-    return { key: name, kind: "name", label: "昵称（建议补充备注防重名）", ignoredRawWxid };
+    return { key: name, kind: "name", label: "昵称", ignoredRawWxid };
   }
-  return { key: "", kind: "none", label: ignoredRawWxid ? "原始 wxid 无法搜索，请填写备注或昵称" : "未设置搜索锚点", ignoredRawWxid };
+  return { key: "", kind: "none", label: "未设置", ignoredRawWxid };
 }
 
 export function wechatDisplayName(chat: { remark?: string | null; name?: string | null; wechatNo?: string | null; wxKey?: string }) {
