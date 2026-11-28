@@ -95,6 +95,7 @@ export const WechatIngestPayload = z.object({
       wxid: z.string().max(120).optional(),
       wechatNo: z.string().max(120).optional(),
       name: z.string().max(120).optional(),
+      avatarUrl: z.string().max(1000).optional(),
       platform: z.string().max(40).optional(),
       status: z.enum(["DISCONNECTED", "READY", "SYNCING", "ERROR"]).optional(),
       lastError: z.string().max(500).nullable().optional(),
@@ -107,15 +108,24 @@ export const WechatIngestPayload = z.object({
         wechatNo: z.string().max(120).optional(),
         remark: z.string().max(200).optional(),
         name: z.string().max(200).optional(),
+        avatarUrl: z.string().max(1000).optional(),
         isGroup: z.boolean().optional(),
+        muted: z.boolean().optional(),
+        wxUnread: z.number().int().min(0).max(99999).optional(),
         messages: z
           .array(
             z.object({
               wxMsgId: z.string().max(200).optional(),
               fromMe: z.boolean(),
               senderName: z.string().max(120).optional(),
+              senderAvatar: z.string().max(1000).optional(),
               type: z.enum(["text", "image", "video", "audio", "document", "other"]).optional(),
               text: z.string().max(8000),
+              quoteSender: z.string().max(160).optional(),
+              quoteText: z.string().max(600).optional(),
+              mediaName: z.string().max(300).optional(),
+              mediaSize: z.number().int().min(0).optional(),
+              mediaMeta: z.record(z.string(), z.unknown()).optional(),
               at: z.number().optional(),
             }),
           )
@@ -150,7 +160,9 @@ export async function ingestWechatSync(
       where: { accountId_wxKey: { accountId: account.id, wxKey: t.wxKey } },
     });
 
+    let isNewChat = false;
     if (!chat) {
+      isNewChat = true;
       const matched = await matchWechatCustomer(tenantId, {
         wechatNo: t.wechatNo,
         remark: t.remark,
@@ -164,7 +176,10 @@ export async function ingestWechatSync(
           wechatNo: t.wechatNo?.trim() || null,
           remark: t.remark?.trim() || null,
           name: t.name?.trim() || null,
+          avatarUrl: t.avatarUrl?.trim() || null,
           isGroup: t.isGroup ?? t.wxKey.endsWith("@chatroom"),
+          muted: t.muted ?? false,
+          unread: t.muted ? 0 : Math.min(t.wxUnread ?? 0, 99),
           customerId: matched?.customerId ?? null,
           contactId: matched?.contactId ?? null,
         },
@@ -174,6 +189,8 @@ export async function ingestWechatSync(
       if (t.wechatNo?.trim() && t.wechatNo.trim() !== chat.wechatNo) updates.wechatNo = t.wechatNo.trim();
       if (t.remark?.trim() && t.remark.trim() !== chat.remark) updates.remark = t.remark.trim();
       if (t.name?.trim() && t.name.trim() !== chat.name) updates.name = t.name.trim();
+      if (t.avatarUrl?.trim() && t.avatarUrl.trim() !== chat.avatarUrl) updates.avatarUrl = t.avatarUrl.trim();
+      if (t.muted === true && !chat.muted) updates.muted = true;
       if (!chat.customerId) {
         const matched = await matchWechatCustomer(tenantId, {
           wechatNo: t.wechatNo ?? chat.wechatNo,
@@ -200,6 +217,7 @@ export async function ingestWechatSync(
       const at = new Date(m.at && m.at > 1e12 ? m.at : m.at && m.at > 1e9 ? m.at * 1000 : Date.now() - (validMsgs.length - idx) * 10);
       const body = m.text.slice(0, 8000);
       const wxMsgId = m.wxMsgId?.trim() || `h:${shortHash(`${chat.id}|${Math.floor(at.getTime() / 1000)}|${m.fromMe ? 1 : 0}|${normBody(body).slice(0, 200)}`)}`;
+      const msgType = m.type ?? "text";
 
       // 发送回执自动闭环：认领同会话最近 15 分钟内已上屏待确认的草稿
       if (m.fromMe) {
@@ -239,8 +257,14 @@ export async function ingestWechatSync(
             wxMsgId,
             fromMe: m.fromMe,
             senderName: m.senderName?.trim() || null,
-            type: m.type ?? "text",
+            senderAvatar: m.senderAvatar?.trim() || null,
+            type: msgType,
             body,
+            quoteSender: m.quoteSender?.trim() || null,
+            quoteText: m.quoteText?.trim() || null,
+            mediaName: m.mediaName?.trim() || null,
+            mediaSize: m.mediaSize ?? null,
+            mediaMeta: (m.mediaMeta as object | undefined) ?? undefined,
             status: m.fromMe ? "SENT" : "RECEIVED",
             confirmedAt: m.fromMe ? at : null,
             timestamp: at,
@@ -249,24 +273,70 @@ export async function ingestWechatSync(
         })
         .catch(() => null);
 
-      if (!created) continue;
+      if (!created) {
+        // 自愈旧版已入库的引用 XML / 缺失头像与媒体元数据记录
+        const existing = await prisma.wxMessage.findUnique({
+          where: { accountId_wxMsgId: { accountId: account.id, wxMsgId } },
+          select: { id: true, body: true, quoteText: true, senderAvatar: true, mediaMeta: true },
+        });
+        if (existing) {
+          const looksRawXml = existing.body.includes("<appmsg") || existing.body.includes("<?xml") || existing.body.includes("<type>57</type>");
+          const needsEnrich =
+            looksRawXml ||
+            (!!m.quoteText && !existing.quoteText) ||
+            (!!m.senderAvatar && !existing.senderAvatar) ||
+            (!!m.mediaMeta && !existing.mediaMeta);
+          if (needsEnrich) {
+            await prisma.wxMessage
+              .update({
+                where: { id: existing.id },
+                data: {
+                  ...(looksRawXml ? { body, type: msgType, translation: null } : {}),
+                  ...(m.quoteSender ? { quoteSender: m.quoteSender.trim() } : {}),
+                  ...(m.quoteText ? { quoteText: m.quoteText.trim() } : {}),
+                  ...(m.senderAvatar ? { senderAvatar: m.senderAvatar.trim() } : {}),
+                  ...(m.mediaName ? { mediaName: m.mediaName.trim() } : {}),
+                  ...(m.mediaSize !== undefined ? { mediaSize: m.mediaSize } : {}),
+                  ...(m.mediaMeta ? { mediaMeta: m.mediaMeta as object } : {}),
+                },
+              })
+              .catch(() => null);
+          }
+        }
+        if (!lastMsg || at >= lastMsg.at) lastMsg = { at, text: body, fromMe: m.fromMe };
+        continue;
+      }
+
       inserted++;
       if (!m.fromMe) {
         inboundCount++;
-        if (body.trim() && looksForeign(body, 2)) toTranslate.push({ id: created.id, text: body });
+        const isSafeText = msgType === "text" && body.trim() && !body.includes("<msg") && !body.includes("<appmsg") && !body.includes("<?xml");
+        if (isSafeText && looksForeign(body, 2)) toTranslate.push({ id: created.id, text: body });
       }
       if (!lastMsg || at >= lastMsg.at) lastMsg = { at, text: body, fromMe: m.fromMe };
     }
 
-    if (lastMsg && (!chat.lastMessageAt || lastMsg.at >= chat.lastMessageAt)) {
+    const chatUpdate: Record<string, unknown> = {};
+    if (lastMsg && (!chat.lastMessageAt || lastMsg.at >= chat.lastMessageAt || (chat.lastText && chat.lastText.includes("<appmsg")))) {
+      chatUpdate.lastMessageAt = lastMsg.at;
+      chatUpdate.lastText = lastMsg.text.slice(0, 300) || "[图片 / 文件]";
+      chatUpdate.lastFromMe = lastMsg.fromMe;
+    }
+    // 未读数同步：
+    // - 微信本地已读（wxUnread === 0）→ 自动清零 CRM 未读
+    // - 新建会话时已用 wxUnread 初始化，不再被历史消息 inboundCount 误顶爆
+    // - 已有会话收到新增对方消息时，若非免打扰则累加未读并移出归档
+    if (t.wxUnread === 0 && chat.unread > 0) {
+      chatUpdate.unread = 0;
+    } else if (!isNewChat && !firstSync && inboundCount > 0) {
+      chatUpdate.unread = { increment: inboundCount };
+      if (!chat.muted) chatUpdate.archived = false;
+    }
+
+    if (Object.keys(chatUpdate).length > 0) {
       await prisma.wxChat.update({
         where: { id: chat.id },
-        data: {
-          lastMessageAt: lastMsg.at,
-          lastText: lastMsg.text.slice(0, 300) || "[图片 / 文件]",
-          lastFromMe: lastMsg.fromMe,
-          ...(!firstSync && inboundCount > 0 ? { unread: { increment: inboundCount }, archived: false } : {}),
-        },
+        data: chatUpdate,
       });
     }
   }
@@ -277,6 +347,7 @@ export async function ingestWechatSync(
       ...(payload.account?.wxid ? { wxid: payload.account.wxid } : {}),
       ...(payload.account?.wechatNo ? { wechatNo: payload.account.wechatNo } : {}),
       ...(payload.account?.name ? { name: payload.account.name } : {}),
+      ...(payload.account?.avatarUrl ? { avatarUrl: payload.account.avatarUrl } : {}),
       ...(payload.account?.platform ? { platform: payload.account.platform } : {}),
       ...(deviceId ? { deviceId } : {}),
       status: payload.account?.status ?? "READY",

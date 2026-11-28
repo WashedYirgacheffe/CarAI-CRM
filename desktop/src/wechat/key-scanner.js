@@ -140,7 +140,7 @@ function collectTargetDbs(dbRoot, wxVersion) {
   const rels = [];
 
   if (wxVersion === 4) {
-    rels.push("contact/contact.db", "session/session.db");
+    rels.push("contact/contact.db", "session/session.db", "head_image/head_image.db");
     const msgDir = path.join(dbRoot, "message");
     if (fs.existsSync(msgDir)) {
       for (const f of fs.readdirSync(msgDir)) {

@@ -6,16 +6,22 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   Archive,
+  Bell,
+  BellOff,
   Bot,
   Building2,
   Check,
+  CheckCheck,
   CheckCircle2,
   ChevronLeft,
   CircleAlert,
   Clock,
   Copy,
   Download,
+  ExternalLink,
   FileText,
+  FolderOpen,
+  ImageIcon,
   LoaderCircle,
   MessageCircle,
   Plus,
@@ -37,6 +43,7 @@ import {
   draftWechatReplyAction,
   importPastedWechatLogAction,
   linkWechatCustomerAction,
+  markAllWechatReadAction,
   searchCustomersForWechatAction,
   stageWechatMessageAction,
   updateWechatChatAction,
@@ -71,6 +78,9 @@ type DesktopWechatBridge = {
   saveConfig: (cfg: { dbKey?: string; decryptedDir?: string; chatlogUrl?: string; autoSync?: boolean; dataDir?: string }) => Promise<{ ok: boolean; error?: string }>;
   extractKey?: () => Promise<{ ok: boolean; method?: string; wxVersionString?: string | null; matchedCount?: number; totalCount?: number; inserted?: number; error?: string; code?: string }>;
   syncNow: () => Promise<{ ok: boolean; threads?: number; inserted?: number; confirmed?: number; error?: string }>;
+  loadMedia?: (meta: Record<string, unknown>) => Promise<{ ok: boolean; dataUrl?: string; filePath?: string; reason?: string }>;
+  openMedia?: (meta: Record<string, unknown>, reveal?: boolean) => Promise<{ ok: boolean; error?: string }>;
+  loadAvatar?: (wxKey: string) => Promise<{ ok: boolean; dataUrl?: string }>;
 };
 
 declare global {
@@ -88,6 +98,7 @@ type AccountInfo = {
   id: string;
   name: string | null;
   wechatNo: string | null;
+  avatarUrl: string | null;
   platform: string | null;
   syncMode: "whitelist" | "all";
   remarkPrefix: string;
@@ -103,7 +114,9 @@ type ChatItem = {
   wechatNo: string | null;
   remark: string | null;
   name: string | null;
+  avatarUrl: string | null;
   isGroup: boolean;
+  muted: boolean;
   syncEnabled: boolean;
   customerId: string | null;
   customer: { id: string; name: string; country: string | null } | null;
@@ -119,9 +132,15 @@ type ChatMessage = {
   id: string;
   fromMe: boolean;
   senderName: string | null;
+  senderAvatar: string | null;
   type: string;
   body: string;
+  quoteSender: string | null;
+  quoteText: string | null;
   translation: string | null;
+  mediaName: string | null;
+  mediaSize: number | null;
+  mediaMeta: Record<string, unknown> | null;
   status: string;
   error: string | null;
   timestamp: string;
@@ -135,7 +154,9 @@ type ActiveChat = {
   wechatNo: string | null;
   remark: string | null;
   name: string | null;
+  avatarUrl: string | null;
   isGroup: boolean;
+  muted: boolean;
   syncEnabled: boolean;
   customerId: string | null;
   customer: { id: string; name: string; country: string | null } | null;
@@ -143,6 +164,159 @@ type ActiveChat = {
   archived: boolean;
   messages: ChatMessage[];
 };
+
+function fmtFileSize(bytes: number | null | undefined) {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// 内存头像缓存，避免列表重渲染重复请求本地 head_image.db
+const localAvatarCache = new Map<string, string | null>();
+
+function WxAvatar({
+  src,
+  wxKey,
+  label,
+  isGroup,
+  bridge,
+  sizeClass = "size-9",
+}: {
+  src?: string | null;
+  wxKey?: string | null;
+  label: string;
+  isGroup?: boolean;
+  bridge?: DesktopWechatBridge | null;
+  sizeClass?: string;
+}) {
+  const [imgSrc, setImgSrc] = useState<string | null>(src || null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setImgSrc(src || null);
+    setFailed(false);
+  }, [src, wxKey]);
+
+  useEffect(() => {
+    if ((imgSrc && !failed) || !wxKey || !bridge?.loadAvatar) return;
+    if (localAvatarCache.has(wxKey)) {
+      const hit = localAvatarCache.get(wxKey);
+      if (hit) {
+        setImgSrc(hit);
+        setFailed(false);
+      }
+      return;
+    }
+    let cancelled = false;
+    bridge
+      .loadAvatar(wxKey)
+      .then((res) => {
+        if (cancelled) return;
+        const url = res.ok && res.dataUrl ? res.dataUrl : null;
+        localAvatarCache.set(wxKey, url);
+        if (url) {
+          setImgSrc(url);
+          setFailed(false);
+        }
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [imgSrc, failed, wxKey, bridge]);
+
+  if (imgSrc && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={imgSrc}
+        alt={label}
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className={cn(sizeClass, "shrink-0 rounded-full object-cover ring-1 ring-border/50")}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        sizeClass,
+        "flex shrink-0 items-center justify-center rounded-full bg-emerald-600/15 text-xs font-medium text-emerald-700 dark:text-emerald-300",
+      )}
+    >
+      {isGroup ? "群" : (label || "微").slice(0, 1).toUpperCase()}
+    </div>
+  );
+}
+
+function WxImageBubble({
+  mediaMeta,
+  fallbackText,
+  bridge,
+}: {
+  mediaMeta: Record<string, unknown> | null;
+  fallbackText: string;
+  bridge: DesktopWechatBridge | null;
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const md5 = typeof mediaMeta?.md5 === "string" ? mediaMeta.md5 : "";
+
+  const load = () => {
+    if (!bridge?.loadMedia || !mediaMeta || !md5) return;
+    setState("loading");
+    bridge
+      .loadMedia(mediaMeta)
+      .then((res) => {
+        if (res.ok && res.dataUrl) {
+          setDataUrl(res.dataUrl);
+          setState("idle");
+        } else {
+          setState("error");
+        }
+      })
+      .catch(() => setState("error"));
+  };
+
+  useEffect(() => {
+    if (bridge?.loadMedia && mediaMeta && md5) {
+      load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bridge, md5]);
+
+  if (dataUrl) {
+    return (
+      <button
+        type="button"
+        onClick={() => bridge?.openMedia?.(mediaMeta!, false)}
+        className="group relative block overflow-hidden rounded-xl"
+        title="点击用系统看图器打开原图"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={dataUrl}
+          alt="微信图片"
+          className="max-h-60 max-w-[240px] rounded-xl object-cover transition-transform group-hover:scale-[1.02]"
+        />
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <ImageIcon className="size-4 shrink-0 opacity-70" />
+      <span>{state === "loading" ? "正在解码本地图片…" : fallbackText || "[图片]"}</span>
+      {bridge?.loadMedia && md5 && state === "error" && (
+        <button type="button" onClick={load} className="underline opacity-80 hover:opacity-100">
+          重试
+        </button>
+      )}
+    </div>
+  );
+}
 
 const FILTERS = [
   { key: "", label: "全部" },
@@ -166,6 +340,7 @@ export function WechatWorkspace({
   filter,
   query,
   unreadChats,
+  totalUnreadAny,
   archivedCount,
   canAi,
   quickReplies,
@@ -176,6 +351,7 @@ export function WechatWorkspace({
   filter: string;
   query: string;
   unreadChats: number;
+  totalUnreadAny: number;
   archivedCount: number;
   canAi: boolean;
   quickReplies: { id: string; title: string; body: string }[];
@@ -321,7 +497,14 @@ export function WechatWorkspace({
           autoLocate: autoLocate && !!searchKey,
         });
         if (sendRes.ok) {
-          toast.success(sendRes.hint || "已上屏到微信输入框，请核对对方头像后按 Enter 发送");
+          // 关键防闪退：当微信已被置顶上屏后，不在后台立刻 router.refresh() 触发骨架屏抢焦点，
+          // 改为用户回到 CRM 窗口获得焦点时再静默刷新消息状态！
+          if (sendRes.mode === "located_and_pasted" || sendRes.mode === "pasted") {
+            toast.success(sendRes.hint || "已上屏到微信输入框，请核对对方头像后按 Enter 发送");
+            window.addEventListener("focus", () => router.refresh(), { once: true });
+            return;
+          }
+          toast.success(sendRes.hint || "已复制到剪贴板，请切到微信 Ctrl+V 发送");
         } else {
           if (messageId) await confirmWechatMessageAction(messageId, "FAILED", sendRes.error);
           toast.error(sendRes.error || "唤起微信失败，已为您复制文本，请手动粘贴");
@@ -360,7 +543,7 @@ export function WechatWorkspace({
 
   const handleExtractKey = async () => {
     if (!desktopBridge?.extractKey) {
-      toast.info("请升级到车车桌面版 v0.2.9+ 以使用一键提取本机微信密钥功能");
+      toast.info("请升级到车车桌面版 v0.3.0+ 以使用一键提取本机微信密钥功能");
       return;
     }
     setExtractingKey(true);
@@ -498,7 +681,17 @@ export function WechatWorkspace({
       <section className={cn("flex w-full min-w-0 flex-col border-r border-border/70 md:w-[22.5rem] md:shrink-0", activeChat && "hidden md:flex")}>
         <header className="flex items-center gap-3 px-4 pt-4 pb-2.5">
           <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            <MessageCircle className="size-5" />
+            {account.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={account.avatarUrl}
+                alt={account.name || "我"}
+                referrerPolicy="no-referrer"
+                className="size-10 rounded-full object-cover ring-1 ring-border/50"
+              />
+            ) : (
+              <MessageCircle className="size-5" />
+            )}
             <span
               className={cn(
                 "absolute -right-0.5 -bottom-0.5 size-3 rounded-full ring-2 ring-card",
@@ -531,6 +724,27 @@ export function WechatWorkspace({
             </p>
           </div>
           <div className="flex items-center gap-1">
+            {totalUnreadAny > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                title={`一键已读（清除全部 ${totalUnreadAny} 个未读会话）`}
+                disabled={pending}
+                onClick={() => {
+                  startTransition(async () => {
+                    const res = await markAllWechatReadAction();
+                    if ("ok" in res) {
+                      toast.success(`已清除全部未读提醒（${res.count} 个会话）`);
+                      router.refresh();
+                    }
+                  });
+                }}
+              >
+                <CheckCheck className="size-4" />
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -670,12 +884,21 @@ export function WechatWorkspace({
                       selected ? "bg-emerald-500/10 text-foreground" : "hover:bg-muted/60",
                     )}
                   >
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-600/15 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      {c.isGroup ? "群" : title.slice(0, 1).toUpperCase()}
-                    </div>
+                    <WxAvatar
+                      src={c.avatarUrl}
+                      wxKey={c.wxKey}
+                      label={title}
+                      isGroup={c.isGroup}
+                      bridge={desktopBridge}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium">{title}</span>
+                        <span className="flex min-w-0 items-center gap-1 truncate text-sm font-medium">
+                          <span className="truncate">{title}</span>
+                          {c.muted && (
+                            <BellOff className="size-3 shrink-0 text-muted-foreground/70" aria-label="消息免打扰" />
+                          )}
+                        </span>
                         <span className="shrink-0 text-[11px] text-muted-foreground">{fmtTime(c.lastMessageAt)}</span>
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-2">
@@ -683,11 +906,17 @@ export function WechatWorkspace({
                           {c.lastFromMe ? "我: " : ""}
                           {c.lastText || (c.wechatNo ? `微信号: ${c.wechatNo}` : "点击开始半自动沟通")}
                         </p>
-                        {c.unread > 0 && (
-                          <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-medium text-white">
-                            {c.unread > 99 ? "99+" : c.unread}
-                          </span>
-                        )}
+                        {c.unread > 0 &&
+                          (c.muted ? (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-muted-foreground/45"
+                              title={`免打扰会话 · ${c.unread} 条新消息`}
+                            />
+                          ) : (
+                            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-medium text-white">
+                              {c.unread > 99 ? "99+" : c.unread}
+                            </span>
+                          ))}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1">
                         {c.customer && (
@@ -742,6 +971,13 @@ export function WechatWorkspace({
                 <Link href={buildHref({ chat: null })} className="rounded-lg p-1 hover:bg-muted md:hidden">
                   <ChevronLeft className="size-5" />
                 </Link>
+                <WxAvatar
+                  src={activeChat.avatarUrl}
+                  wxKey={activeChat.wxKey}
+                  label={wechatDisplayName(activeChat)}
+                  isGroup={activeChat.isGroup}
+                  bridge={desktopBridge}
+                />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h2 className="truncate font-medium">{wechatDisplayName(activeChat)}</h2>
@@ -820,6 +1056,22 @@ export function WechatWorkspace({
                   size="sm"
                   variant="ghost"
                   className="h-8 text-xs"
+                  title={activeChat.muted ? "已开启消息免打扰（不计入全局红点），点击恢复提醒" : "开启免打扰（屏蔽此会话全局红点提醒）"}
+                  onClick={() => {
+                    startTransition(async () => {
+                      await updateWechatChatAction(activeChat.id, { muted: !activeChat.muted });
+                      toast.success(activeChat.muted ? "已取消免打扰" : "已设为免打扰（不再红点提醒）");
+                      router.refresh();
+                    });
+                  }}
+                >
+                  {activeChat.muted ? <BellOff className="mr-1 size-3.5 text-muted-foreground" /> : <Bell className="mr-1 size-3.5" />}
+                  {activeChat.muted ? "已免打扰" : "免打扰"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
                   onClick={() => {
                     startTransition(async () => {
                       await updateWechatChatAction(activeChat.id, { archived: !activeChat.archived });
@@ -841,80 +1093,187 @@ export function WechatWorkspace({
                   暂无同步记录。你可以直接点右上角「粘贴导入记录」，或在下方写好回复一键上屏到微信。
                 </div>
               ) : (
-                activeChat.messages.map((m) => (
-                  <div key={m.id} className={cn("flex flex-col", m.fromMe ? "items-end" : "items-start")}>
-                    {!m.fromMe && m.senderName && (
-                      <span className="mb-1 px-1 text-[11px] text-muted-foreground">{m.senderName}</span>
-                    )}
-                    <div
-                      className={cn(
-                        "max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm shadow-xs",
-                        m.fromMe
-                          ? m.status === "STAGED"
-                            ? "border border-amber-400/50 bg-amber-50 text-foreground dark:bg-amber-950/40"
-                            : m.status === "UNCONFIRMED" || m.status === "FAILED"
-                              ? "border border-destructive/40 bg-destructive/10 text-foreground"
-                              : "bg-emerald-600 text-white"
-                          : "border border-border/60 bg-card text-foreground",
-                      )}
-                    >
-                      <p className="whitespace-pre-wrap break-words">{m.body}</p>
-                      {m.translation && (
-                        <p className="mt-2 border-t border-border/50 pt-1.5 text-xs text-muted-foreground">
-                          译文：{m.translation}
-                        </p>
-                      )}
-                    </div>
+                activeChat.messages.map((m) => {
+                  const fileMeta = m.mediaMeta?.kind === "file" ? m.mediaMeta : null;
+                  const imageMeta = m.mediaMeta?.kind === "image" ? m.mediaMeta : null;
+                  const fileDisplayName = m.mediaName || (typeof fileMeta?.filename === "string" ? fileMeta.filename : m.body.replace(/^\[文件\]\s*/, ""));
+                  const fileExt = typeof fileMeta?.ext === "string" ? fileMeta.ext.toUpperCase() : "";
+                  const fileSizeText = fmtFileSize(m.mediaSize ?? (typeof fileMeta?.size === "number" ? fileMeta.size : null));
 
-                    {/* 消息时间 + 状态回执操作 */}
-                    <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
-                      <span>{fmtTime(m.timestamp)}</span>
-                      {m.fromMe && (
-                        <>
-                          {m.status === "SENT" && (
-                            <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
-                              <CheckCircle2 className="size-3" />
-                              已发出
-                            </span>
+                  return (
+                    <div key={m.id} className={cn("flex items-start gap-2.5", m.fromMe ? "flex-row-reverse" : "flex-row")}>
+                      <WxAvatar
+                        src={m.fromMe ? account.avatarUrl : m.senderAvatar || (!activeChat.isGroup ? activeChat.avatarUrl : null)}
+                        wxKey={!m.fromMe && !activeChat.isGroup ? activeChat.wxKey : null}
+                        label={m.fromMe ? account.name || "我" : m.senderName || wechatDisplayName(activeChat)}
+                        bridge={desktopBridge}
+                        sizeClass="size-8 mt-0.5"
+                      />
+                      <div className={cn("flex min-w-0 max-w-[76%] flex-col", m.fromMe ? "items-end" : "items-start")}>
+                        {!m.fromMe && m.senderName && (
+                          <span className="mb-1 px-1 text-[11px] text-muted-foreground">{m.senderName}</span>
+                        )}
+                        <div
+                          className={cn(
+                            "rounded-2xl px-3.5 py-2.5 text-sm shadow-xs",
+                            m.fromMe
+                              ? m.status === "STAGED"
+                                ? "border border-amber-400/50 bg-amber-50 text-foreground dark:bg-amber-950/40"
+                                : m.status === "UNCONFIRMED" || m.status === "FAILED"
+                                  ? "border border-destructive/40 bg-destructive/10 text-foreground"
+                                  : "bg-emerald-600 text-white"
+                              : "border border-border/60 bg-card text-foreground",
                           )}
-                          {(m.status === "STAGED" || m.status === "UNCONFIRMED" || m.status === "FAILED") && (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-0.5",
-                                  m.status === "STAGED" ? "text-amber-600 dark:text-amber-400" : "text-destructive",
-                                )}
-                              >
-                                {m.status === "STAGED" ? <Clock className="size-3" /> : <CircleAlert className="size-3" />}
-                                {WX_MSG_STATUS_LABEL[m.status] || m.status}
-                              </span>
-                              <button
-                                type="button"
-                                className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
-                                onClick={() => {
-                                  startTransition(async () => {
-                                    await confirmWechatMessageAction(m.id, "SENT");
-                                    toast.success("已标记为已发出");
-                                    router.refresh();
-                                  });
-                                }}
-                              >
-                                我已发出
-                              </button>
-                              <button
-                                type="button"
-                                className="font-medium text-foreground/80 hover:underline"
-                                onClick={() => handleStageSend(m.body, m.id)}
-                              >
-                                重新上屏
-                              </button>
-                            </span>
+                        >
+                          {/* 图片消息内联解码展示 */}
+                          {m.type === "image" && imageMeta?.md5 ? (
+                            <WxImageBubble mediaMeta={imageMeta} fallbackText={m.body} bridge={desktopBridge} />
+                          ) : m.type === "document" && (fileMeta || m.mediaName) ? (
+                            /* 文件卡片：支持直接调用系统默认应用打开或定位文件夹 */
+                            <div className="min-w-[210px] space-y-2">
+                              <div className="flex items-start gap-2.5">
+                                <span
+                                  className={cn(
+                                    "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                                    m.fromMe ? "bg-white/15 text-white" : "bg-muted text-foreground/80",
+                                  )}
+                                >
+                                  <FileText className="size-4" />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="break-all text-xs font-medium leading-snug">{fileDisplayName}</p>
+                                  <p className={cn("mt-0.5 text-[11px]", m.fromMe ? "text-white/75" : "text-muted-foreground")}>
+                                    {[fileExt, fileSizeText].filter(Boolean).join(" · ") || "微信文件"}
+                                  </p>
+                                </div>
+                              </div>
+                              {desktopBridge?.openMedia && (
+                                <div className="flex items-center gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const res = await desktopBridge.openMedia!(
+                                        fileMeta || { kind: "file", filename: fileDisplayName },
+                                        false,
+                                      );
+                                      if (!res.ok) toast.error(res.error || "无法打开本地文件");
+                                    }}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                                      m.fromMe
+                                        ? "bg-white/20 text-white hover:bg-white/30"
+                                        : "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300",
+                                    )}
+                                  >
+                                    <ExternalLink className="size-3" />
+                                    打开文件
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const res = await desktopBridge.openMedia!(
+                                        fileMeta || { kind: "file", filename: fileDisplayName },
+                                        true,
+                                      );
+                                      if (!res.ok) toast.error(res.error || "未找到本地文件");
+                                    }}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors",
+                                      m.fromMe
+                                        ? "bg-white/10 text-white/90 hover:bg-white/20"
+                                        : "bg-muted text-muted-foreground hover:text-foreground",
+                                    )}
+                                  >
+                                    <FolderOpen className="size-3" />
+                                    所在文件夹
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="whitespace-pre-wrap break-words">{m.body}</p>
                           )}
-                        </>
-                      )}
+
+                          {/* 引用回复内嵌卡片（还原微信原生引用展示） */}
+                          {m.quoteText && (
+                            <div
+                              className={cn(
+                                "mt-2 rounded-lg border-l-2 px-2.5 py-1.5 text-xs leading-relaxed",
+                                m.fromMe && m.status === "SENT"
+                                  ? "border-white/50 bg-black/15 text-white/90"
+                                  : "border-emerald-500/60 bg-muted/60 text-muted-foreground",
+                              )}
+                            >
+                              {m.quoteSender && <span className="font-medium">{m.quoteSender}：</span>}
+                              <span className="line-clamp-3 whitespace-pre-wrap break-words">{m.quoteText}</span>
+                            </div>
+                          )}
+
+                          {m.translation && (
+                            <p
+                              className={cn(
+                                "mt-2 border-t pt-1.5 text-xs",
+                                m.fromMe && m.status === "SENT"
+                                  ? "border-white/25 text-white/85"
+                                  : "border-border/50 text-muted-foreground",
+                              )}
+                            >
+                              译文：{m.translation}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* 消息时间 + 状态回执操作 */}
+                        <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+                          <span>{fmtTime(m.timestamp)}</span>
+                          {m.fromMe && (
+                            <>
+                              {m.status === "SENT" && (
+                                <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
+                                  <CheckCircle2 className="size-3" />
+                                  已发出
+                                </span>
+                              )}
+                              {(m.status === "STAGED" || m.status === "UNCONFIRMED" || m.status === "FAILED") && (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-0.5",
+                                      m.status === "STAGED" ? "text-amber-600 dark:text-amber-400" : "text-destructive",
+                                    )}
+                                  >
+                                    {m.status === "STAGED" ? <Clock className="size-3" /> : <CircleAlert className="size-3" />}
+                                    {WX_MSG_STATUS_LABEL[m.status] || m.status}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                                    onClick={() => {
+                                      startTransition(async () => {
+                                        await confirmWechatMessageAction(m.id, "SENT");
+                                        toast.success("已标记为已发出");
+                                        router.refresh();
+                                      });
+                                    }}
+                                  >
+                                    我已发出
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="font-medium text-foreground/80 hover:underline"
+                                    onClick={() => handleStageSend(m.body, m.id)}
+                                  >
+                                    重新上屏
+                                  </button>
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
               <div ref={msgEndRef} />
             </div>
@@ -1209,7 +1568,7 @@ export function WechatWorkspace({
                       ? `已配置 ${bridgeStatus.keyCount || 1} 把密钥 · 自动读取`
                       : bridgeStatus?.syncSource === "chatlog"
                         ? "本地只读服务已连"
-                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.2.9"} 待配密钥`
+                        : `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "0.3.0"} 待配密钥`
                     : isOutdatedDesktop
                       ? `${isWin ? "Windows" : isMac ? "macOS" : "桌面"} v${desktopApp?.version || "旧版"} 需升级`
                       : "浏览器模式"}
@@ -1297,14 +1656,14 @@ export function WechatWorkspace({
               ) : isOutdatedDesktop ? (
                 <div className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
                   <span className="leading-relaxed">
-                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.2.9+ 启用微信本地桥接。
+                    检测到你正在使用旧版桌面端（v{desktopApp?.version || "0.2.5"}），请右键托盘图标点「检查更新」或下载安装 v0.3.0+ 启用微信本地桥接。
                   </span>
                   <Link
                     href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700"
                   >
                     <Download className="size-3" />
-                    下载 v0.2.9
+                    下载 v0.3.0
                   </Link>
                 </div>
               ) : (

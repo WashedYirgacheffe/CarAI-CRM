@@ -215,19 +215,28 @@ public class WxFocus {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int dwProcessId);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
 
   public static void ForceForeground(IntPtr hWnd) {
+    AllowSetForegroundWindow(-1);
     if (IsIconic(hWnd)) ShowWindowAsync(hWnd, 9);
     else ShowWindowAsync(hWnd, 5);
     IntPtr fg = GetForegroundWindow();
     uint fgThread = fg != IntPtr.Zero ? GetWindowThreadProcessId(fg, IntPtr.Zero) : 0;
+    uint wxThread = GetWindowThreadProcessId(hWnd, IntPtr.Zero);
     uint myThread = GetCurrentThreadId();
     if (fgThread != 0 && fgThread != myThread) AttachThreadInput(myThread, fgThread, true);
+    if (wxThread != 0 && wxThread != myThread) AttachThreadInput(myThread, wxThread, true);
+    // Z-order 临时置顶再取消置顶，防止 PowerShell 退出后微信闪退回后台
+    SetWindowPos(hWnd, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040);
+    SetWindowPos(hWnd, new IntPtr(-2), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040);
     BringWindowToTop(hWnd);
     SetForegroundWindow(hWnd);
+    if (wxThread != 0 && wxThread != myThread) AttachThreadInput(myThread, wxThread, false);
     if (fgThread != 0 && fgThread != myThread) AttachThreadInput(myThread, fgThread, false);
   }
 
@@ -276,24 +285,23 @@ $w = $rect.Right - $rect.Left
 $ht = $rect.Bottom - $rect.Top
 
 if (-not [string]::IsNullOrWhiteSpace($searchText)) {
-  # 1) 清掉旧搜索状态，触发 Ctrl+F 搜索
-  [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-  Start-Sleep -Milliseconds 120
+  # 切忌发送 {ESC}！微信 4.2 主窗口按 ESC 会直接隐藏最小化到托盘！
+  # 直接触发 Ctrl+F 打开搜索框，清空后粘贴搜索词并回车选中首个联系人
   [System.Windows.Forms.SendKeys]::SendWait('^f')
-  Start-Sleep -Milliseconds 200
+  Start-Sleep -Milliseconds 220
   [System.Windows.Forms.SendKeys]::SendWait('^a')
   Start-Sleep -Milliseconds 60
   [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')
   Start-Sleep -Milliseconds 60
   Set-Clip $searchText
   [System.Windows.Forms.SendKeys]::SendWait('^v')
-  # 等待微信 4.0/3.9 渲染联系人搜索结果
+  # 等待微信 4.x 渲染联系人搜索结果
   Start-Sleep -Milliseconds 720
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   Start-Sleep -Milliseconds 380
 }
 
-# 2) 核心防串框：无论搜索结果如何，物理点击右侧聊天输入区安全坐标（65% 宽, 距底边 88px），彻底脱离左上角搜索框！
+# 2) 核心防串框：物理点击右侧聊天输入区安全坐标（65% 宽, 距底边 88px），彻底脱离左上角搜索框并把 Windows 前台归属权牢牢交给微信！
 if ($w -gt 420 -and $ht -gt 320) {
   $inputX = [int]($rect.Left + [math]::Round($w * 0.65))
   $inputY = [int]($rect.Bottom - 88)
@@ -305,6 +313,8 @@ if ($w -gt 420 -and $ht -gt 320) {
 Set-Clip $bodyText
 Start-Sleep -Milliseconds 80
 [System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 60
+[WxFocus]::ForceForeground($h)
 Write-Output ($(if ([string]::IsNullOrWhiteSpace($searchText)) { "PASTED" } else { "LOCATED_AND_PASTED" }))
 `;
 

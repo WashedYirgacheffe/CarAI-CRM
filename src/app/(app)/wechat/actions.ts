@@ -58,6 +58,7 @@ export async function updateWechatChatAction(
     remark?: string | null;
     name?: string | null;
     syncEnabled?: boolean;
+    muted?: boolean;
     pinned?: boolean;
     archived?: boolean;
     markRead?: boolean;
@@ -77,6 +78,7 @@ export async function updateWechatChatAction(
       ...(patch.remark !== undefined ? { remark: patch.remark?.trim() || null } : {}),
       ...(patch.name !== undefined ? { name: patch.name?.trim() || null } : {}),
       ...(patch.syncEnabled !== undefined ? { syncEnabled: patch.syncEnabled } : {}),
+      ...(patch.muted !== undefined ? { muted: patch.muted } : {}),
       ...(patch.pinned !== undefined ? { pinnedAt: patch.pinned ? new Date() : null } : {}),
       ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
       ...(patch.markRead ? { unread: 0 } : {}),
@@ -84,7 +86,21 @@ export async function updateWechatChatAction(
   });
 
   revalidatePath("/wechat");
+  revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/** 一键清空当前微信账号所有会话的未读红点 */
+export async function markAllWechatReadAction() {
+  const user = await requireWechatUser();
+  const account = await ensureWxAccount(user.tenantId, user.id);
+  const res = await prisma.wxChat.updateMany({
+    where: { accountId: account.id, tenantId: user.tenantId, unread: { gt: 0 } },
+    data: { unread: 0 },
+  });
+  revalidatePath("/wechat");
+  revalidatePath("/", "layout");
+  return { ok: true, count: res.count };
 }
 
 export async function linkWechatCustomerAction(chatId: string, customerId: string | null) {

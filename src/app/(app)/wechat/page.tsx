@@ -21,13 +21,13 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
   const chatId = s("chat");
   const contains = { contains: q, mode: "insensitive" as const };
 
-  const [chats, activeChat, quickReplies, unreadChats, archivedCount] = await Promise.all([
+  const [chats, activeChat, quickReplies, unreadChats, totalUnreadAny, archivedCount] = await Promise.all([
     db.wxChat.findMany({
       where: {
         accountId: account.id,
         archived: f === "archived",
         ...(f === "unread"
-          ? { unread: { gt: 0 } }
+          ? { unread: { gt: 0 }, muted: false }
           : f === "customer"
             ? { customerId: { not: null } }
             : f === "unlinked"
@@ -64,6 +64,7 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
       take: 30,
       select: { id: true, title: true, body: true },
     }),
+    db.wxChat.count({ where: { accountId: account.id, archived: false, muted: false, unread: { gt: 0 } } }),
     db.wxChat.count({ where: { accountId: account.id, archived: false, unread: { gt: 0 } } }),
     db.wxChat.count({ where: { accountId: account.id, archived: true } }),
   ]);
@@ -80,6 +81,7 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
         id: account.id,
         name: account.name,
         wechatNo: account.wechatNo,
+        avatarUrl: account.avatarUrl,
         platform: account.platform,
         syncMode: account.syncMode === "all" ? "all" : "whitelist",
         remarkPrefix: account.remarkPrefix,
@@ -91,6 +93,7 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
       filter={f}
       query={q}
       unreadChats={unreadChats}
+      totalUnreadAny={totalUnreadAny}
       archivedCount={archivedCount}
       canAi={canAi}
       quickReplies={quickReplies}
@@ -100,7 +103,9 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
         wechatNo: c.wechatNo,
         remark: c.remark,
         name: c.name,
+        avatarUrl: c.avatarUrl,
         isGroup: c.isGroup,
+        muted: c.muted,
         syncEnabled: c.syncEnabled,
         customerId: c.customerId,
         customer: c.customer,
@@ -119,7 +124,9 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
               wechatNo: activeChat.wechatNo,
               remark: activeChat.remark,
               name: activeChat.name,
+              avatarUrl: activeChat.avatarUrl,
               isGroup: activeChat.isGroup,
+              muted: activeChat.muted,
               syncEnabled: activeChat.syncEnabled,
               customerId: activeChat.customerId,
               customer: activeChat.customer,
@@ -129,9 +136,15 @@ export default async function WechatPage({ searchParams }: PageProps<"/wechat">)
                 id: m.id,
                 fromMe: m.fromMe,
                 senderName: m.senderName,
+                senderAvatar: m.senderAvatar,
                 type: m.type,
                 body: m.body,
+                quoteSender: m.quoteSender,
+                quoteText: m.quoteText,
                 translation: m.translation,
+                mediaName: m.mediaName,
+                mediaSize: m.mediaSize,
+                mediaMeta: (m.mediaMeta as Record<string, unknown> | null) ?? null,
                 status: m.status,
                 error: m.error,
                 timestamp: m.timestamp.toISOString(),

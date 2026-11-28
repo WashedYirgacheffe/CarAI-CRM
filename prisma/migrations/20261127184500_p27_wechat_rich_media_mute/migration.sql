@@ -1,0 +1,13 @@
+-- P27: 个人微信头像、免打扰状态、引用回复与本地媒体/文件元数据
+ALTER TABLE "WxAccount"
+  ADD COLUMN IF NOT EXISTS "avatarUrl" TEXT;
+
+ALTER TABLE "WxChat"
+  ADD COLUMN IF NOT EXISTS "avatarUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "muted" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "WxMessage"
+  ADD COLUMN IF NOT EXISTS "senderAvatar" TEXT,
+  ADD COLUMN IF NOT EXISTS "quoteSender" TEXT,
+  ADD COLUMN IF NOT EXISTS "quoteText" TEXT,
+  ADD COLUMN IF NOT EXISTS "mediaMeta" JSONB;

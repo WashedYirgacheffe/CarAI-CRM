@@ -1,11 +1,19 @@
-// 跨平台微信本地桥接核心（v0.2.7）：内置纯 Node SQLCipher 只读解密 + 密钥扫描 + chatlog 兼容 + 零串框半自动上屏
+// 跨平台微信本地桥接核心（v0.3.0）：
+// 三引擎纯只读密钥扫描 + SQLCipher 4 WAL 实时读取 + 本地图片/文件/头像 IPC + 防闪退一键上屏
 import fs from "node:fs";
 import path from "node:path";
-import { app, Notification, safeStorage } from "electron";
+import { app, BrowserWindow, Notification, safeStorage, shell } from "electron";
 import * as winAdapter from "./win.js";
 import * as macAdapter from "./mac.js";
-import { detectCipherSpec, readLocalWechatHistory } from "./db-reader.js";
+import { detectCipherSpec, prepareDecryptedDb, readLocalWechatHistory } from "./db-reader.js";
 import { scanWechatKeys } from "./key-scanner.js";
+import {
+  decodeWechatDatBuffer,
+  findLocalFilePath,
+  findLocalImagePath,
+  readLocalHeadImageDataUrl,
+  scanWechatImageAesKey,
+} from "./media-reader.js";
 
 const DEFAULT_CHATLOG_URL = "http://127.0.0.1:5030";
 const SYNC_INTERVAL_MS = 20_000;
@@ -52,6 +60,7 @@ function loadConfig() {
   try {
     const raw = JSON.parse(fs.readFileSync(configFile(), "utf8"));
     const dbKey = decStr(raw.dbKeyEnc);
+    const imgAesKey = decStr(raw.imgAesKeyEnc);
     const keyMapJson = decStr(raw.keyMapEnc);
     let keyMap = null;
     if (keyMapJson) {
@@ -67,16 +76,18 @@ function loadConfig() {
       dataDir: typeof raw.dataDir === "string" ? raw.dataDir : null,
       decryptedDir: typeof raw.decryptedDir === "string" && raw.decryptedDir.trim() ? raw.decryptedDir.trim() : null,
       dbKey,
+      imgAesKey,
       keyMap,
     };
   } catch {
-    return { chatlogUrl: DEFAULT_CHATLOG_URL, autoSync: true, dataDir: null, decryptedDir: null, dbKey: null, keyMap: null };
+    return { chatlogUrl: DEFAULT_CHATLOG_URL, autoSync: true, dataDir: null, decryptedDir: null, dbKey: null, imgAesKey: null, keyMap: null };
   }
 }
 
 function saveLocalConfig(patch) {
   const cur = loadConfig();
   const nextDbKey = patch.dbKey !== undefined ? (String(patch.dbKey || "").trim() || null) : cur.dbKey;
+  const nextImgAesKey = patch.imgAesKey !== undefined ? (String(patch.imgAesKey || "").trim() || null) : cur.imgAesKey;
   const nextKeyMap = patch.keyMap !== undefined ? patch.keyMap : cur.keyMap;
   const next = {
     chatlogUrl: typeof patch.chatlogUrl === "string" ? patch.chatlogUrl.trim().replace(/\/+$/, "") || DEFAULT_CHATLOG_URL : cur.chatlogUrl,
@@ -84,6 +95,7 @@ function saveLocalConfig(patch) {
     dataDir: patch.dataDir !== undefined ? (String(patch.dataDir || "").trim() || null) : cur.dataDir,
     decryptedDir: patch.decryptedDir !== undefined ? (String(patch.decryptedDir || "").trim() || null) : cur.decryptedDir,
     dbKeyEnc: encStr(nextDbKey),
+    imgAesKeyEnc: encStr(nextImgAesKey),
     keyMapEnc: nextKeyMap && Object.keys(nextKeyMap).length ? encStr(JSON.stringify(nextKeyMap)) : null,
   };
   fs.mkdirSync(path.dirname(configFile()), { recursive: true });
@@ -117,6 +129,8 @@ export class WechatBridge {
     this.lastSyncAt = null;
     this.lastError = null;
     this.syncSource = "none";
+    this.imgKeyPromise = null;
+    this.detCache = null;
   }
 
   start(token) {
@@ -141,8 +155,17 @@ export class WechatBridge {
     }
   }
 
+  async detectCached(force = false) {
+    if (!force && this.detCache && Date.now() - this.detCache.at < 15_000) {
+      return this.detCache.data;
+    }
+    const data = await adapter().detectWechat();
+    this.detCache = { at: Date.now(), data };
+    return data;
+  }
+
   async getStatus() {
-    const det = await adapter().detectWechat();
+    const det = await this.detectCached(true);
     const cfg = loadConfig();
     const hasLocalKey = !!(cfg.dbKey || (cfg.keyMap && Object.keys(cfg.keyMap).length > 0));
     const hasDecryptedDir = !!(cfg.decryptedDir && fs.existsSync(cfg.decryptedDir));
@@ -179,13 +202,12 @@ export class WechatBridge {
         error: "macOS 受系统 SIP 保护不支持直接扫描内存，请填入已获取的 64 位密钥、已解密目录或启动本机 chatlog 服务。",
       };
     }
-    const det = await adapter().detectWechat();
+    const det = await this.detectCached(true);
     const res = await scanWechatKeys(det);
     if (res.ok) {
       saveLocalConfig({ dbKey: res.dbKey, keyMap: res.keyMap });
       this.lastError = null;
       this.onChange();
-      // 提取成功后立刻执行一次全量历史同步！
       const synced = await this.syncNow({ silent: true });
       return {
         ok: true,
@@ -200,14 +222,13 @@ export class WechatBridge {
   }
 
   async saveConfig(patch) {
-    // 如果用户手动填了 64 位 dbKey，先校验合法性（若能检测到本地库则顺带测试是否可解密）
     if (patch.dbKey && String(patch.dbKey).trim()) {
       const clean = String(patch.dbKey).trim().replace(/^x'|'$/gi, "").replace(/^0x/i, "");
       if (!/^[0-9a-f]{64}$/i.test(clean)) {
         return { ok: false, error: "数据库密钥格式不正确：应为 64 位十六进制字符串（0-9, a-f）" };
       }
       patch.dbKey = clean.toLowerCase();
-      const det = await adapter().detectWechat();
+      const det = await this.detectCached(true);
       if (det.dbRoot) {
         const probeFiles = [
           path.join(det.dbRoot, "contact", "contact.db"),
@@ -231,15 +252,131 @@ export class WechatBridge {
   }
 
   async stageSend(opts) {
+    // 关键防闪退：在 Windows 上先主动释放 CRM 主窗口焦点，再唤起微信并置顶
+    if (process.platform === "win32") {
+      try {
+        const focused = BrowserWindow.getFocusedWindow();
+        if (focused && !focused.isDestroyed()) focused.blur();
+      } catch { /* ignore */ }
+    }
     const res = await adapter().stageSend(opts);
-    if (res.ok && res.hint && Notification.isSupported()) {
+    // 仅在微信未找到/剪贴板兜底时才弹系统通知；已成功置顶微信并粘贴时绝不弹通知抢焦点！
+    const focusedWechat = res.mode === "located_and_pasted" || res.mode === "pasted";
+    if (res.ok && res.hint && !focusedWechat && Notification.isSupported()) {
       try {
         new Notification({ title: "车车 CRM · 微信一键上屏", body: res.hint }).show();
-      } catch {
-        /* 忽略系统通知权限未开 */
-      }
+      } catch { /* ignore */ }
     }
     return res;
+  }
+
+  /** 本机只读加载图片（解码 .dat 为 data URL 并落本地缓存供系统看图器打开） */
+  async loadMedia(mediaMeta) {
+    if (!mediaMeta || mediaMeta.kind !== "image" || !mediaMeta.md5) {
+      return { ok: false, reason: "no_md5" };
+    }
+    const det = await this.detectCached();
+    const cfg = loadConfig();
+    const accountDir = cfg.dataDir || det.dataDir;
+    if (!accountDir) return { ok: false, reason: "no_account_dir" };
+
+    // 检查已解密缓存
+    const mediaCacheDir = path.join(cacheDir(), "media");
+    const cleanMd5 = String(mediaMeta.md5).toLowerCase();
+    for (const ext of ["jpg", "png", "gif", "webp"]) {
+      const cached = path.join(mediaCacheDir, `${cleanMd5}.${ext}`);
+      if (fs.existsSync(cached)) {
+        const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+        const buf = fs.readFileSync(cached);
+        return { ok: true, dataUrl: `data:${mime};base64,${buf.toString("base64")}`, filePath: cached };
+      }
+    }
+
+    const datPath = findLocalImagePath(accountDir, mediaMeta);
+    if (!datPath) return { ok: false, reason: "not_downloaded" };
+
+    const raw = fs.readFileSync(datPath);
+    let decoded = decodeWechatDatBuffer(raw, cfg.imgAesKey);
+
+    // 若为微信 4.x V2 AES 加密图片且本机还没缓存图片 AES 密钥，触发一次只读内存扫描
+    if (decoded?.needAesKey && decoded.probeBlock && process.platform === "win32" && det.pids?.length) {
+      if (!this.imgKeyPromise) {
+        this.imgKeyPromise = scanWechatImageAesKey({ pids: det.pids, probeBlock: decoded.probeBlock }).finally(() => {
+          this.imgKeyPromise = null;
+        });
+      }
+      const aesKey = await this.imgKeyPromise;
+      if (aesKey) {
+        saveLocalConfig({ imgAesKey: aesKey });
+        decoded = decodeWechatDatBuffer(raw, aesKey);
+      }
+    }
+
+    if (!decoded || !decoded.buf) return { ok: false, reason: "decode_failed" };
+
+    fs.mkdirSync(mediaCacheDir, { recursive: true });
+    const outPath = path.join(mediaCacheDir, `${cleanMd5}.${decoded.ext}`);
+    fs.writeFileSync(outPath, decoded.buf);
+    return {
+      ok: true,
+      dataUrl: `data:${decoded.mime};base64,${decoded.buf.toString("base64")}`,
+      filePath: outPath,
+    };
+  }
+
+  /** 用本机系统默认程序打开微信文件或已解密高清图片（reveal=true 则在资源管理器定位） */
+  async openMedia(mediaMeta, reveal = false) {
+    if (!mediaMeta) return { ok: false, error: "缺少媒体信息" };
+    const det = await this.detectCached();
+    const cfg = loadConfig();
+    const accountDir = cfg.dataDir || det.dataDir;
+    if (!accountDir) return { ok: false, error: "未检测到本机微信数据目录" };
+
+    if (mediaMeta.kind === "image") {
+      const loaded = await this.loadMedia(mediaMeta);
+      if (!loaded.ok || !loaded.filePath) {
+        return { ok: false, error: "该图片尚未在微信本地缓存，请先在微信里点开加载一次" };
+      }
+      if (reveal) {
+        shell.showItemInFolder(loaded.filePath);
+        return { ok: true };
+      }
+      const err = await shell.openPath(loaded.filePath);
+      return err ? { ok: false, error: err } : { ok: true };
+    }
+
+    if (mediaMeta.kind === "file") {
+      const filePath = findLocalFilePath(accountDir, mediaMeta);
+      if (!filePath) {
+        return { ok: false, error: "该文件尚未下载到本地，请先在微信聊天窗口点击下载后再从 CRM 打开" };
+      }
+      if (reveal) {
+        shell.showItemInFolder(filePath);
+        return { ok: true, filePath };
+      }
+      const err = await shell.openPath(filePath);
+      return err ? { ok: false, error: err } : { ok: true, filePath };
+    }
+
+    return { ok: false, error: "暂不支持打开该媒体类型" };
+  }
+
+  /** 从本地解密的 head_image.db 读取头像（作为群聊九宫格或无 CDN URL 的头像兜底） */
+  async loadAvatar(wxKey) {
+    if (!wxKey) return { ok: false };
+    const det = await this.detectCached();
+    const cfg = loadConfig();
+    const headDb = prepareDecryptedDb({
+      rel: "head_image/head_image.db",
+      dbRoot: det.dbRoot,
+      decryptedDir: cfg.decryptedDir,
+      cacheDir: cacheDir(),
+      dbKey: cfg.dbKey,
+      keyMap: cfg.keyMap,
+    });
+    if (!headDb) return { ok: false };
+    const dataUrl = await readLocalHeadImageDataUrl(headDb, wxKey);
+    return dataUrl ? { ok: true, dataUrl } : { ok: false };
   }
 
   async probeChatlog(baseUrl) {
@@ -256,7 +393,7 @@ export class WechatBridge {
     if (this.syncing) return { ok: true, inserted: 0, confirmed: 0 };
     this.syncing = true;
     try {
-      const det = await adapter().detectWechat();
+      const det = await this.detectCached();
       const localCfg = loadConfig();
 
       const cfgRes = await fetch(`${this.crmUrl}/api/wechat/config`, {
@@ -270,12 +407,12 @@ export class WechatBridge {
       const hasDecryptedDir = !!(localCfg.decryptedDir && fs.existsSync(localCfg.decryptedDir));
 
       let threads = [];
+      let accountAvatarUrl;
       let activeSource = "none";
 
-      // 优先路线 1：内置纯 Node.js 原生 SQLCipher 只读解密读取全量对话与历史记录
       if (hasLocalKey || hasDecryptedDir) {
         activeSource = "native-db";
-        threads = await readLocalWechatHistory({
+        const readRes = await readLocalWechatHistory({
           dbRoot: det.dbRoot,
           wxVersion: det.wxVersion,
           dbKey: localCfg.dbKey,
@@ -285,8 +422,9 @@ export class WechatBridge {
           remoteCfg,
           myWxid: det.wxid,
         });
+        threads = readRes.threads || [];
+        accountAvatarUrl = readRes.accountAvatarUrl;
       } else {
-        // 路线 2：兼容本机运行的 chatlog / WeFlow HTTP 只读服务
         const chatlogAlive = await this.probeChatlog(localCfg.chatlogUrl);
         if (chatlogAlive) {
           activeSource = "chatlog";
@@ -341,7 +479,6 @@ export class WechatBridge {
 
       this.syncSource = activeSource;
 
-      // 分批上报（避免单次 JSON 过大）
       let totalInserted = 0;
       let totalConfirmed = 0;
       const chunkSize = 25;
@@ -357,6 +494,7 @@ export class WechatBridge {
           body: JSON.stringify({
             account: {
               wxid: det.wxid || undefined,
+              avatarUrl: accountAvatarUrl,
               platform: det.platform,
               status: activeSource !== "none" ? "SYNCING" : "READY",
               lastError: null,

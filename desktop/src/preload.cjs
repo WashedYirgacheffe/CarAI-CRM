@@ -15,5 +15,8 @@ contextBridge.exposeInMainWorld("chechedesktop", {
     saveConfig: (cfg) => ipcRenderer.invoke("wechat:save-config", cfg),
     extractKey: () => ipcRenderer.invoke("wechat:extract-key"),
     syncNow: () => ipcRenderer.invoke("wechat:sync-now"),
+    loadMedia: (meta) => ipcRenderer.invoke("wechat:load-media", meta),
+    openMedia: (meta, reveal) => ipcRenderer.invoke("wechat:open-media", meta, reveal),
+    loadAvatar: (wxKey) => ipcRenderer.invoke("wechat:load-avatar", wxKey),
   },
 });
