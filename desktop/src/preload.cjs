@@ -18,5 +18,10 @@ contextBridge.exposeInMainWorld("chechedesktop", {
     loadMedia: (meta) => ipcRenderer.invoke("wechat:load-media", meta),
     openMedia: (meta, reveal) => ipcRenderer.invoke("wechat:open-media", meta, reveal),
     loadAvatar: (wxKey) => ipcRenderer.invoke("wechat:load-avatar", wxKey),
+    onSynced: (cb) => {
+      const handler = (_e, data) => cb(data);
+      ipcRenderer.on("wechat:synced", handler);
+      return () => ipcRenderer.removeListener("wechat:synced", handler);
+    },
   },
 });
