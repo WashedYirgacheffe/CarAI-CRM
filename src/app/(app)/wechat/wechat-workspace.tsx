@@ -25,6 +25,8 @@ import {
   Link2,
   LoaderCircle,
   MessageCircle,
+  MoreHorizontal,
+  Pencil,
   Pin,
   PinOff,
   Play,
@@ -33,11 +35,13 @@ import {
   Search,
   Send,
   Settings,
+  Trash2,
   Video,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { parsePastedWechatLog, resolveWechatSearchKey, wechatDisplayName, WX_MSG_STATUS_LABEL, WX_SYNC_MODES, WX_SYNC_STATUS_LABEL, type ParsedWechatLine } from "@/lib/wechat";
@@ -74,6 +78,10 @@ type DesktopWechatBridge = {
     lastSyncAt: string | null;
     lastError: string | null;
     autoSync: boolean;
+    fullDiskAccess?: boolean;
+    accessibilityGranted?: boolean;
+    xcodeCliInstalled?: boolean;
+    sipEnabled?: boolean;
   }>;
   stageSend: (opts: { searchKey?: string; text: string; autoLocate?: boolean }) => Promise<{
     ok: boolean;
@@ -87,6 +95,7 @@ type DesktopWechatBridge = {
   loadMedia?: (meta: Record<string, unknown>) => Promise<{ ok: boolean; dataUrl?: string; filePath?: string; hasVideoFile?: boolean; reason?: string }>;
   openMedia?: (meta: Record<string, unknown>, reveal?: boolean) => Promise<{ ok: boolean; error?: string }>;
   loadAvatar?: (wxKey: string) => Promise<{ ok: boolean; dataUrl?: string }>;
+  openSystemSettings?: (pane?: "fullDisk" | "accessibility") => Promise<{ ok: boolean; error?: string }>;
   onSynced?: (cb: (info: { inserted?: number; confirmed?: number }) => void) => () => void;
 };
 
@@ -510,6 +519,8 @@ export function WechatWorkspace({
   const [extractingKey, setExtractingKey] = useState(false);
   const [extractHint, setExtractHint] = useState<string | null>(null);
   const [forwardModal, setForwardModal] = useState<ForwardRecordMeta | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [quickReplySheetOpen, setQuickReplySheetOpen] = useState(false);
 
   const [editPeerOpen, setEditPeerOpen] = useState(false);
   const [editWechatNo, setEditWechatNo] = useState("");
@@ -670,7 +681,11 @@ export function WechatWorkspace({
       return;
     }
     setExtractingKey(true);
-    setExtractHint(null);
+    setExtractHint(
+      desktopPlatform === "darwin" && bridgeStatus?.sipEnabled !== false
+        ? "正在打开微信验证窗口… 请在弹出的微信里登录一次，完成后会自动关闭并开始同步。"
+        : null,
+    );
     try {
       const res = await desktopBridge.extractKey();
       const s = await desktopBridge.getStatus().catch(() => null);
@@ -798,27 +813,27 @@ export function WechatWorkspace({
   return (
     <div
       className={cn(
-        "-mx-3 -mt-3 -mb-4 flex h-[calc(100svh-6.75rem-1px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden surface rounded-none shadow-none md:m-0 md:h-[calc(100svh-6.5rem)] md:min-h-[34rem] md:rounded-2xl md:shadow-[var(--card-shadow)]",
+        "-mx-3 -mt-3 -mb-4 flex h-[calc(100dvh-6.75rem-1px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-[24rem] overflow-hidden surface rounded-none shadow-none md:m-0 md:h-[calc(100svh-6.5rem)] md:min-h-[34rem] md:rounded-2xl md:shadow-[var(--card-shadow)]",
       )}
     >
       {/* ── 左侧：微信会话列表 ── */}
-      <section className={cn("flex w-full min-w-0 flex-col border-r border-border/70 md:w-[22.5rem] md:shrink-0", activeChat && "hidden md:flex")}>
-        <header className="flex items-center gap-3 px-4 pt-4 pb-2.5">
-          <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+      <section className={cn("flex w-full min-w-0 flex-col border-border/70 md:w-[22.5rem] md:shrink-0 md:border-r", activeChat && "hidden md:flex")}>
+        <header className="flex items-center gap-2.5 px-3.5 pt-3 pb-2 md:gap-3 md:px-4 md:pt-4 md:pb-2.5">
+          <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 md:size-10 dark:text-emerald-400">
             {account.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={account.avatarUrl}
                 alt={account.name || "我"}
                 referrerPolicy="no-referrer"
-                className="size-10 rounded-full object-cover ring-1 ring-border/50"
+                className="size-9 rounded-full object-cover ring-1 ring-border/50 md:size-10"
               />
             ) : (
               <MessageCircle className="size-5" />
             )}
             <span
               className={cn(
-                "absolute -right-0.5 -bottom-0.5 size-3 rounded-full ring-2 ring-card",
+                "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-card md:size-3",
                 desktopBridge
                   ? bridgeStatus?.wechatRunning
                     ? "bg-emerald-500"
@@ -831,82 +846,88 @@ export function WechatWorkspace({
             />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <p className="truncate font-medium">{account.name || "微信"}</p>
-            </div>
+            <p className="truncate text-[15px] font-medium md:text-sm">{account.name || "微信"}</p>
             <p className="truncate text-xs text-muted-foreground">
               {desktopBridge
                 ? bridgeStatus?.wechatRunning
                   ? bridgeStatus.syncSource !== "none"
-                    ? `已连接 · 每 ${bridgeStatus.syncIntervalSec || 8} 秒自动同步`
-                    : "桌面版已就绪 · 待连接本机微信"
+                    ? `已连接 · 每 ${bridgeStatus.syncIntervalSec || 8} 秒同步`
+                    : "待连接本机微信"
                   : "等待打开本机微信"
                 : isOutdatedDesktop
                   ? `桌面版 v${desktopApp?.version || "旧版"} 需升级`
-                  : WX_SYNC_STATUS_LABEL[account.status] || "建议使用桌面版"}
+                  : account.lastSyncAt
+                    ? `同步于 ${fmtTime(account.lastSyncAt)}`
+                    : WX_SYNC_STATUS_LABEL[account.status] || "电脑同步后查看"}
             </p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 md:gap-1">
             {totalUnreadAny > 0 && (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-8"
+                className="size-10 md:size-8"
                 title={`一键已读（清除全部 ${totalUnreadAny} 个未读会话）`}
+                aria-label="一键已读"
                 disabled={pending}
                 onClick={() => {
                   startTransition(async () => {
                     const res = await markAllWechatReadAction();
                     if ("ok" in res) {
-                      toast.success(`已清除全部未读提醒（${res.count} 个会话）`);
+                      toast.success(`已清除全部未读（${res.count} 个会话）`);
                       router.refresh();
                     }
                   });
                 }}
               >
-                <CheckCheck className="size-4" />
+                <CheckCheck className="size-[18px] md:size-4" />
+              </Button>
+            )}
+            {desktopBridge && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-10 md:size-8"
+                title="立即同步"
+                aria-label="立即同步"
+                disabled={syncingNow}
+                onClick={handleSyncNow}
+              >
+                {syncingNow ? <LoaderCircle className="size-4" /> : <RefreshCcw className="size-4" />}
               </Button>
             )}
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8"
-              title="立即增量同步"
-              disabled={syncingNow}
-              onClick={handleSyncNow}
-            >
-              {syncingNow ? <LoaderCircle className="size-4" /> : <RefreshCcw className="size-4" />}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              title="添加微信客户会话"
+              className="size-10 md:size-8"
+              title="添加客户会话"
+              aria-label="添加客户会话"
               onClick={() => setNewChatOpen(true)}
             >
-              <Plus className="size-4" />
+              <Plus className="size-[18px] md:size-4" />
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8"
-              title="微信同步与隐私设置"
+              className="size-10 md:size-8"
+              title="微信设置"
+              aria-label="微信设置"
               onClick={() => setSettingsOpen(true)}
             >
-              <Settings className="size-4" />
+              <Settings className="size-[18px] md:size-4" />
             </Button>
           </div>
         </header>
 
-        {/* 桌面端升级 / 下载提示条 */}
+        {/* 桌面端下载 / 升级提示条（手机端隐藏，避免无关干扰） */}
         {!desktopBridge && (
           <div
             className={cn(
-              "mx-3 mb-2 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs",
+              "mx-3 mb-2 hidden items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs md:flex",
               isOutdatedDesktop
                 ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
                 : "border-emerald-500/20 bg-emerald-500/5 text-muted-foreground",
@@ -914,8 +935,8 @@ export function WechatWorkspace({
           >
             <span className="leading-snug">
               {isOutdatedDesktop
-                ? `当前桌面版 v${desktopApp?.version || "旧版"} 暂未含微信桥接，升级至 v0.2.6 即可启用`
-                : "用桌面版可一键上屏到微信并自动只读同步"}
+                ? `当前桌面版 v${desktopApp?.version || "旧版"} 需升级至最新版`
+                : "下载电脑桌面版即可自动同步本机微信消息"}
             </span>
             <Link
               href={`/api/desktop/download?arch=${isMac ? "arm64" : "win"}`}
@@ -930,36 +951,36 @@ export function WechatWorkspace({
           </div>
         )}
 
-        {/* 搜索框 */}
+        {/* 搜索框（手机端 16px 字体防 iOS 缩放，40px 触控高度） */}
         <form
-          className="px-3 pb-2"
+          className="px-3.5 pb-2 md:px-3"
           onSubmit={(e) => {
             e.preventDefault();
             router.push(buildHref({ q: searchInput.trim(), chat: activeChat?.id ?? null }));
           }}
         >
           <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground md:size-3.5" />
             <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="搜备注、微信号、客户名…"
-              className="h-8 rounded-lg pl-8 text-xs"
+              placeholder="搜索联系人、群聊或客户…"
+              className="h-10 rounded-xl pl-9 text-base md:h-8 md:rounded-lg md:pl-8 md:text-xs"
             />
           </div>
         </form>
 
-        {/* 筛选 Tab */}
-        <div className="flex items-center gap-1 overflow-x-auto px-3 pb-2">
+        {/* 筛选胶囊（横向平滑滑动，隐藏滚动条，适配拇指点击） */}
+        <div className="flex items-center gap-1.5 overflow-x-auto px-3.5 pb-2.5 [scrollbar-width:none] md:gap-1 md:px-3 md:pb-2 [&::-webkit-scrollbar]:hidden">
           {FILTERS.map((item) => (
             <Link
               key={item.key || "all"}
               href={buildHref({ f: item.key, chat: null })}
               className={cn(
-                "shrink-0 rounded-full px-2.5 py-1 text-xs transition-colors",
+                "inline-flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-medium transition-colors md:h-auto md:px-2.5 md:py-1 md:font-normal",
                 filter === item.key
                   ? "bg-emerald-600 text-white"
-                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                  : "bg-muted/65 text-muted-foreground active:bg-muted md:hover:bg-muted md:hover:text-foreground",
               )}
             >
               {item.label}
@@ -970,7 +991,7 @@ export function WechatWorkspace({
             <Link
               href={buildHref({ f: filter === "archived" ? "" : "archived", chat: null })}
               className={cn(
-                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+                "ml-auto inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-3 text-xs transition-colors md:h-auto md:px-2.5 md:py-1",
                 filter === "archived" ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted",
               )}
             >
@@ -984,17 +1005,17 @@ export function WechatWorkspace({
         <div className="flex-1 overflow-y-auto px-2 pb-3">
           {chats.length === 0 ? (
             <div className="px-4 py-12 text-center">
-              <p className="text-sm font-medium text-foreground/80">还没有微信会话</p>
+              <p className="text-sm font-medium text-foreground/80">暂无微信会话</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                点右上角「+」添加客户微信号，或在桌面端开启白名单只读同步。
+                在电脑桌面版同步后自动显示，或点右上角「+」手动添加。
               </p>
-              <Button size="sm" variant="outline" className="mt-4" onClick={() => setNewChatOpen(true)}>
+              <Button size="sm" variant="outline" className="mt-4 h-10 px-4 md:h-8 md:px-3" onClick={() => setNewChatOpen(true)}>
                 <Plus className="mr-1.5 size-3.5" />
-                添加第一个微信客户
+                添加微信客户
               </Button>
             </div>
           ) : (
-            <div className="space-y-0.5">
+            <div className="divide-y divide-border/40 md:space-y-0.5 md:divide-y-0">
               {chats.map((c) => {
                 const selected = activeChat?.id === c.id;
                 const title = wechatDisplayName(c);
@@ -1003,12 +1024,12 @@ export function WechatWorkspace({
                     key={c.id}
                     href={buildHref({ chat: c.id })}
                     className={cn(
-                      "flex items-start gap-2.5 rounded-xl px-2.5 py-2.5 transition-colors",
+                      "flex items-center gap-3 px-2.5 py-3 transition-colors active:bg-muted/70 md:items-start md:gap-2.5 md:rounded-xl md:py-2.5",
                       selected
                         ? "bg-emerald-500/10 text-foreground"
                         : c.pinnedAt
-                          ? "bg-muted/35 hover:bg-muted/65"
-                          : "hover:bg-muted/60",
+                          ? "bg-muted/30 md:hover:bg-muted/65"
+                          : "md:hover:bg-muted/60",
                     )}
                   >
                     <WxAvatar
@@ -1017,10 +1038,11 @@ export function WechatWorkspace({
                       label={title}
                       isGroup={c.isGroup}
                       bridge={desktopBridge}
+                      sizeClass="size-11 md:size-9"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-1 truncate text-sm font-medium">
+                        <span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium md:text-sm">
                           {c.pinnedAt && (
                             <Pin className="size-3 shrink-0 text-emerald-600/80 dark:text-emerald-400" aria-label="置顶" />
                           )}
@@ -1029,38 +1051,40 @@ export function WechatWorkspace({
                             <BellOff className="size-3 shrink-0 text-muted-foreground/70" aria-label="消息免打扰" />
                           )}
                         </span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">{fmtTime(c.lastMessageAt)}</span>
+                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fmtTime(c.lastMessageAt)}</span>
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-2">
-                        <p className="truncate text-xs text-muted-foreground">
+                        <p className="truncate text-[13px] text-muted-foreground md:text-xs">
                           {c.lastFromMe ? "我: " : ""}
-                          {c.lastText || (c.wechatNo ? `微信号: ${c.wechatNo}` : "点击开始半自动沟通")}
+                          {c.lastText || "暂无消息"}
                         </p>
                         {c.unread > 0 &&
                           (c.muted ? (
                             <span
                               className="size-2 shrink-0 rounded-full bg-muted-foreground/45"
-                              title={`免打扰会话 · ${c.unread} 条新消息`}
+                              title={`免打扰 · ${c.unread} 条新消息`}
                             />
                           ) : (
-                            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-medium text-white">
+                            <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-medium tabular-nums text-white md:h-4 md:min-w-4">
                               {c.unread > 99 ? "99+" : c.unread}
                             </span>
                           ))}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1">
-                        {c.customer && (
-                          <span className="inline-flex items-center gap-1 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
-                            <Building2 className="size-2.5" />
-                            {c.customer.name}
-                          </span>
-                        )}
-                        {c.wechatNo && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {c.wechatNo}
-                          </span>
-                        )}
-                      </div>
+                      {(c.customer || c.wechatNo) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {c.customer && (
+                            <span className="inline-flex items-center gap-1 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                              <Building2 className="size-2.5" />
+                              {c.customer.name}
+                            </span>
+                          )}
+                          {c.wechatNo && (
+                            <span className="hidden rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground md:inline-block">
+                              {c.wechatNo}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </Link>
                 );
@@ -1094,10 +1118,14 @@ export function WechatWorkspace({
           </div>
         ) : (
           <>
-            {/* 会话顶栏 */}
-            <header className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <Link href={buildHref({ chat: null })} className="rounded-lg p-1 hover:bg-muted md:hidden">
+            {/* 会话顶栏：手机端极简三段式（返回 + 头像名称 + 更多抽屉），桌面端保留快捷工具条 */}
+            <header className="flex items-center justify-between gap-2 border-b border-border/70 px-2.5 py-2 md:px-4 md:py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-2.5">
+                <Link
+                  href={buildHref({ chat: null })}
+                  aria-label="返回会话列表"
+                  className="flex size-10 shrink-0 items-center justify-center rounded-xl text-foreground active:bg-muted md:hidden"
+                >
                   <ChevronLeft className="size-5" />
                 </Link>
                 <WxAvatar
@@ -1106,12 +1134,16 @@ export function WechatWorkspace({
                   label={wechatDisplayName(activeChat)}
                   isGroup={activeChat.isGroup}
                   bridge={desktopBridge}
+                  sizeClass="size-8 md:size-9"
                 />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate font-medium">{wechatDisplayName(activeChat)}</h2>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 md:gap-2">
+                    <h2 className="truncate text-[15px] font-medium md:text-base">{wechatDisplayName(activeChat)}</h2>
+                    {activeChat.muted && (
+                      <BellOff className="size-3.5 shrink-0 text-muted-foreground/75 md:hidden" aria-label="免打扰" />
+                    )}
                     {activeChat.isGroup && (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">群聊</span>
+                      <span className="hidden rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground md:inline">群聊</span>
                     )}
                     <button
                       type="button"
@@ -1121,13 +1153,13 @@ export function WechatWorkspace({
                         setEditName(activeChat.name || "");
                         setEditPeerOpen(true);
                       }}
-                      className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      className="hidden text-xs text-muted-foreground hover:text-foreground hover:underline md:inline"
                     >
                       修改定位名称
                     </button>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="hidden md:inline">
                       匹配名：
                       <strong className="font-normal text-foreground">{anchor?.key || "未设置"}</strong>
                       {anchor?.label ? `（${anchor.label}）` : ""}
@@ -1135,24 +1167,37 @@ export function WechatWorkspace({
                     {activeChat.customer ? (
                       <Link
                         href={`/customers/${activeChat.customer.id}`}
-                        className="inline-flex items-center gap-1 text-sky-600 hover:underline dark:text-sky-400"
+                        className="inline-flex min-w-0 items-center gap-1 truncate text-sky-600 hover:underline dark:text-sky-400"
                       >
-                        <Building2 className="size-3" />
-                        {activeChat.customer.name}
+                        <Building2 className="size-3 shrink-0" />
+                        <span className="truncate">{activeChat.customer.name}</span>
                       </Link>
                     ) : (
                       <button type="button" onClick={openLinkDialog} className="text-emerald-700 hover:underline dark:text-emerald-400">
-                        + 关联 CRM 客户
+                        + 关联客户
                       </button>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-1.5">
+              {/* 手机端：唯一「更多」按钮，点击拉起底部操作表 */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-10 shrink-0 md:hidden"
+                aria-label="会话操作"
+                onClick={() => setMobileMenuOpen(true)}
+              >
+                <MoreHorizontal className="size-5" />
+              </Button>
+
+              {/* 桌面端工具栏 */}
+              <div className="hidden shrink-0 items-center gap-1.5 md:flex">
                 <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setImportOpen(true)}>
                   <FileText className="mr-1.5 size-3.5" />
-                  粘贴导入记录
+                  导入记录
                 </Button>
                 {activeChat.messages.length > 0 && (
                   <Button
@@ -1160,7 +1205,7 @@ export function WechatWorkspace({
                     variant="ghost"
                     className="h-8 text-xs text-muted-foreground hover:text-destructive"
                     onClick={() => {
-                      if (!window.confirm("确定清空当前会话在 CRM 里的聊天记录吗？（不会影响你本地微信）")) return;
+                      if (!window.confirm("确定清空当前会话在 CRM 里的聊天记录吗？（不会影响本机微信）")) return;
                       startTransition(async () => {
                         await clearWechatMessagesAction(activeChat.id);
                         toast.success("已清空当前会话记录");
@@ -1168,7 +1213,7 @@ export function WechatWorkspace({
                       });
                     }}
                   >
-                    清空记录
+                    清空
                   </Button>
                 )}
                 {activeChat.customer && (
@@ -1227,10 +1272,10 @@ export function WechatWorkspace({
             </header>
 
             {/* 消息列表 */}
-            <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 px-4 py-4">
+            <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 px-3 py-3 md:px-4 md:py-4">
               {activeChat.messages.length === 0 ? (
                 <div className="py-12 text-center text-xs text-muted-foreground">
-                  暂无同步记录。你可以直接点右上角「粘贴导入记录」，或在下方写好回复一键上屏到微信。
+                  暂无消息记录
                 </div>
               ) : (
                 activeChat.messages.map((m) => {
@@ -1245,21 +1290,21 @@ export function WechatWorkspace({
                   const fileSizeText = fmtFileSize(m.mediaSize ?? (typeof fileMeta?.size === "number" ? fileMeta.size : null));
 
                   return (
-                    <div key={m.id} className={cn("flex items-start gap-2.5", m.fromMe ? "flex-row-reverse" : "flex-row")}>
+                    <div key={m.id} className={cn("flex items-start gap-2 md:gap-2.5", m.fromMe ? "flex-row-reverse" : "flex-row")}>
                       <WxAvatar
                         src={m.fromMe ? account.avatarUrl : m.senderAvatar || (!activeChat.isGroup ? activeChat.avatarUrl : null)}
                         wxKey={!m.fromMe && !activeChat.isGroup ? activeChat.wxKey : null}
                         label={m.fromMe ? account.name || "我" : m.senderName || wechatDisplayName(activeChat)}
                         bridge={desktopBridge}
-                        sizeClass="size-8 mt-0.5"
+                        sizeClass="size-7 mt-0.5 md:size-8"
                       />
-                      <div className={cn("flex min-w-0 max-w-[76%] flex-col", m.fromMe ? "items-end" : "items-start")}>
+                      <div className={cn("flex min-w-0 max-w-[82%] flex-col md:max-w-[74%]", m.fromMe ? "items-end" : "items-start")}>
                         {!m.fromMe && m.senderName && (
                           <span className="mb-1 px-1 text-[11px] text-muted-foreground">{m.senderName}</span>
                         )}
                         <div
                           className={cn(
-                            "rounded-2xl px-3.5 py-2.5 text-sm shadow-xs",
+                            "rounded-2xl px-3 py-2 text-[15px] leading-relaxed shadow-xs md:px-3.5 md:py-2.5 md:text-sm",
                             m.fromMe
                               ? m.status === "STAGED"
                                 ? "border border-amber-400/50 bg-amber-50 text-foreground dark:bg-amber-950/40"
@@ -1280,13 +1325,13 @@ export function WechatWorkspace({
                             <button
                               type="button"
                               onClick={() => setForwardModal(forwardMeta)}
-                              className="min-w-[220px] max-w-[300px] text-left"
+                              className="w-full min-w-[180px] max-w-[280px] text-left md:min-w-[220px] md:max-w-[300px]"
                             >
                               <p className="text-xs font-semibold leading-snug">{forwardMeta.title || "聊天记录"}</p>
                               {forwardMeta.desc ? (
                                 <p
                                   className={cn(
-                                    "mt-1.5 line-clamp-4 whitespace-pre-line text-[11px] leading-relaxed",
+                                    "mt-1.5 line-clamp-3 whitespace-pre-line text-[11px] leading-relaxed md:line-clamp-4",
                                     m.fromMe && m.status === "SENT" ? "text-white/80" : "text-muted-foreground",
                                   )}
                                 >
@@ -1312,8 +1357,8 @@ export function WechatWorkspace({
                                   m.fromMe && m.status === "SENT" ? "border-white/25 text-white/85" : "border-border/60 text-muted-foreground",
                                 )}
                               >
-                                <span>聊天记录{forwardMeta.count ? ` · 共 ${forwardMeta.count} 条` : ""}</span>
-                                <span className="font-medium">查看详情 →</span>
+                                <span>聊天记录{forwardMeta.count ? ` · ${forwardMeta.count} 条` : ""}</span>
+                                <span className="font-medium">查看</span>
                               </div>
                             </button>
                           ) : linkMeta && typeof linkMeta.url === "string" ? (
@@ -1322,7 +1367,7 @@ export function WechatWorkspace({
                               href={linkMeta.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="block min-w-[210px] max-w-[300px] space-y-1 hover:opacity-90"
+                              className="block w-full min-w-[180px] max-w-[280px] space-y-1 hover:opacity-90 md:min-w-[210px] md:max-w-[300px]"
                             >
                               <p className="text-xs font-semibold leading-snug">{String(linkMeta.title || "网页链接")}</p>
                               {typeof linkMeta.desc === "string" && linkMeta.desc && (
@@ -1347,7 +1392,7 @@ export function WechatWorkspace({
                             </a>
                           ) : cardMeta ? (
                             /* 5) 小程序 / 视频号卡片 */
-                            <div className="min-w-[200px] max-w-[280px] space-y-1">
+                            <div className="w-full min-w-[170px] max-w-[260px] space-y-1 md:min-w-[200px] md:max-w-[280px]">
                               <span
                                 className={cn(
                                   "inline-block rounded px-1.5 py-0.5 text-[10px] font-medium",
@@ -1370,7 +1415,7 @@ export function WechatWorkspace({
                             </div>
                           ) : m.type === "document" && (fileMeta || m.mediaName) ? (
                             /* 6) 文件卡片 */
-                            <div className="min-w-[210px] space-y-2">
+                            <div className="min-w-[180px] space-y-2 md:min-w-[210px]">
                               <div className="flex items-start gap-2.5">
                                 <span
                                   className={cn(
@@ -1425,7 +1470,7 @@ export function WechatWorkspace({
                                     )}
                                   >
                                     <FolderOpen className="size-3" />
-                                    所在文件夹
+                                    目录
                                   </button>
                                 </div>
                               )}
@@ -1434,14 +1479,14 @@ export function WechatWorkspace({
                             <p className="whitespace-pre-wrap break-words">{m.body}</p>
                           )}
 
-                          {/* 引用回复内嵌卡片（还原微信原生引用展示） */}
+                          {/* 引用回复内嵌卡片（细边框软底，杜绝粗竖线） */}
                           {m.quoteText && (
                             <div
                               className={cn(
-                                "mt-2 rounded-lg border-l-2 px-2.5 py-1.5 text-xs leading-relaxed",
+                                "mt-2 rounded-lg border px-2.5 py-1.5 text-xs leading-relaxed",
                                 m.fromMe && m.status === "SENT"
-                                  ? "border-white/50 bg-black/15 text-white/90"
-                                  : "border-emerald-500/60 bg-muted/60 text-muted-foreground",
+                                  ? "border-white/25 bg-black/15 text-white/90"
+                                  : "border-border/60 bg-muted/60 text-muted-foreground",
                               )}
                             >
                               {m.quoteSender && <span className="font-medium">{m.quoteSender}：</span>}
@@ -1463,15 +1508,15 @@ export function WechatWorkspace({
                           )}
                         </div>
 
-                        {/* 消息时间 + 状态回执操作 */}
-                        <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+                        {/* 消息时间 + 状态回执 */}
+                        <div className="mt-1 flex flex-wrap items-center gap-2 px-1 text-[11px] tabular-nums text-muted-foreground">
                           <span>{fmtTime(m.timestamp)}</span>
                           {m.fromMe && (
                             <>
                               {m.status === "SENT" && (
                                 <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
                                   <CheckCircle2 className="size-3" />
-                                  已发出
+                                  已发
                                 </span>
                               )}
                               {(m.status === "STAGED" || m.status === "UNCONFIRMED" || m.status === "FAILED") && (
@@ -1491,20 +1536,22 @@ export function WechatWorkspace({
                                     onClick={() => {
                                       startTransition(async () => {
                                         await confirmWechatMessageAction(m.id, "SENT");
-                                        toast.success("已标记为已发出");
+                                        toast.success("已标记为已发送");
                                         router.refresh();
                                       });
                                     }}
                                   >
-                                    我已发出
+                                    标记已发
                                   </button>
-                                  <button
-                                    type="button"
-                                    className="font-medium text-foreground/80 hover:underline"
-                                    onClick={() => handleStageSend(m.body, m.id)}
-                                  >
-                                    重新上屏
-                                  </button>
+                                  {desktopBridge && (
+                                    <button
+                                      type="button"
+                                      className="font-medium text-foreground/80 hover:underline"
+                                      onClick={() => handleStageSend(m.body, m.id)}
+                                    >
+                                      重发
+                                    </button>
+                                  )}
                                 </span>
                               )}
                             </>
@@ -1518,94 +1565,147 @@ export function WechatWorkspace({
               <div ref={msgEndRef} />
             </div>
 
-            {/* 底部：半自动一键上屏发送栏 */}
-            <div className="border-t border-border/70 bg-card p-3">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={autoLocate}
-                      onChange={(e) => setAutoLocate(e.target.checked)}
-                      className="size-3.5 rounded accent-emerald-600"
-                    />
-                    自动定位联系人
-                    {anchor?.key ? <span className="rounded bg-muted px-1.5 py-0.5 text-foreground">{anchor.key}</span> : null}
-                  </label>
+            {/* 底部发送栏：手机端单行紧凑输入条（44px 发送钮 + 16px 防缩放）；桌面端完整工具栏 */}
+            <div className="border-t border-border/70 bg-card px-3 py-2 md:p-3">
+              {/* 手机端轻量快捷行：仅在有快捷话术或 AI 权限时出现 */}
+              {(quickReplies.length > 0 || canAi) && (
+                <div className="mb-2 flex items-center gap-2 md:hidden">
                   {quickReplies.length > 0 && (
-                    <select
-                      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
-                      defaultValue=""
-                      onChange={(e) => {
-                        const hit = quickReplies.find((r) => r.id === e.target.value);
-                        if (hit) setDraft((prev) => (prev ? `${prev}\n${hit.body}` : hit.body));
-                        e.target.value = "";
-                      }}
+                    <button
+                      type="button"
+                      onClick={() => setQuickReplySheetOpen(true)}
+                      className="inline-flex h-7 items-center gap-1 rounded-full bg-muted/70 px-2.5 text-xs text-foreground/85 active:bg-muted"
                     >
-                      <option value="">插入快捷话术…</option>
-                      {quickReplies.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.title}
-                        </option>
-                      ))}
-                    </select>
+                      <FileText className="size-3.5 text-muted-foreground" />
+                      话术
+                    </button>
+                  )}
+                  {canAi && (
+                    <button
+                      type="button"
+                      disabled={aiLoading}
+                      onClick={handleAiDraft}
+                      className="inline-flex h-7 items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-700 active:bg-emerald-500/20 disabled:opacity-50 dark:text-emerald-300"
+                    >
+                      {aiLoading ? <LoaderCircle className="size-3.5" /> : <Bot className="size-3.5" />}
+                      AI 写回复
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* 手机端单行输入框 + 单一主按钮 */}
+              <div className="flex items-end gap-2 md:hidden">
+                <Textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={desktopBridge ? "输入消息…" : "输入回复（点击复制到微信）…"}
+                  rows={1}
+                  className="max-h-28 min-h-10 flex-1 resize-none rounded-xl py-2 text-base leading-snug"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  className="size-10 shrink-0 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
+                  disabled={!draft.trim() || staging || pending}
+                  aria-label={desktopBridge ? "一键上屏到微信" : "复制回复"}
+                  onClick={() => handleStageSend()}
+                >
+                  {staging ? <LoaderCircle className="size-4" /> : desktopBridge ? <Send className="size-4" /> : <Copy className="size-4" />}
+                </Button>
+              </div>
+
+              {/* 桌面端完整发送区 */}
+              <div className="hidden md:block">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {desktopBridge && (
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={autoLocate}
+                          onChange={(e) => setAutoLocate(e.target.checked)}
+                          className="size-3.5 rounded accent-emerald-600"
+                        />
+                        自动定位联系人
+                        {anchor?.key ? <span className="rounded bg-muted px-1.5 py-0.5 text-foreground">{anchor.key}</span> : null}
+                      </label>
+                    )}
+                    {quickReplies.length > 0 && (
+                      <select
+                        className="h-7 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
+                        defaultValue=""
+                        onChange={(e) => {
+                          const hit = quickReplies.find((r) => r.id === e.target.value);
+                          if (hit) setDraft((prev) => (prev ? `${prev}\n${hit.body}` : hit.body));
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">插入快捷话术…</option>
+                        {quickReplies.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.title}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {canAi && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      disabled={aiLoading}
+                      onClick={handleAiDraft}
+                    >
+                      {aiLoading ? <LoaderCircle className="mr-1 size-3.5" /> : <Bot className="mr-1 size-3.5" />}
+                      AI 帮我写回复
+                    </Button>
                   )}
                 </div>
 
-                {canAi && (
+                <Textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      void handleStageSend();
+                    }
+                  }}
+                  placeholder="输入要发给客户的微信消息（Ctrl / Cmd + Enter 一键填入微信输入框）…"
+                  rows={3}
+                  className="resize-none text-sm"
+                />
+
+                {/* 右侧留出 pr-16 避开右下角全局 AI 悬浮球 */}
+                <div className="mt-2 flex items-center justify-end gap-2 pr-16">
                   <Button
                     type="button"
                     size="sm"
-                    variant="ghost"
-                    className="h-7 text-xs"
-                    disabled={aiLoading}
-                    onClick={handleAiDraft}
+                    variant="outline"
+                    disabled={!draft.trim()}
+                    onClick={async () => {
+                      await navigator.clipboard?.writeText(draft.trim()).catch(() => null);
+                      toast.success("已复制到剪贴板");
+                    }}
                   >
-                    {aiLoading ? <LoaderCircle className="mr-1 size-3.5" /> : <Bot className="mr-1 size-3.5" />}
-                    AI 帮我写回复
+                    <Copy className="mr-1.5 size-3.5" />
+                    仅复制
                   </Button>
-                )}
-              </div>
-
-              <Textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    void handleStageSend();
-                  }
-                }}
-                placeholder="输入要发给客户的微信消息（Ctrl / Cmd + Enter 一键填入微信输入框）…"
-                rows={3}
-                className="resize-none text-sm"
-              />
-
-              {/* 右侧留出 md:pr-16 避开右下角全局 AI 悬浮球 */}
-              <div className="mt-2 flex items-center justify-end gap-2 md:pr-16">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!draft.trim()}
-                  onClick={async () => {
-                    await navigator.clipboard?.writeText(draft.trim()).catch(() => null);
-                    toast.success("已复制到剪贴板");
-                  }}
-                >
-                  <Copy className="mr-1.5 size-3.5" />
-                  仅复制
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="bg-emerald-600 text-white hover:bg-emerald-700"
-                  disabled={!draft.trim() || staging || pending}
-                  onClick={() => handleStageSend()}
-                >
-                  {staging ? <LoaderCircle className="mr-1.5 size-3.5" /> : <Send className="mr-1.5 size-3.5" />}
-                  一键上屏到微信
-                </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    disabled={!draft.trim() || staging || pending}
+                    onClick={() => handleStageSend()}
+                  >
+                    {staging ? <LoaderCircle className="mr-1.5 size-3.5" /> : <Send className="mr-1.5 size-3.5" />}
+                    {desktopBridge ? "一键上屏到微信" : "复制并记录"}
+                  </Button>
+                </div>
               </div>
             </div>
           </>
@@ -1614,26 +1714,41 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 1：新建微信客户会话 ── */}
       <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>添加微信客户会话</DialogTitle>
-            <DialogDescription>建议优先填写对方「微信号」或「微信精确备注名」，一键上屏时可精准定位防重名。</DialogDescription>
+            <DialogDescription>填写微信号或备注名，方便区分与快速定位客户。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3.5 py-1">
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">微信号（推荐，唯一精准定位）</label>
-              <Input value={newWechatNo} onChange={(e) => setNewWechatNo(e.target.value)} placeholder="如：wxid_xxx 或 alex_auto2026" />
+              <label className="block text-xs font-medium text-foreground">微信号（推荐）</label>
+              <Input
+                value={newWechatNo}
+                onChange={(e) => setNewWechatNo(e.target.value)}
+                placeholder="如：wxid_xxx 或 alex_auto2026"
+                className="text-base md:text-sm"
+              />
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-foreground">微信备注名</label>
-              <Input value={newRemark} onChange={(e) => setNewRemark(e.target.value)} placeholder="如：客户-迪拜Alex" />
+              <Input
+                value={newRemark}
+                onChange={(e) => setNewRemark(e.target.value)}
+                placeholder="如：客户-迪拜Alex"
+                className="text-base md:text-sm"
+              />
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-foreground">微信昵称 / 群名</label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="对方微信昵称或群名称" />
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="对方微信昵称或群名称"
+                className="text-base md:text-sm"
+              />
             </div>
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={newIsGroup} onChange={(e) => setNewIsGroup(e.target.checked)} className="size-3.5 accent-emerald-600" />
+              <input type="checkbox" checked={newIsGroup} onChange={(e) => setNewIsGroup(e.target.checked)} className="size-4 accent-emerald-600 md:size-3.5" />
               这是一个微信客户群
             </label>
           </div>
@@ -1646,19 +1761,20 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 2：粘贴导入聊天记录（支持微信 4.0/3.9 全格式 + 实时解析预览） ── */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>粘贴导入微信聊天记录</DialogTitle>
+            <DialogTitle>导入聊天记录</DialogTitle>
             <DialogDescription>
-              直接粘贴从微信 4.0 / 3.9 复制出来的聊天记录，系统会自动拆分日期、发言人、时间与正文；点击下方预览标签可随时切换「对方 / 我方」。
+              粘贴从微信复制的聊天记录，系统会自动解析并预览；点击标签可切换「我方 / 对方」。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-1">
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              rows={6}
-              placeholder={"支持直接粘贴微信 4.0 复制的原文：\n2026年11月25日\n车车\n02:59\n[文件] 工业云平台使用说明书-外部版.pdf"}
+              rows={5}
+              className="text-base md:text-sm"
+              placeholder={"直接粘贴从微信复制的聊天记录…"}
             />
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
               <input
@@ -1716,7 +1832,7 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 3：微信同步设置（简洁明了，专业配置折叠在高级设置中） ── */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>微信同步设置</DialogTitle>
             <DialogDescription>
@@ -1728,11 +1844,21 @@ export function WechatWorkspace({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-foreground">我的微信昵称</label>
-                <Input value={myWxName} onChange={(e) => setMyWxName(e.target.value)} placeholder="导入记录时区分自己" />
+                <Input
+                  value={myWxName}
+                  onChange={(e) => setMyWxName(e.target.value)}
+                  placeholder="导入记录时区分自己"
+                  className="text-base md:text-sm"
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-foreground">我的微信号</label>
-                <Input value={myWxNo} onChange={(e) => setMyWxNo(e.target.value)} placeholder="选填" />
+                <Input
+                  value={myWxNo}
+                  onChange={(e) => setMyWxNo(e.target.value)}
+                  placeholder="选填"
+                  className="text-base md:text-sm"
+                />
               </div>
             </div>
 
@@ -1810,7 +1936,7 @@ export function WechatWorkspace({
 
               {desktopBridge ? (
                 <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
-                  {isWin && (
+                  {(isWin || isMac) && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[11px] text-muted-foreground">
                         当前本机：{bridgeStatus?.wxVersionString ? `微信 ${bridgeStatus.wxVersionString}` : "微信桌面版"}
@@ -1823,9 +1949,49 @@ export function WechatWorkspace({
                         disabled={extractingKey}
                         onClick={handleExtractKey}
                       >
-                        {extractingKey ? <LoaderCircle className="mr-1 size-3.5" /> : <RefreshCcw className="mr-1 size-3.5" />}
-                        {bridgeStatus?.hasDbKey ? "重新连接微信" : "一键连接本机微信"}
+                        {extractingKey ? <LoaderCircle className="mr-1 size-3.5 animate-spin" /> : <RefreshCcw className="mr-1 size-3.5" />}
+                        {extractingKey && isMac
+                          ? "等待微信登录…"
+                          : bridgeStatus?.hasDbKey
+                            ? "重新连接微信"
+                            : "一键连接本机微信"}
                       </Button>
+                    </div>
+                  )}
+
+                  {isMac && bridgeStatus?.fullDiskAccess === false && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-800 dark:text-amber-200">
+                      <span>需要授予「完全磁盘访问权限」才能读取本机微信消息，勾选后请重启桌面版。</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 border-amber-500/40 px-2 text-[11px]"
+                        onClick={() => void desktopBridge.openSystemSettings?.("fullDisk")}
+                      >
+                        前往授权
+                      </Button>
+                    </div>
+                  )}
+
+                  {isMac && bridgeStatus?.xcodeCliInstalled === false && (
+                    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+                      首次在 Mac 连接微信需要安装系统命令行工具：请打开「终端」运行{" "}
+                      <code className="rounded bg-background/70 px-1 py-0.5 font-mono">xcode-select --install</code>{" "}
+                      后再点连接。
+                    </p>
+                  )}
+
+                  {isMac && bridgeStatus?.accessibilityGranted === false && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background/70 p-2 text-[11px] text-muted-foreground ring-1 ring-border/60">
+                      <span>可选：授予「辅助功能」权限后，一键上屏可自动定位联系人并填入内容。</span>
+                      <button
+                        type="button"
+                        className="shrink-0 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                        onClick={() => void desktopBridge.openSystemSettings?.("accessibility")}
+                      >
+                        打开辅助功能设置
+                      </button>
                     </div>
                   )}
 
@@ -1877,7 +2043,7 @@ export function WechatWorkspace({
                         <Input
                           value={dbKeyInput}
                           onChange={(e) => setDbKeyInput(e.target.value)}
-                          placeholder={bridgeStatus?.hasDbKey ? "已保存（如需更换请粘贴新密钥）" : "选填"}
+                          placeholder={bridgeStatus?.hasDbKey ? "已保存（如需更换请粘贴新密钥）" : "支持粘贴单个密钥或完整 JSON（选填）"}
                           className="h-8 font-mono text-xs"
                         />
                       </div>
@@ -1920,10 +2086,11 @@ export function WechatWorkspace({
                 </div>
               ) : (
                 <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/60 p-2.5 text-[11px] text-muted-foreground">
-                  <span>请下载安装车车 CRM 桌面版以同步本机微信。</span>
+                  <span className="md:hidden">在电脑端打开桌面版即可自动同步微信，手机端实时查看与回复。</span>
+                  <span className="hidden md:inline">请下载安装车车 CRM 桌面版以同步本机微信。</span>
                   <Link
                     href="/api/desktop/download?arch=win"
-                    className="inline-flex shrink-0 items-center gap-1 font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                    className="hidden shrink-0 items-center gap-1 font-medium text-emerald-700 hover:underline md:inline-flex dark:text-emerald-400"
                   >
                     <Download className="size-3" />
                     下载 Win 版
@@ -1940,9 +2107,156 @@ export function WechatWorkspace({
         </DialogContent>
       </Dialog>
 
+      {/* ── 手机端底部操作表：会话操作（替代顶栏 6 个拥挤按钮） ── */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="gap-0 rounded-t-3xl px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+        >
+          <span className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+          <SheetTitle className="truncate px-1 text-base font-medium">
+            {activeChat ? wechatDisplayName(activeChat) : "会话操作"}
+          </SheetTitle>
+          <SheetDescription className="sr-only">当前微信会话的快捷操作</SheetDescription>
+          {activeChat && (
+            <div className="mt-3 space-y-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  void openLinkDialog();
+                }}
+                className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-muted"
+              >
+                <Building2 className="size-4 text-sky-600" />
+                <span className="flex-1">{activeChat.customer ? `更换客户（${activeChat.customer.name}）` : "关联 CRM 客户"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  startTransition(async () => {
+                    await updateWechatChatAction(activeChat.id, { pinned: !activeChat.pinnedAt });
+                    toast.success(activeChat.pinnedAt ? "已取消置顶" : "已置顶会话");
+                    router.refresh();
+                  });
+                }}
+                className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-muted"
+              >
+                {activeChat.pinnedAt ? <PinOff className="size-4 text-emerald-600" /> : <Pin className="size-4 text-muted-foreground" />}
+                <span>{activeChat.pinnedAt ? "取消置顶" : "置顶会话"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  startTransition(async () => {
+                    await updateWechatChatAction(activeChat.id, { muted: !activeChat.muted });
+                    toast.success(activeChat.muted ? "已恢复提醒" : "已设为免打扰");
+                    router.refresh();
+                  });
+                }}
+                className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-muted"
+              >
+                {activeChat.muted ? <Bell className="size-4 text-emerald-600" /> : <BellOff className="size-4 text-muted-foreground" />}
+                <span>{activeChat.muted ? "取消免打扰" : "消息免打扰"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setEditWechatNo(activeChat.wechatNo || "");
+                  setEditRemark(activeChat.remark || "");
+                  setEditName(activeChat.name || "");
+                  setEditPeerOpen(true);
+                }}
+                className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-muted"
+              >
+                <Pencil className="size-4 text-muted-foreground" />
+                <span>修改备注与名称</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setImportOpen(true);
+                }}
+                className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-muted"
+              >
+                <FileText className="size-4 text-muted-foreground" />
+                <span>导入聊天记录</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  startTransition(async () => {
+                    await updateWechatChatAction(activeChat.id, { archived: !activeChat.archived });
+                    toast.success(activeChat.archived ? "已移出归档" : "已归档会话");
+                    router.refresh();
+                  });
+                }}
+                className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-muted"
+              >
+                <Archive className="size-4 text-muted-foreground" />
+                <span>{activeChat.archived ? "取消归档" : "归档会话"}</span>
+              </button>
+              {activeChat.messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    if (!window.confirm("确定清空当前会话在 CRM 里的聊天记录吗？")) return;
+                    startTransition(async () => {
+                      await clearWechatMessagesAction(activeChat.id);
+                      toast.success("已清空聊天记录");
+                      router.refresh();
+                    });
+                  }}
+                  className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-destructive active:bg-destructive/10"
+                >
+                  <Trash2 className="size-4" />
+                  <span>清空聊天记录</span>
+                </button>
+              )}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* ── 手机端快捷话术底部选择器 ── */}
+      <Sheet open={quickReplySheetOpen} onOpenChange={setQuickReplySheetOpen}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="max-h-[70svh] gap-0 overflow-y-auto rounded-t-3xl px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+        >
+          <span className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+          <SheetTitle className="px-1 text-base font-medium">选择快捷话术</SheetTitle>
+          <SheetDescription className="sr-only">点击一条话术插入到输入框</SheetDescription>
+          <div className="mt-3 space-y-1.5">
+            {quickReplies.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => {
+                  setDraft((prev) => (prev ? `${prev}\n${r.body}` : r.body));
+                  setQuickReplySheetOpen(false);
+                }}
+                className="w-full rounded-xl border border-border/60 bg-muted/25 p-3 text-left active:bg-muted"
+              >
+                <p className="text-sm font-medium text-foreground">{r.title}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{r.body}</p>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {/* ── 弹窗 6：合并转发聊天记录详情查看 ── */}
       <Dialog open={!!forwardModal} onOpenChange={(o) => !o && setForwardModal(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{forwardModal?.title || "聊天记录"}</DialogTitle>
             <DialogDescription>
@@ -2004,23 +2318,23 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 4：编辑联系人搜索锚点 ── */}
       <Dialog open={editPeerOpen} onOpenChange={setEditPeerOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>编辑微信定位信息</DialogTitle>
-            <DialogDescription>填写对方的微信号或精确备注名，可防止一键上屏搜索时重名串人。</DialogDescription>
+            <DialogTitle>修改备注与名称</DialogTitle>
+            <DialogDescription>填写微信号或备注名，方便区分客户与快捷定位。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3.5 py-1">
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">微信号（最高优先级）</label>
-              <Input value={editWechatNo} onChange={(e) => setEditWechatNo(e.target.value)} />
+              <label className="block text-xs font-medium text-foreground">微信号</label>
+              <Input value={editWechatNo} onChange={(e) => setEditWechatNo(e.target.value)} className="text-base md:text-sm" />
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-foreground">微信备注名</label>
-              <Input value={editRemark} onChange={(e) => setEditRemark(e.target.value)} />
+              <Input value={editRemark} onChange={(e) => setEditRemark(e.target.value)} className="text-base md:text-sm" />
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-foreground">昵称 / 群名</label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="text-base md:text-sm" />
             </div>
           </div>
           <DialogFooter>
@@ -2036,7 +2350,7 @@ export function WechatWorkspace({
                     name: editName,
                   });
                   setEditPeerOpen(false);
-                  toast.success("已更新定位信息");
+                  toast.success("已更新备注信息");
                   router.refresh();
                 });
               }}
@@ -2049,10 +2363,10 @@ export function WechatWorkspace({
 
       {/* ── 弹窗 5：关联 CRM 客户 ── */}
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>关联 CRM 客户</DialogTitle>
-            <DialogDescription>关联后，该微信会话的沟通记录将归属到客户档案下，且自动纳入白名单同步。</DialogDescription>
+            <DialogDescription>关联后，该会话沟通记录将自动归档至对应客户档案。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <Input
@@ -2064,6 +2378,7 @@ export function WechatWorkspace({
                 setCustResults(rows);
               }}
               placeholder="输入客户名称或联系人搜索…"
+              className="text-base md:text-sm"
             />
             <div className="max-h-60 space-y-1 overflow-y-auto">
               {custResults.map((c) => (
@@ -2079,7 +2394,7 @@ export function WechatWorkspace({
                       router.refresh();
                     });
                   }}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm active:bg-muted md:py-2 md:hover:bg-muted"
                 >
                   <span className="truncate font-medium">{c.name}</span>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
