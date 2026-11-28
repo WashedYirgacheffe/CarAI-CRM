@@ -289,6 +289,9 @@ ipcMain.handle("wechat:stage-send", (_e, opts) => wechatBridge.stageSend(opts ||
 ipcMain.handle("wechat:save-config", (_e, cfg) => wechatBridge.saveConfig(cfg || {}));
 ipcMain.handle("wechat:extract-key", () => wechatBridge.extractKey());
 ipcMain.handle("wechat:sync-now", () => wechatBridge.syncNow({ silent: false }));
+ipcMain.handle("wechat:load-media", (_e, meta) => wechatBridge.loadMedia(meta));
+ipcMain.handle("wechat:open-media", (_e, meta, reveal) => wechatBridge.openMedia(meta, !!reveal));
+ipcMain.handle("wechat:load-avatar", (_e, wxKey) => wechatBridge.loadAvatar(wxKey));
 
 app.whenReady().then(() => {
   status.device = deviceName();

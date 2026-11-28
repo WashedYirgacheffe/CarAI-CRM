@@ -1176,6 +1176,8 @@ model WxAccount {
   wechatNo     String?
   /// 微信昵称
   name         String?
+  /// 我的微信头像 URL
+  avatarUrl    String?
   /// 绑定的桌面设备 id（MatrixDevice.id）
   deviceId     String?
   /// 桌面端操作系统：win32 / darwin
@@ -1213,7 +1215,11 @@ model WxChat {
   remark        String?
   /// 微信昵称或群名
   name          String?
+  /// 联系人或群头像 URL
+  avatarUrl     String?
   isGroup       Boolean   @default(false)
+  /// 是否免打扰（自动同步微信免打扰状态，也可在 CRM 内手动切换；免打扰不计入全局红点提醒）
+  muted         Boolean   @default(false)
   /// 白名单开关：是否在桌面端自动同步该会话消息
   syncEnabled   Boolean   @default(true)
   customerId    String?
@@ -1248,16 +1254,24 @@ model WxMessage {
   wxMsgId     String?
   fromMe      Boolean
   /// 群聊发言人名称
-  senderName  String?
+  senderName   String?
+  /// 发言人头像 URL
+  senderAvatar String?
   /// text / image / video / audio / document / other
-  type        String      @default("text")
-  body        String      @default("")
+  type         String      @default("text")
+  body         String      @default("")
+  /// 引用回复：被引用人昵称
+  quoteSender  String?
+  /// 引用回复：被引用消息正文
+  quoteText    String?
   /// 外文消息自动翻译成中文
-  translation String?
-  mediaKey    String?
-  mediaMime   String?
-  mediaName   String?
-  mediaSize   Int?
+  translation  String?
+  mediaKey     String?
+  mediaMime    String?
+  mediaName    String?
+  mediaSize    Int?
+  /// 桌面端本机媒体定位元数据（图片 md5 / 文件名 / 年月等，用于零上传本机直读与打开）
+  mediaMeta    Json?
   status      WxMsgStatus
   error       String?
   sentById    String?

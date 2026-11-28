@@ -28,7 +28,7 @@ export async function getBadges(user: CurrentUser): Promise<Record<BadgeKey, num
       ? prisma.waChat.aggregate({ where: { tenantId: t, account: { userId: user.id } }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
       : 0,
     can(user, "wechat.use") || can(user, "whatsapp.use")
-      ? prisma.wxChat.aggregate({ where: { tenantId: t, archived: false, account: { userId: user.id } }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
+      ? prisma.wxChat.aggregate({ where: { tenantId: t, archived: false, muted: false, account: { userId: user.id } }, _sum: { unread: true } }).then((r) => r._sum.unread ?? 0)
       : 0,
     prisma.task.count({ where: { tenantId: t, ownerId: user.id, done: false, dueAt: { lte: new Date() } } }),
     countTodo(user),
