@@ -7,20 +7,31 @@
 // 所有候选密钥均必须通过对应数据库 Page 1 的 SQLCipher 4 HMAC-SHA512 校验才会接受。
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { verifyRawEncKey } from "./db-reader.js";
 
 const execFileAsync = promisify(execFile);
 
-async function runPowerShell(script, timeoutMs = 60000) {
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
-  const { stdout } = await execFileAsync(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
-    { timeout: timeoutMs, windowsHide: true, maxBuffer: 20 * 1024 * 1024 },
-  );
-  return stdout.trim();
+async function runPowerShellFile(script, timeoutMs = 65000) {
+  // 写入临时 .ps1 文件执行，彻底规避 Windows CreateProcess 32767 字符命令行限制（spawn ENAMETOOLONG）
+  const tmpFile = path.join(os.tmpdir(), `cheche-wxscan-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ps1`);
+  fs.writeFileSync(tmpFile, `\uFEFF${script}`, "utf8");
+  try {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", tmpFile],
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 25 * 1024 * 1024 },
+    );
+    return stdout.trim();
+  } finally {
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 const PAGE_SIZE = 4096;
@@ -185,7 +196,7 @@ export async function scanWechatKeys({ pid, pids, processName, wxVersion, wxVers
   }
 
   const uniqueSalts = Array.from(new Set(targets.map((t) => t.salt)));
-  const saltJsonB64 = Buffer.from(JSON.stringify(uniqueSalts), "utf8").toString("base64");
+  const saltCsv = uniqueSalts.join(",");
   const pidCsv = targetPids.join(",");
 
   // 注意：Windows PowerShell 5.1 的 Add-Type 使用 C# 5.0 编译器，严格保持 C# 5.0 语法
@@ -194,6 +205,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type @"
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -309,8 +321,15 @@ public class WcdbTripleScanner {
     return list;
   }
 
-  public static string ScanPids(int[] pids, string[] targetSaltsHex) {
+  public static string ScanPids(string pidsCsv, string saltsCsv) {
+    var sw = Stopwatch.StartNew();
     var sb = new StringBuilder();
+    var pids = new List<int>();
+    foreach (string psPart in pidsCsv.Split(',')) {
+      int pVal;
+      if (int.TryParse(psPart.Trim(), out pVal) && pVal > 0) pids.Add(pVal);
+    }
+
     byte[] needle = Encoding.ASCII.GetBytes("com.Tencent.WCDB.Config.Cipher");
     int needleLen = needle.Length; // 30
 
@@ -324,9 +343,9 @@ public class WcdbTripleScanner {
     var saltSet = new HashSet<string>();
     var saltBytesList = new List<byte[]>();
     var saltHexList = new List<string>();
-    foreach (string s in targetSaltsHex) {
-      string sl = s.ToLowerInvariant();
-      if (saltSet.Add(sl)) {
+    foreach (string rawS in saltsCsv.Split(',')) {
+      string sl = rawS.Trim().ToLowerInvariant();
+      if (sl.Length == 32 && saltSet.Add(sl)) {
         saltHexList.Add(sl);
         saltBytesList.Add(FromHex(sl));
       }
@@ -417,19 +436,7 @@ public class WcdbTripleScanner {
                       byte[] cipher = ReadExact(hProc, (long)cPtr, 64);
                       if (cipher == null) continue;
 
-                      // 尝试 99 字节 Config.Cipher blob（codec_ctx+32 == 99 时）
-                      if (BitConverter.ToInt32(ctx, 32) == 99) {
-                        ulong bPtr = BitConverter.ToUInt64(cipher, 32);
-                        byte[] blob99 = ReadExact(hProc, (long)bPtr, 99);
-                        if (blob99 != null) {
-                          string b64 = Convert.ToBase64String(blob99);
-                          if (emittedBlobs.Add(b64)) {
-                            sb.Append("BLOB:").Append(b64).AppendLine();
-                          }
-                        }
-                      }
-
-                      // 尝试 cipher_ctx 内部指向 32 字节原始 AES Key 的指针
+                      // 尝试 cipher_ctx 内部指向 32B 原始 AES Key 与 99B Config.Cipher blob 的指针
                       for (int kOff = 8; kOff <= 56; kOff += 8) {
                         ulong kPtr = BitConverter.ToUInt64(cipher, kOff);
                         byte[] rawKey = ReadExact(hProc, (long)kPtr, 32);
@@ -438,6 +445,15 @@ public class WcdbTripleScanner {
                           string line = refSaltHex + ":" + kh;
                           if (emittedKeys.Add(line)) {
                             sb.Append("KEY32:").Append(line).AppendLine();
+                          }
+                        }
+                        if (kOff == 32 || BitConverter.ToInt32(ctx, 32) == 99) {
+                          byte[] blob99 = ReadExact(hProc, (long)kPtr, 99);
+                          if (blob99 != null) {
+                            string b64 = Convert.ToBase64String(blob99);
+                            if (emittedBlobs.Add(b64)) {
+                              sb.Append("BLOB:").Append(b64).AppendLine();
+                            }
                           }
                         }
                       }
@@ -492,6 +508,7 @@ public class WcdbTripleScanner {
               }
             }
 
+            if (sw.Elapsed.TotalSeconds > 45.0) break;
             int keep = Math.Min(overlap, totalLen);
             tail = new byte[keep];
             Buffer.BlockCopy(data, totalLen - keep, tail, 0, keep);
@@ -568,6 +585,7 @@ public class WcdbTripleScanner {
               }
             }
 
+            if (sw.Elapsed.TotalSeconds > 50.0) break;
             int keep = Math.Min(128, totalLen);
             tail = new byte[keep];
             Buffer.BlockCopy(data, totalLen - keep, tail, 0, keep);
@@ -582,6 +600,7 @@ public class WcdbTripleScanner {
 
     if (openedCount == 0) return "ERR_ACCESS";
     sb.Append("STATS:opened=").Append(openedCount)
+      .Append(",ms=").Append((long)sw.ElapsedMilliseconds)
       .Append(",codecs=").Append(totalCodecs)
       .Append(",codecSaltHits=").Append(codecMatches)
       .Append(",needles=").Append(totalNeedles)
@@ -594,12 +613,11 @@ public class WcdbTripleScanner {
   }
 }
 "@
-$salts = ConvertFrom-Json ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${saltJsonB64}')))
-Write-Output ([WcdbTripleScanner]::ScanPids([int[]]@(${pidCsv}), [string[]]$salts))
+Write-Output ([WcdbTripleScanner]::ScanPids('${pidCsv}', '${saltCsv}'))
 `;
 
   try {
-    const out = await runPowerShell(ps, 60000);
+    const out = await runPowerShellFile(ps, 65000);
     if (out === "ERR_ACCESS") {
       return {
         ok: false,
